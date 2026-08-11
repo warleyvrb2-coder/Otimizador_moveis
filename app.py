@@ -55,13 +55,21 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 
 @app.before_request
 def exigir_senha():
+    # O healthcheck da hospedagem bate aqui sem credencial nenhuma. Se este
+    # endpoint pedir senha, ele recebe 401, conclui que o serviço está fora e
+    # derruba o deploy inteiro - por isso fica liberado antes de qualquer
+    # verificação. Não expõe nada: responde só {"ok": true}.
+    if request.endpoint == 'saude':
+        return None
+
     if not APP_SENHA:
-        if EM_NUVEM and request.endpoint != 'saude':
+        if EM_NUVEM:
             return Response(
                 'Este app está publicado sem senha configurada e por isso está '
                 'bloqueado. Defina a variável de ambiente APP_SENHA no painel da '
                 'hospedagem e reinicie o serviço.', 503, {'Content-Type': 'text/plain; charset=utf-8'})
         return None
+
     auth = request.authorization
     if auth and auth.username == APP_USUARIO and secrets.compare_digest(auth.password or '', APP_SENHA):
         return None
