@@ -35,10 +35,17 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Senha única compartilhada. Não é sistema de usuários - é uma tranca pra URL
-# não ficar aberta na internet enquanto o testador usa. Sem APP_SENHA definida
-# o app roda destrancado (útil no seu PC, inaceitável publicado).
+# não ficar aberta na internet enquanto o testador usa.
 APP_USUARIO = os.environ.get('APP_USUARIO', 'benetil')
 APP_SENHA = os.environ.get('APP_SENHA')
+
+# Rodando na sua máquina, sem senha, tudo bem. Publicado, NÃO: uma URL aberta
+# aceita upload e expõe a produção da fábrica pra qualquer um. Em vez de
+# confiar em alguém lembrar de configurar a variável, o app se recusa a
+# atender quando está hospedado sem senha - falha fechado, não aberto.
+EM_NUVEM = bool(os.environ.get('RAILWAY_ENVIRONMENT') or
+                os.environ.get('RAILWAY_SERVICE_ID') or
+                os.environ.get('FORCAR_SENHA'))
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024  # 30MB
@@ -48,6 +55,11 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 @app.before_request
 def exigir_senha():
     if not APP_SENHA:
+        if EM_NUVEM and request.endpoint != 'saude':
+            return Response(
+                'Este app está publicado sem senha configurada e por isso está '
+                'bloqueado. Defina a variável de ambiente APP_SENHA no painel da '
+                'hospedagem e reinicie o serviço.', 503, {'Content-Type': 'text/plain; charset=utf-8'})
         return None
     auth = request.authorization
     if auth and auth.username == APP_USUARIO and secrets.compare_digest(auth.password or '', APP_SENHA):
