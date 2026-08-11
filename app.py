@@ -19,7 +19,7 @@ import os
 import secrets
 
 from flask import (Flask, request, render_template, redirect, url_for,
-                   jsonify, abort, Response)
+                   jsonify, abort, Response, send_from_directory)
 from werkzeug.utils import secure_filename
 
 import banco
@@ -31,7 +31,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # deploy. DATA_DIR permite apontar pra um volume persistente quando houver.
 DATA_DIR = os.environ.get('DATA_DIR', BASE_DIR)
 UPLOAD_DIR = os.path.join(DATA_DIR, 'uploads')
-OUTPUT_DIR = os.path.join(BASE_DIR, 'static', 'resultados')
+# Os desenhos ficam junto do resto dos dados, e NÃO em static/: assim um único
+# volume apontado por DATA_DIR preserva cadastro, uploads e planos de uma vez.
+OUTPUT_DIR = os.path.join(DATA_DIR, 'resultados')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -109,10 +111,16 @@ def otimizar():
 
     run_dir = os.path.join(OUTPUT_DIR, job_id)
     job = jobs.criar(
-        pipeline.rodar, salvos, run_dir, f'resultados/{job_id}',
+        pipeline.rodar, salvos, run_dir, f'/plano/{job_id}',
         respeitar_veio=respeitar_veio, max_depth=max_depth,
     )
     return redirect(url_for('acompanhar', job_id=job.id))
+
+
+@app.route('/plano/<job_id>/<nome>')
+def imagem_do_plano(job_id, nome):
+    """Serve os desenhos das chapas, que ficam no DATA_DIR e não em static/."""
+    return send_from_directory(os.path.join(OUTPUT_DIR, secure_filename(job_id)), nome)
 
 
 @app.route('/calculando/<job_id>')
