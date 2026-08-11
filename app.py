@@ -79,9 +79,52 @@ def exigir_senha():
                     {'WWW-Authenticate': 'Basic realm="Otimizador de Corte"'})
 
 
+@app.context_processor
+def contexto_lateral():
+    """Alimenta a barra lateral em todas as telas: contadores de pendência e os
+    parâmetros de máquina que aparecem no rodapé."""
+    try:
+        res = banco.resumo()
+        par = banco.obter_parametros()
+        return {'nav': {
+            'pecas_pendentes': res['pecas'] - res['pecas_confirmadas'],
+            'cores_pendentes': res['cores'] - res['cores_confirmadas'],
+            'chapa': f"{par['chapa_larg']}×{par['chapa_alt']}",
+            'kerf': str(par['kerf']).replace('.', ','),
+        }}
+    except Exception:                    # banco ainda não existe no primeiro acesso
+        return {'nav': None}
+
+
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', pagina='novo',
+                            res=banco.resumo(), par=banco.obter_parametros())
+
+
+@app.route('/planos')
+def planos():
+    lista = []
+    for j in sorted(jobs.todos(), key=lambda j: j.criado_em, reverse=True):
+        r = j.resultado or {}
+        lista.append({
+            'id': j.id, 'estado': j.estado, 'pct': j.pct,
+            'quando': j.criado_em.astimezone().strftime('%d/%m %H:%M'),
+            'arquivos': ', '.join(k['arquivo'] for k in r.get('kambans_info') or []) or None,
+            'chapas': r.get('total_chapas'),
+        })
+    return render_template('planos.html', pagina='planos', planos=lista)
+
+
+@app.route('/parametros', methods=['GET', 'POST'])
+def parametros():
+    erros, salvou = {}, False
+    if request.method == 'POST':
+        erros = banco.salvar_parametros(request.form.to_dict())
+        salvou = not erros
+    return render_template('parametros.html', pagina='parametros',
+                            campos=banco.PARAMETROS, valores=banco.obter_parametros(),
+                            erros=erros, salvou=salvou)
 
 
 @app.route('/saude')
@@ -144,12 +187,18 @@ def cadastro(aba='pecas'):
         abort(404)
     banco.criar_tabelas()
     busca = request.args.get('busca', '').strip()
-    itens = banco.listar_pecas(busca) if aba == 'pecas' else banco.listar_cores()
+    pendentes = request.args.get('pendentes') == '1'
+    itens = (banco.listar_pecas(busca, so_pendentes=pendentes) if aba == 'pecas'
+             else banco.listar_cores())
+    res = banco.resumo()
     # Publicado sem volume, o banco vive no disco efêmero e some no próximo
     # deploy. Quem conferir 125 peças precisa saber disso ANTES, não depois.
     efemero = EM_NUVEM and os.path.abspath(banco.DB_PATH).startswith(os.path.abspath(BASE_DIR))
-    return render_template('cadastro.html', aba=aba, itens=itens, busca=busca,
-                            res=banco.resumo(), efemero=efemero)
+    return render_template('cadastro.html', pagina=aba, aba=aba, itens=itens, busca=busca,
+                            pendentes=pendentes, efemero=efemero, res=res,
+                            total=res['pecas'] if aba == 'pecas' else res['cores'],
+                            confirmados=(res['pecas_confirmadas'] if aba == 'pecas'
+                                          else res['cores_confirmadas']))
 
 
 @app.route('/cadastro/marcar', methods=['POST'])

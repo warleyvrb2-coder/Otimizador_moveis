@@ -1,103 +1,161 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-<meta charset="UTF-8">
-<title>Otimizador de Corte - Setor Moveleiro</title>
+{% extends "base.html" %}
+{% block titulo %}Novo plano de corte{% endblock %}
+{% block cabecalho %}Novo plano de corte{% endblock %}
+{% block subcabecalho %}Envie os relatórios Kambam e o sistema calcula os padrões de corte{% endblock %}
+
+{% block estilo %}
 <style>
-  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f5f2; margin:0; padding:0; color:#2a2a2a; }
-  .wrap { max-width: 640px; margin: 60px auto; background:#fff; padding: 40px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
-  h1 { font-size: 22px; margin-bottom: 4px; }
-  p.sub { color:#666; margin-top:0; }
-  .drop { border: 2px dashed #c9c4b8; border-radius: 10px; padding: 32px; text-align:center; margin: 24px 0; }
-  input[type=file] { margin-top: 12px; }
-  button { background:#2a6f4d; color:#fff; border:none; padding: 12px 22px; border-radius: 8px; font-size:15px; cursor:pointer; }
-  button:hover { background:#235c40; }
-  .info { font-size: 13px; color:#777; margin-top: 18px; line-height:1.5; }
-  .chave { display:flex; gap:10px; align-items:flex-start; background:#faf9f6;
-           border:1px solid #e6e2d7; border-radius:8px; padding:12px 14px; margin-bottom:20px; }
-  .chave input { margin-top:3px; flex:none; }
-  .chave strong { font-size:14px; color:#333; display:block; }
-  .chave small { color:#777; font-size:12px; line-height:1.45; display:block; margin-top:3px; }
-
-  #overlay {
-    display:none; position:fixed; inset:0; background:rgba(246,245,242,0.97);
-    align-items:center; justify-content:center; flex-direction:column; z-index:999;
-  }
-  #overlay.ativo { display:flex; }
-  .spinner {
-    width:44px; height:44px; border:4px solid #e2ded2; border-top-color:#2a6f4d;
-    border-radius:50%; animation: girar 0.9s linear infinite; margin-bottom:20px;
-  }
-  @keyframes girar { to { transform: rotate(360deg); } }
-  #tempo { font-size: 28px; font-weight:600; color:#2a6f4d; font-variant-numeric: tabular-nums; }
-  #overlay .msg { color:#666; margin-top:8px; font-size:14px; max-width:360px; text-align:center; }
+  .solta { border:2px dashed #cdd3d9; border-radius:var(--raio); padding:34px 20px; text-align:center;
+           background:#fbfcfc; transition:border-color .15s, background .15s; cursor:pointer; }
+  .solta:hover, .solta.sobre { border-color:var(--verde); background:var(--verde-claro); }
+  .solta .ic { font-size:30px; opacity:.5; }
+  .solta .t { font-weight:600; margin-top:8px; }
+  .solta .s { color:var(--tinta-2); font-size:12.5px; margin-top:3px; }
+  .solta input { display:none; }
+  .lista-arq { margin-top:14px; text-align:left; }
+  .lista-arq div { display:flex; gap:8px; align-items:center; padding:7px 11px; background:var(--fundo);
+                   border-radius:7px; margin-bottom:5px; font-size:13px; }
+  .lista-arq .pdf { color:var(--vermelho); font-weight:700; font-size:11px; }
+  .opcao { display:flex; gap:12px; align-items:flex-start; padding:14px 0; border-top:1px solid var(--linha); }
+  .opcao:first-of-type { border-top:none; }
+  .opcao .txt { flex:1; }
+  .opcao .rot { font-weight:600; font-size:13.5px; }
+  .opcao .aj { color:var(--tinta-2); font-size:12.5px; margin-top:2px; }
+  .chave { position:relative; width:44px; height:25px; flex:none; margin-top:2px; }
+  .chave input { opacity:0; width:0; height:0; }
+  .chave span { position:absolute; inset:0; background:#c6ccd2; border-radius:99px; transition:.2s; }
+  .chave span:before { content:""; position:absolute; width:19px; height:19px; left:3px; top:3px;
+                       background:#fff; border-radius:50%; transition:.2s; }
+  .chave input:checked + span { background:var(--verde); }
+  .chave input:checked + span:before { transform:translateX(19px); }
+  select { width:100%; padding:9px 12px; border:1px solid var(--linha); border-radius:8px;
+           font-size:13.5px; background:#fff; margin-top:6px; }
+  .duas { display:grid; grid-template-columns:1.35fr 1fr; gap:18px; align-items:start; }
+  @media (max-width:860px) { .duas { grid-template-columns:1fr; } }
 </style>
-</head>
-<body>
-<div id="overlay">
-  <div class="spinner"></div>
-  <div id="tempo">00:00</div>
-  <div class="msg">Enviando os arquivos...</div>
-</div>
-<div class="wrap">
-  <h1>🪚 Otimizador de Corte de Chapas</h1>
-  <p class="sub">Setor moveleiro · Chapa 2750x1850mm (~5,1 m²) · Corte guilhotinado (seccionadora)</p>
+{% endblock %}
 
-  <form id="form-otimizar" action="/otimizar" method="post" enctype="multipart/form-data">
-    <div class="drop">
-      <div>Envie um ou mais relatórios Kambam (PDF)</div>
-      <input type="file" name="kambans" accept="application/pdf" multiple required>
+{% block conteudo %}
+<form method="post" action="/otimizar" enctype="multipart/form-data" id="frm">
+<div class="duas">
+  <div>
+    <div class="cartao">
+      <h2>Relatórios Kambam</h2>
+      <p class="ajuda">Aceita vários de uma vez. Peças da mesma cor e espessura entram
+        no mesmo cálculo, mesmo vindo de lotes diferentes — é assim que a sobra de uma
+        chapa vira peça de outro Kambam.</p>
+
+      <label class="solta" id="solta">
+        <div class="ic">📄</div>
+        <div class="t">Clique aqui ou arraste os PDFs</div>
+        <div class="s">Arquivos idênticos são detectados e ignorados automaticamente</div>
+        <input type="file" name="kambans" accept="application/pdf" multiple required id="arq">
+      </label>
+      <div class="lista-arq" id="lista"></div>
     </div>
 
-    <label for="max_estagios" style="display:block; font-size:14px; color:#444; margin-bottom:6px;">
-      Estágios de corte permitidos por chapa
-    </label>
-    <select name="max_estagios" id="max_estagios" style="width:100%; padding:10px; border-radius:8px; border:1px solid #d8d3c6; margin-bottom:20px; font-size:14px;">
-      <option value="2" selected>2 — faixa + corte dentro da faixa (mais simples de executar)</option>
-      <option value="3">3 — mais um nível de re-corte</option>
-      <option value="ilimitado">Sem limite (melhor aproveitamento, mais estágios de corte)</option>
-    </select>
+    <div class="cartao">
+      <h2>Opções desta rodada</h2>
+      <p class="ajuda">Os parâmetros fixos da máquina ficam em
+        <a href="/parametros">Parâmetros</a>.</p>
 
-    <label class="chave">
-      <input type="checkbox" name="respeitar_veio" id="respeitar_veio" checked>
-      <span>
-        <strong>Respeitar o veio da chapa</strong>
-        <small>
-          Peça de cor amadeirada sai sempre com o comprimento no sentido do veio,
-          sem girar. Desmarcando, o otimizador gira tudo e o aproveitamento sobe —
-          mas o desenho da chapa sai atravessado na peça, o que na montagem vira
-          refugo. Desmarque só para comparar, não para produzir.
-        </small>
-      </span>
-    </label>
+      <div class="opcao">
+        <label class="chave">
+          <input type="checkbox" name="respeitar_veio" checked><span></span>
+        </label>
+        <div class="txt">
+          <div class="rot">Respeitar o veio da chapa</div>
+          <div class="aj">Peça aparente em chapa amadeirada não gira, para o desenho da
+            madeira não sair atravessado. Desligue apenas para comparar quanto o veio
+            custa em material — nunca para mandar à máquina.</div>
+        </div>
+      </div>
 
-    <button type="submit">Otimizar corte</button>
-  </form>
+      <div class="opcao">
+        <div class="txt">
+          <div class="rot">Limite de recortes por sobra</div>
+          <div class="aj">Quantas vezes um pedaço que sobrou pode ser recortado de novo.</div>
+          <select name="max_estagios">
+            <option value="2">2 — mais simples de executar</option>
+            <option value="3">3 — um nível a mais</option>
+            <option value="ilimitado" selected>Sem limite — melhor aproveitamento</option>
+          </select>
+        </div>
+      </div>
+    </div>
 
-  <div class="info">
-    Peças da mesma cor + espessura entram no mesmo pool de otimização,
-    mesmo vindo de Kambans diferentes — então a sobra de uma chapa pode
-    ser aproveitada por peças de outro lote.
-    <br><br>
-    <a href="/cadastro/pecas" style="color:#2a6f4d;">Cadastro de peças e cores →</a>
-    &nbsp;·&nbsp; diga quais peças ficam à vista e quais chapas têm desenho de
-    madeira, para o otimizador virar na chapa só o que pode ser virado.
+    <button type="submit" class="btn" id="enviar">Calcular plano de corte →</button>
+  </div>
+
+  <div>
+    <div class="cartao">
+      <h2>Situação do cadastro</h2>
+      <p class="ajuda">O otimizador consulta estes cadastros para saber o que pode girar
+        na chapa.</p>
+      <div class="metricas" style="grid-template-columns:1fr 1fr;">
+        <div class="metrica">
+          <div class="rot">Peças</div>
+          <div class="val">{{ res.pecas_confirmadas }}<small>/{{ res.pecas }}</small></div>
+        </div>
+        <div class="metrica">
+          <div class="rot">Cores</div>
+          <div class="val">{{ res.cores_confirmadas }}<small>/{{ res.cores }}</small></div>
+        </div>
+      </div>
+      {% if res.pecas and res.pecas_confirmadas < res.pecas %}
+      <div class="recado atencao" style="margin:14px 0 0;">
+        <span class="ic">⚠️</span>
+        <div>{{ res.pecas - res.pecas_confirmadas }} peças ainda estão com o palpite
+          automático. Peça não conferida é tratada como aparente, o que gasta mais
+          chapa. <a href="/cadastro/pecas">Conferir agora →</a></div>
+      </div>
+      {% elif not res.pecas %}
+      <div class="recado info" style="margin:14px 0 0;">
+        <span class="ic">ℹ️</span>
+        <div>O cadastro se preenche sozinho no primeiro cálculo.</div>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="cartao">
+      <h2>Máquina</h2>
+      <table class="dados">
+        <tr><td>Chapa</td><td class="num">{{ par.chapa_larg }}×{{ par.chapa_alt }} mm</td></tr>
+        <tr><td>Serra</td><td class="num">{{ par.kerf }} mm</td></tr>
+        <tr><td>Pilha</td><td class="num">{{ par.pilha_max }} mm</td></tr>
+        <tr><td>Estágios</td><td class="num">{{ '2 + aparo' if par.estagios >= 3 else '2' }}</td></tr>
+      </table>
+    </div>
   </div>
 </div>
+</form>
+{% endblock %}
 
+{% block script %}
 <script>
-  document.getElementById('form-otimizar').addEventListener('submit', function () {
-    document.getElementById('overlay').classList.add('ativo');
-    var inicio = Date.now();
-    setInterval(function () {
-      var s = Math.floor((Date.now() - inicio) / 1000);
-      var mm = String(Math.floor(s / 60)).padStart(2, '0');
-      var ss = String(s % 60).padStart(2, '0');
-      document.getElementById('tempo').textContent = mm + ':' + ss;
-    }, 500);
-    // deixa o form submeter normalmente (não é AJAX) - o navegador
-    // troca de página quando o servidor responder com o resultado
+  const arq = document.getElementById('arq'), solta = document.getElementById('solta'),
+        lista = document.getElementById('lista');
+  function mostrar() {
+    lista.innerHTML = '';
+    for (const f of arq.files) {
+      const d = document.createElement('div');
+      d.innerHTML = '<span class="pdf">PDF</span><span>' + f.name +
+                    '</span><span style="margin-left:auto;color:var(--tinta-2)">' +
+                    (f.size/1024).toFixed(0) + ' KB</span>';
+      lista.appendChild(d);
+    }
+  }
+  arq.addEventListener('change', mostrar);
+  ['dragenter','dragover'].forEach(e => solta.addEventListener(e, ev => {
+    ev.preventDefault(); solta.classList.add('sobre');
+  }));
+  ['dragleave','drop'].forEach(e => solta.addEventListener(e, ev => {
+    ev.preventDefault(); solta.classList.remove('sobre');
+  }));
+  solta.addEventListener('drop', ev => { arq.files = ev.dataTransfer.files; mostrar(); });
+  document.getElementById('frm').addEventListener('submit', () => {
+    const b = document.getElementById('enviar');
+    b.disabled = true; b.textContent = 'Enviando...';
   });
 </script>
-</body>
-</html>
+{% endblock %}

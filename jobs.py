@@ -85,3 +85,8 @@ def _limpar() -> None:
                         key=lambda j: j.criado_em)
     for j in terminados[:-MAX_HISTORICO] if len(terminados) > MAX_HISTORICO else []:
         _jobs.pop(j.id, None)
+
+
+def todos() -> list[Job]:
+    """Todos os jobs que ainda estão na memória, pra tela de histórico."""
+    return list(_jobs.values())

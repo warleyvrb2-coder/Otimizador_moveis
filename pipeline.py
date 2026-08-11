@@ -16,24 +16,11 @@ from optimizer import PieceType
 from column_generation import optimize_group_cg
 from visualize import render_sheet
 
-# Chapa padrão: 2750 x 1850 mm (~5,1 m²). Os Kambans de teste trazem
-# "MATERIAL: 7299 - MDP 15MM FF BRANCO" — é MDP (aglomerado), não MDF.
-SHEET_W_MM = 2750
-SHEET_H_MM = 1850
+def parametros() -> dict:
+    """Lidos a cada rodada, não na importação: assim mudar na tela vale já na
+    próxima otimização, sem reiniciar o servidor."""
+    return banco.obter_parametros()
 
-# orçamento de tempo do column generation por grupo (cor+espessura).
-# Quanto mais tempo, mais perto do ótimo teórico ele chega (veja README).
-CG_TIME_BUDGET_S = float(os.environ.get('CG_TIME_BUDGET_S', 45))
-
-# --- parâmetros da máquina (confirmar com quem opera a seccionadora) ---
-# Espessura do disco. Cada corte come esse material.
-KERF_MM = float(os.environ.get('KERF_MM', 4.4))
-# Altura máxima da pilha no corte múltiplo. Com 15mm dá 7 chapas por ciclo,
-# com 18mm dá 5 - por isso guardamos em mm e não em número de chapas.
-PILHA_MAX_MM = float(os.environ.get('PILHA_MAX_MM', 105))
-# 2 = toda peça tem a altura exata da faixa (mais simples de executar)
-# 3 = permite um corte de aparo pra tirar a sobra da faixa (padrão de fábrica)
-ESTAGIOS = int(os.environ.get('ESTAGIOS', 3))
 
 def tem_veio(cor: str, respeitar: bool = True, cores: dict | None = None) -> bool:
     """
@@ -162,6 +149,9 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         if progresso:
             progresso(feito, total, texto)
 
+    par = parametros()
+    largura, altura = par['chapa_larg'], par['chapa_alt']
+
     aviso(0, 1, 'Lendo os PDFs...')
     todas_pecas, kambans_info = ler_kambans(arquivos)
     if not todas_pecas:
@@ -185,17 +175,17 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         tipos = list(tipos_dict.values())
         sheets, sobras, padroes = optimize_group_cg(
             [PieceType(**{**t.__dict__}) for t in tipos],
-            SHEET_W_MM, SHEET_H_MM, time_budget_s=CG_TIME_BUDGET_S, max_depth=max_depth,
-            kerf=KERF_MM, estagios=ESTAGIOS,
+            largura, altura, time_budget_s=par['tempo_grupo'], max_depth=max_depth,
+            kerf=par['kerf'], estagios=par['estagios'],
         )
 
         rateio = ratear_por_lote(padroes, tipos_dict, ordem_lotes)
-        por_chapa = max(1, int(PILHA_MAX_MM // esp)) if esp else 1
+        por_chapa = max(1, int(par['pilha_max'] // esp)) if esp else 1
 
         blocos = []
         for i, pat in enumerate(padroes, start=1):
             img_name = f'{cor}_{int(esp)}mm_padrao{i}.png'.replace(' ', '_').replace('/', '-')
-            render_sheet(pat, SHEET_W_MM, SHEET_H_MM, os.path.join(run_dir, img_name),
+            render_sheet(pat, largura, altura, os.path.join(run_dir, img_name),
                          titulo=f'{cor} · {esp:.0f}mm · Padrão {i}',
                          veio=tem_veio(cor, respeitar_veio))
             blocos.append({
@@ -215,7 +205,7 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
             })
 
         n_chapas = len(sheets)
-        area_chapa = (SHEET_W_MM / 1000) * (SHEET_H_MM / 1000)
+        area_chapa = (largura / 1000) * (altura / 1000)
         grupos_resultado.append({
             'cor': cor,
             'esp': esp,
@@ -238,10 +228,10 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         'erro': None,
         'kambans_info': kambans_info,
         'grupos': grupos_resultado,
-        'sheet_w': SHEET_W_MM,
-        'sheet_h': SHEET_H_MM,
-        'kerf': KERF_MM,
-        'estagios': ESTAGIOS,
+        'sheet_w': largura,
+        'sheet_h': altura,
+        'kerf': par['kerf'],
+        'estagios': par['estagios'],
         'respeitar_veio': respeitar_veio,
         'total_chapas': sum(g['n_chapas'] for g in grupos_resultado),
         'importado': importado,

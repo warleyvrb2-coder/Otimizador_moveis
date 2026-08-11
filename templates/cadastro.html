@@ -1,167 +1,174 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cadastro de peças e cores</title>
+{% extends "base.html" %}
+{% block titulo %}{{ 'Peças' if aba == 'pecas' else 'Cores e chapas' }} · Cadastro{% endblock %}
+{% block cabecalho %}{{ 'Cadastro de peças' if aba == 'pecas' else 'Cadastro de cores' }}{% endblock %}
+{% block subcabecalho %}
+  {{ 'Quais peças ficam à vista no móvel montado' if aba == 'pecas'
+     else 'Quais chapas têm desenho de madeira' }}
+{% endblock %}
+
+{% block acoes %}
+<span class="etiqueta {{ 'ok' if total and confirmados == total }}">
+  {{ confirmados }} de {{ total }} conferidos
+</span>
+{% endblock %}
+
+{% block estilo %}
 <style>
-  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f5f2;
-         margin:0; color:#2a2a2a; }
-  .wrap { max-width: 900px; margin: 32px auto; padding: 0 18px 60px; }
-  a.voltar { color:#2a6f4d; text-decoration:none; font-size:14px; }
-  h1 { font-size:22px; margin:8px 0 4px; }
-  .explica { background:#fff; border-radius:10px; padding:18px 20px; margin:18px 0 24px;
-             font-size:14px; line-height:1.6; color:#555; }
-  .explica strong { color:#2a2a2a; }
-  .abas { display:flex; gap:8px; margin-bottom:18px; }
-  .abas a { padding:9px 18px; border-radius:8px; text-decoration:none; font-size:14px;
-            background:#eceae4; color:#555; }
-  .abas a.ativa { background:#2a6f4d; color:#fff; font-weight:600; }
-  .barra-topo { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
-  input[type=search] { flex:1; min-width:200px; padding:10px 14px; border-radius:8px;
-                       border:1px solid #d8d3c6; font-size:14px; }
-  .contador { font-size:13px; color:#777; }
-  .aviso { background:#fff8e6; border:1px solid #f0dfb5; color:#7a5a1c; padding:12px 16px;
-           border-radius:8px; font-size:13px; margin-bottom:16px; line-height:1.5; }
-  .linha { background:#fff; border-radius:10px; padding:14px 16px; margin-bottom:8px;
-           display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
-  .linha.pendente { border-left:4px solid #e8c46a; }
-  .info { flex:1; min-width:220px; }
-  .info .cod { font-weight:600; font-size:15px; }
-  .info .desc { color:#666; font-size:13px; margin-top:2px; }
-  .info .med { color:#aaa; font-size:12px; margin-top:2px; }
-  .escolha { display:flex; gap:6px; flex:none; }
-  .escolha button { border:1px solid #d8d3c6; background:#fff; color:#666; cursor:pointer;
-                    padding:9px 14px; font-size:13px; border-radius:8px; }
-  .escolha button:hover { border-color:#2a6f4d; }
-  .escolha button.on { background:#2a6f4d; border-color:#2a6f4d; color:#fff; font-weight:600; }
-  .escolha button.on.livre { background:#4a7fb5; border-color:#4a7fb5; }
-  .selo { font-size:11px; color:#b58a2a; flex:none; width:64px; text-align:right; }
-  .selo.ok { color:#2a6f4d; }
-  .vazio { background:#fff; border-radius:10px; padding:40px; text-align:center; color:#777; }
-  form.importar { display:inline; }
-  .btn { background:#2a6f4d; color:#fff; border:none; padding:10px 18px; border-radius:8px;
-         font-size:14px; cursor:pointer; }
+  .explicacao { display:grid; grid-template-columns:1fr 1fr; gap:0; overflow:hidden; padding:0; }
+  .explicacao > div { padding:18px 20px; }
+  .explicacao > div + div { border-left:1px solid var(--linha); }
+  .explicacao .tit { font-weight:650; display:flex; align-items:center; gap:7px; font-size:13.5px; }
+  .explicacao .cor-v { color:var(--verde); } .explicacao .cor-a { color:var(--azul); }
+  .explicacao p { margin:6px 0 0; color:var(--tinta-2); font-size:12.5px; line-height:1.55; }
+  .ponto { width:9px; height:9px; border-radius:50%; flex:none; }
+
+  .filtros { display:flex; gap:9px; margin-bottom:14px; flex-wrap:wrap; }
+  .filtros input { flex:1; min-width:200px; padding:9px 13px; border:1px solid var(--linha);
+                   border-radius:8px; font-size:13.5px; }
+  .filtros a { padding:9px 14px; border:1px solid var(--linha); border-radius:8px;
+               background:#fff; text-decoration:none; color:var(--tinta-2); font-size:13px; }
+  .filtros a.ativo { background:var(--tinta); color:#fff; border-color:var(--tinta); }
+
+  .item { display:flex; gap:14px; align-items:center; padding:12px 16px;
+          border-bottom:1px solid var(--linha); }
+  .item:last-child { border-bottom:none; }
+  .item:hover { background:#fafbfb; }
+  .item.pendente { box-shadow:inset 3px 0 0 var(--ambar); }
+  .item .id { flex:1; min-width:180px; }
+  .item .cod { font-weight:650; font-variant-numeric:tabular-nums; }
+  .item .desc { color:var(--tinta-2); font-size:12.5px; margin-top:1px; }
+  .item .med { color:var(--tinta-3); font-size:11.5px; margin-top:1px; font-variant-numeric:tabular-nums; }
+  .grupo-btn { display:inline-flex; border:1px solid var(--linha); border-radius:8px;
+               overflow:hidden; flex:none; }
+  .grupo-btn button { border:none; background:#fff; padding:9px 15px; font-size:12.5px;
+                      cursor:pointer; color:var(--tinta-2); white-space:nowrap; }
+  .grupo-btn button + button { border-left:1px solid var(--linha); }
+  .grupo-btn button:hover { background:var(--fundo); }
+  .grupo-btn button.on { background:var(--verde); color:#fff; font-weight:650; }
+  .grupo-btn button.on.alt { background:var(--azul); }
+  .estado { width:76px; text-align:right; font-size:11px; color:var(--ambar); flex:none; }
+  .estado.ok { color:var(--verde); }
+  .lista { padding:0; }
+  @media (max-width:760px) {
+    .explicacao { grid-template-columns:1fr; }
+    .explicacao > div + div { border-left:none; border-top:1px solid var(--linha); }
+    .item { flex-wrap:wrap; } .estado { width:auto; margin-left:auto; }
+  }
 </style>
-</head>
-<body>
-<div class="wrap">
-  <a class="voltar" href="/">← voltar para o otimizador</a>
-  <h1>Cadastro</h1>
+{% endblock %}
 
-  <div class="abas">
-    <a href="/cadastro/pecas" class="{{ 'ativa' if aba == 'pecas' }}">Peças ({{ res.pecas }})</a>
-    <a href="/cadastro/cores" class="{{ 'ativa' if aba == 'cores' }}">Cores ({{ res.cores }})</a>
-  </div>
+{% block conteudo %}
+{% if efemero %}
+<div class="recado perigo">
+  <span class="ic">⚠️</span>
+  <div><strong>Este cadastro vai se perder.</strong> O sistema está publicado sem disco
+    permanente, então tudo que você marcar aqui some na próxima atualização. Antes de
+    conferir as peças uma a uma, anexe um <strong>volume</strong> na hospedagem e aponte
+    a variável <strong>DATA_DIR</strong> para ele.</div>
+</div>
+{% endif %}
 
+<div class="cartao explicacao">
   {% if aba == 'pecas' %}
-  <div class="explica">
-    Aqui você diz <strong>quais peças ficam à vista</strong> no móvel montado.<br><br>
-    Peça <strong>aparente</strong> (porta, lateral, tampo, frente de gaveta) tem que ser
-    cortada com o desenho da madeira no sentido certo, senão o móvel sai com o
-    veio atravessado. Peça <strong>escondida</strong> (prateleira, divisória, suporte)
-    ninguém vê depois de montado, então ela pode ser virada na chapa para
-    aproveitar melhor o material.<br><br>
-    O sistema já deu um palpite pelo nome de cada peça. As marcadas em
-    <strong style="color:#b58a2a;">amarelo</strong> ainda não foram conferidas por você.
+  <div>
+    <div class="tit cor-v"><span class="ponto" style="background:var(--verde)"></span>Fica à vista</div>
+    <p>Porta, lateral, tampo, frente de gaveta. Precisa ser cortada com o desenho da
+      madeira no sentido certo, senão o móvel sai com o veio atravessado.</p>
+  </div>
+  <div>
+    <div class="tit cor-a"><span class="ponto" style="background:var(--azul)"></span>Fica escondida</div>
+    <p>Prateleira, divisória, suporte. Ninguém vê depois de montado, então pode ser
+      virada na chapa para aproveitar melhor o material.</p>
   </div>
   {% else %}
-  <div class="explica">
-    Aqui você diz <strong>quais chapas têm desenho de madeira</strong>.<br><br>
-    Chapa <strong>amadeirada</strong> tem o desenho correndo num sentido só, então
-    as peças aparentes precisam respeitar essa direção. Chapa <strong>lisa</strong>
-    (branco, cores sólidas) não tem desenho nenhum — nela qualquer peça pode
-    ser virada, e o aproveitamento fica melhor.
+  <div>
+    <div class="tit cor-v"><span class="ponto" style="background:var(--verde)"></span>Tem desenho de madeira</div>
+    <p>O desenho corre num sentido só, então as peças aparentes precisam respeitar
+      essa direção.</p>
+  </div>
+  <div>
+    <div class="tit cor-a"><span class="ponto" style="background:var(--azul)"></span>É lisa</div>
+    <p>Branco e cores sólidas não têm desenho nenhum. Nelas qualquer peça pode ser
+      virada, e o aproveitamento fica melhor.</p>
   </div>
   {% endif %}
+</div>
 
-  {% if efemero %}
-  <div class="aviso" style="background:#fbe9e7; border-color:#f0c0b5; color:#a13a2a;">
-    <strong>⚠️ Este cadastro vai se perder.</strong>
-    O app está publicado sem disco permanente, então tudo que você marcar aqui
-    some na próxima atualização do sistema. Antes de conferir as peças uma a uma,
-    peça para anexar um <strong>volume</strong> na hospedagem e apontar a variável
-    <strong>DATA_DIR</strong> para ele.
-  </div>
-  {% endif %}
+{% if aba == 'pecas' %}
+<div class="filtros">
+  <input type="search" id="busca" placeholder="Buscar por código ou nome da peça..."
+         value="{{ busca }}" onkeydown="if(event.key==='Enter')buscar()">
+  <a href="/cadastro/pecas" class="{{ 'ativo' if not pendentes }}">Todas</a>
+  <a href="/cadastro/pecas?pendentes=1" class="{{ 'ativo' if pendentes }}">
+    Só as não conferidas{% if nav.pecas_pendentes %} ({{ nav.pecas_pendentes }}){% endif %}
+  </a>
+</div>
+{% endif %}
 
-  {% if res.pecas == 0 and aba == 'pecas' %}
-  <div class="aviso">
-    O cadastro está vazio. Ele se preenche sozinho quando você processa um
-    Kamban no otimizador — ou clique aqui para trazer as peças dos últimos
-    arquivos enviados.
-  </div>
-  {% endif %}
-
-  <div class="barra-topo">
-    {% if aba == 'pecas' %}
-    <input type="search" id="busca" placeholder="Buscar por código ou nome da peça..."
-           value="{{ busca }}" onkeydown="if(event.key==='Enter')buscar()">
-    <span class="contador">{{ res.pecas_confirmadas }} de {{ res.pecas }} conferidas</span>
-    {% else %}
-    <span class="contador">{{ res.cores_confirmadas }} de {{ res.cores }} conferidas</span>
-    {% endif %}
-  </div>
-
+<div class="cartao lista">
   {% if aba == 'pecas' %}
     {% for p in itens %}
-    <div class="linha {{ 'pendente' if not p.confirmado }}">
-      <div class="info">
+    <div class="item {{ 'pendente' if not p.confirmado }}">
+      <div class="id">
         <div class="cod">{{ p.cod }}</div>
         <div class="desc">{{ p.descricao }}</div>
         <div class="med">{{ p.comp_mm }} × {{ p.larg_mm }} mm</div>
       </div>
-      <div class="escolha">
-        <button class="{{ 'on' if p.aparente }}"
-                onclick="marcar('peca','{{ p.cod }}',1,this)">Fica à vista</button>
-        <button class="livre {{ 'on' if not p.aparente }}"
-                onclick="marcar('peca','{{ p.cod }}',0,this)">Fica escondida</button>
+      <div class="grupo-btn">
+        <button class="{{ 'on' if p.aparente }}" onclick="marcar('peca','{{ p.cod }}',1,this)">Fica à vista</button>
+        <button class="alt {{ 'on' if not p.aparente }}" onclick="marcar('peca','{{ p.cod }}',0,this)">Fica escondida</button>
       </div>
-      <div class="selo {{ 'ok' if p.confirmado }}">{{ 'conferido' if p.confirmado else 'palpite' }}</div>
+      <div class="estado {{ 'ok' if p.confirmado }}">{{ 'conferido' if p.confirmado else 'palpite' }}</div>
     </div>
     {% else %}
-    <div class="vazio">Nenhuma peça cadastrada ainda.</div>
+    <div class="vazio">
+      <div class="ic">📦</div>
+      <p>Nenhuma peça cadastrada ainda.<br>Ele se preenche sozinho quando você calcula um plano.</p>
+      <a href="/" class="btn">Calcular um plano</a>
+    </div>
     {% endfor %}
   {% else %}
     {% for c in itens %}
-    <div class="linha {{ 'pendente' if not c.confirmado }}">
-      <div class="info"><div class="cod">{{ c.nome }}</div></div>
-      <div class="escolha">
-        <button class="{{ 'on' if c.amadeirada }}"
-                onclick="marcar('cor','{{ c.nome }}',1,this)">Tem desenho de madeira</button>
-        <button class="livre {{ 'on' if not c.amadeirada }}"
-                onclick="marcar('cor','{{ c.nome }}',0,this)">É lisa</button>
+    <div class="item {{ 'pendente' if not c.confirmado }}">
+      <div class="id"><div class="cod">{{ c.nome }}</div></div>
+      <div class="grupo-btn">
+        <button class="{{ 'on' if c.amadeirada }}" onclick="marcar('cor','{{ c.nome }}',1,this)">Tem desenho</button>
+        <button class="alt {{ 'on' if not c.amadeirada }}" onclick="marcar('cor','{{ c.nome }}',0,this)">É lisa</button>
       </div>
-      <div class="selo {{ 'ok' if c.confirmado }}">{{ 'conferido' if c.confirmado else 'palpite' }}</div>
+      <div class="estado {{ 'ok' if c.confirmado }}">{{ 'conferido' if c.confirmado else 'palpite' }}</div>
     </div>
     {% else %}
-    <div class="vazio">Nenhuma cor cadastrada ainda.</div>
+    <div class="vazio">
+      <div class="ic">🎨</div>
+      <p>Nenhuma cor cadastrada ainda.</p>
+      <a href="/" class="btn">Calcular um plano</a>
+    </div>
     {% endfor %}
   {% endif %}
 </div>
+{% endblock %}
 
+{% block script %}
 <script>
   function buscar() {
     location.href = '/cadastro/pecas?busca=' + encodeURIComponent(document.getElementById('busca').value);
   }
   async function marcar(tipo, id, valor, botao) {
-    const linha = botao.closest('.linha');
-    linha.querySelectorAll('.escolha button').forEach(b => b.classList.remove('on'));
+    const item = botao.closest('.item'), estado = item.querySelector('.estado');
+    item.querySelectorAll('.grupo-btn button').forEach(b => b.classList.remove('on'));
     botao.classList.add('on');
-    const selo = linha.querySelector('.selo');
-    selo.textContent = 'salvando...'; selo.classList.remove('ok');
+    estado.textContent = 'salvando'; estado.classList.remove('ok');
     try {
       const r = await fetch('/cadastro/marcar', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
+        method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({tipo, id, valor})
       });
       if (!r.ok) throw new Error();
-      selo.textContent = 'conferido'; selo.classList.add('ok');
-      linha.classList.remove('pendente');
+      estado.textContent = 'conferido'; estado.classList.add('ok');
+      item.classList.remove('pendente');
     } catch (e) {
-      selo.textContent = 'erro'; selo.style.color = '#a13a2a';
+      estado.textContent = 'erro ao salvar'; estado.style.color = 'var(--vermelho)';
     }
   }
 </script>
-</body>
-</html>
+{% endblock %}

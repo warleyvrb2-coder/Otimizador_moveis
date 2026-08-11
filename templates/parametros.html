@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block titulo %}Parâmetros da máquina{% endblock %}
+{% block cabecalho %}Parâmetros da máquina{% endblock %}
+{% block subcabecalho %}Valores usados em todo cálculo. Confirme com quem opera a seccionadora{% endblock %}
+
+{% block estilo %}
+<style>
+  .campo { display:grid; grid-template-columns:260px 150px 1fr; gap:16px; align-items:start;
+           padding:16px 0; border-top:1px solid var(--linha); }
+  .campo:first-of-type { border-top:none; padding-top:4px; }
+  .campo .rot { font-weight:600; font-size:13.5px; padding-top:9px; }
+  .campo .aj { color:var(--tinta-2); font-size:12.5px; line-height:1.55; padding-top:9px; }
+  .campo input, .campo select { width:100%; padding:9px 12px; border:1px solid var(--linha);
+                                 border-radius:8px; font-size:14px; font-variant-numeric:tabular-nums; }
+  .campo input:focus, .campo select:focus { outline:2px solid var(--verde-claro); border-color:var(--verde); }
+  .campo.erro input { border-color:var(--vermelho); background:var(--vermelho-claro); }
+  .campo .msg-erro { color:var(--vermelho); font-size:12px; margin-top:4px; }
+  .rodape-form { display:flex; gap:10px; align-items:center; padding-top:18px;
+                 border-top:1px solid var(--linha); margin-top:6px; }
+  @media (max-width:820px) { .campo { grid-template-columns:1fr; gap:6px; }
+    .campo .rot, .campo .aj { padding-top:0; } }
+</style>
+{% endblock %}
+
+{% block conteudo %}
+{% if salvou %}
+<div class="recado info"><span class="ic">✓</span>
+  <div>Parâmetros salvos. Valem a partir do próximo cálculo — não é preciso reiniciar nada.</div></div>
+{% endif %}
+
+<div class="recado atencao">
+  <span class="ic">⚠️</span>
+  <div>Estes valores mudam o resultado de <strong>todos</strong> os planos. O mais sensível
+    é a espessura da serra: ela decide quantas peças cabem de verdade na chapa. Um erro aqui
+    produz layouts que fecham no papel e não fecham na máquina.</div>
+</div>
+
+<form method="post">
+  <div class="cartao">
+    {% for chave, meta in campos.items() %}
+    <div class="campo {{ 'erro' if erros.get(chave) }}">
+      <div class="rot">{{ meta.rotulo }}</div>
+      <div>
+        {% if chave == 'estagios' %}
+        <select name="estagios">
+          <option value="2" {{ 'selected' if valores[chave] == 2 }}>2 estágios</option>
+          <option value="3" {{ 'selected' if valores[chave] == 3 }}>2 + aparo</option>
+        </select>
+        {% else %}
+        <input type="text" inputmode="decimal" name="{{ chave }}" value="{{ valores[chave] }}">
+        {% endif %}
+        {% if erros.get(chave) %}<div class="msg-erro">{{ erros[chave] }}</div>{% endif %}
+      </div>
+      <div class="aj">{{ meta.ajuda }}</div>
+    </div>
+    {% endfor %}
+
+    <div class="rodape-form">
+      <button type="submit" class="btn">Salvar parâmetros</button>
+      <a href="/" class="btn secundario">Cancelar</a>
+    </div>
+  </div>
+</form>
+
+<div class="cartao">
+  <h2>O que perguntar na fábrica</h2>
+  <p class="ajuda">Se algum destes valores ainda for chute, estas são as perguntas que
+    resolvem — na ordem de impacto.</p>
+  <table class="dados">
+    <thead><tr><th>Pergunta</th><th>Por que importa</th></tr></thead>
+    <tbody>
+      <tr><td>Qual a espessura do disco?</td>
+          <td>É o que mais mexe no resultado. Dá pra medir: corte um retalho ao meio,
+              some as duas metades e compare com o original.</td></tr>
+      <tr><td>Refila a chapa antes de cortar?</td>
+          <td>Se refilar, a área útil é menor que a nominal e todas as contas mudam.</td></tr>
+      <tr><td>Quantas chapas empilha no corte?</td>
+          <td>Define em quantos ciclos de máquina cada padrão é executado.</td></tr>
+      <tr><td>A medida do Kambam já é a final?</td>
+          <td>Se a peça precisa sair maior para ser refilada depois da fita de borda,
+              o lote inteiro sai pequeno.</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}

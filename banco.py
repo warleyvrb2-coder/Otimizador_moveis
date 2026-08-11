@@ -95,7 +95,82 @@ def criar_tabelas() -> None:
                 confirmado    INTEGER NOT NULL DEFAULT 0,
                 visto_em      TEXT
             );
+            CREATE TABLE IF NOT EXISTS parametro (
+                chave         TEXT PRIMARY KEY,
+                valor         TEXT NOT NULL
+            );
         """)
+
+
+# Parâmetros da máquina. Ficam no banco pra poder ser ajustados na tela por
+# quem opera - antes só existiam como variável de ambiente, o que obriga a
+# mexer no painel da hospedagem e reiniciar o serviço só pra trocar o kerf.
+# O valor de ambiente ainda serve de padrão inicial.
+PARAMETROS = {
+    'chapa_larg':  {'padrao': 2750, 'tipo': int,
+                    'rotulo': 'Comprimento da chapa (mm)',
+                    'ajuda': 'O lado maior. É nele que corre o veio da madeira.'},
+    'chapa_alt':   {'padrao': 1850, 'tipo': int,
+                    'rotulo': 'Largura da chapa (mm)',
+                    'ajuda': 'O lado menor da chapa inteira, como vem do fornecedor.'},
+    'kerf':        {'padrao': 4.4, 'tipo': float,
+                    'rotulo': 'Espessura da serra (mm)',
+                    'ajuda': 'Quanto de material cada corte consome. Para conferir: corte '
+                             'um retalho ao meio, meça as duas metades, some e compare com '
+                             'o original — a diferença é este número.'},
+    'pilha_max':   {'padrao': 105, 'tipo': int,
+                    'rotulo': 'Altura máxima da pilha (mm)',
+                    'ajuda': 'Quanto a seccionadora corta empilhado. Guardamos em milímetros '
+                             'e não em número de chapas porque o limite muda com a espessura: '
+                             '105mm dá 7 chapas de 15mm, mas só 5 de 18mm.'},
+    'estagios':    {'padrao': 3, 'tipo': int,
+                    'rotulo': 'Estágios de corte',
+                    'ajuda': '2 = toda peça tem a altura exata da faixa, mais simples de '
+                             'executar. 3 = permite um corte de aparo para tirar a sobra da '
+                             'faixa; rende mais e é o padrão na maioria das fábricas.'},
+    'tempo_grupo': {'padrao': 45, 'tipo': int,
+                    'rotulo': 'Tempo de cálculo por grupo (s)',
+                    'ajuda': 'Quanto o otimizador pensa em cada cor. Mais tempo chega mais '
+                             'perto do ótimo, com retorno decrescente.'},
+}
+
+
+def obter_parametros() -> dict:
+    """Valores atuais: o que está no banco, senão o ambiente, senão o padrão."""
+    criar_tabelas()
+    with conectar() as con:
+        salvos = {r['chave']: r['valor'] for r in con.execute('SELECT chave, valor FROM parametro')}
+    saida = {}
+    for chave, meta in PARAMETROS.items():
+        bruto = salvos.get(chave, os.environ.get(chave.upper(), meta['padrao']))
+        try:
+            saida[chave] = meta['tipo'](bruto)
+        except (TypeError, ValueError):
+            saida[chave] = meta['padrao']
+    return saida
+
+
+def salvar_parametros(valores: dict) -> dict:
+    """Grava só o que for número válido e estiver dentro de um limite sensato."""
+    limites = {'chapa_larg': (500, 6000), 'chapa_alt': (500, 3000), 'kerf': (0, 15),
+               'pilha_max': (15, 400), 'estagios': (2, 3), 'tempo_grupo': (5, 600)}
+    erros = {}
+    with conectar() as con:
+        for chave, meta in PARAMETROS.items():
+            if chave not in valores:
+                continue
+            try:
+                v = meta['tipo'](str(valores[chave]).replace(',', '.'))
+            except (TypeError, ValueError):
+                erros[chave] = 'precisa ser um número'
+                continue
+            lo, hi = limites[chave]
+            if not (lo <= v <= hi):
+                erros[chave] = f'precisa ficar entre {lo} e {hi}'
+                continue
+            con.execute('INSERT INTO parametro (chave, valor) VALUES (?,?) '
+                        'ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor', (chave, str(v)))
+    return erros
 
 
 def importar(pecas: list[dict]) -> dict:
@@ -136,6 +211,7 @@ def importar(pecas: list[dict]) -> dict:
 
 
 def listar_pecas(busca: str = '', so_pendentes: bool = False) -> list[sqlite3.Row]:
+    criar_tabelas()
     sql = 'SELECT * FROM peca'
     cond, args = [], []
     if busca:
@@ -151,6 +227,7 @@ def listar_pecas(busca: str = '', so_pendentes: bool = False) -> list[sqlite3.Ro
 
 
 def listar_cores() -> list[sqlite3.Row]:
+    criar_tabelas()
     with conectar() as con:
         return con.execute('SELECT * FROM cor ORDER BY nome').fetchall()
 
@@ -166,6 +243,7 @@ def definir_cor(nome: str, amadeirada: bool) -> None:
 
 
 def resumo() -> dict:
+    criar_tabelas()
     with conectar() as con:
         p = con.execute('SELECT COUNT(*) t, SUM(confirmado) c FROM peca').fetchone()
         k = con.execute('SELECT COUNT(*) t, SUM(confirmado) c FROM cor').fetchone()
@@ -177,6 +255,7 @@ def regras() -> tuple[dict, dict]:
     """
     Devolve (aparente_por_cod, amadeirada_por_cor) pro otimizador consultar.
     """
+    criar_tabelas()
     with conectar() as con:
         pecas = {r['cod']: bool(r['aparente']) for r in con.execute('SELECT cod, aparente FROM peca')}
         cores = {r['nome'].strip().upper(): bool(r['amadeirada'])
