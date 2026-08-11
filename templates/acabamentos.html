@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block titulo %}Acabamentos{% endblock %}
+{% block cabecalho %}Acabamentos{% endblock %}
+{% block subcabecalho %}Qual chapa cada acabamento comercial usa{% endblock %}
+
+{% block estilo %}
+<style>
+  .acab { border-bottom:1px solid var(--linha); padding:16px; }
+  .acab:last-child { border-bottom:none; }
+  .acab .nome { font-weight:650; font-size:14px; margin-bottom:3px; }
+  .acab .estado { color:var(--tinta-2); font-size:12px; margin-bottom:10px; }
+  .acab .estado.faltando { color:var(--ambar); }
+  .cores { display:flex; gap:8px; flex-wrap:wrap; }
+  .cores button { border:1px solid var(--linha); background:#fff; color:var(--tinta-2);
+                  padding:8px 14px; border-radius:8px; font-size:12.5px; cursor:pointer; }
+  .cores button:hover { border-color:var(--verde); }
+  .cores button.on { background:var(--verde); border-color:var(--verde); color:#fff; font-weight:600; }
+</style>
+{% endblock %}
+
+{% block conteudo %}
+<div class="recado info">
+  <span class="ic">ℹ️</span>
+  <div><strong>Acabamento não é a cor da chapa.</strong> O acabamento é como o móvel é
+    vendido; a chapa é o material que entra na serra. Um acabamento de duas cores —
+    como <em>CINAMAMO/O FF WHITE ARENAS</em> — usa o corpo numa chapa e as portas em
+    outra. Marque aqui todas as chapas que cada acabamento consome.</div>
+</div>
+
+{% if not cores %}
+<div class="recado atencao">
+  <span class="ic">⚠️</span>
+  <div>Nenhuma cor de chapa cadastrada ainda. Calcule um plano primeiro para as cores
+    entrarem, depois volte aqui para fazer a ligação.</div>
+</div>
+{% endif %}
+
+<div class="cartao" style="padding:0;">
+  {% for a in acabamentos %}
+  <div class="acab">
+    <div class="nome">{{ a.nome }}</div>
+    <div class="estado {{ 'faltando' if not a.cores }}">
+      {% if a.cores %}usa {{ a.cores|length }} chapa{{ 's' if a.cores|length > 1 }}:
+        {{ a.cores|join(', ') }}
+      {% else %}nenhuma chapa marcada{% endif %}
+    </div>
+    <div class="cores">
+      {% for c in cores %}
+      <button class="{{ 'on' if c in a.cores }}"
+              onclick="alternar('{{ a.nome|e }}','{{ c|e }}',this)">{{ c }}</button>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="vazio">
+    <div class="ic">🎨</div>
+    <p>Nenhum acabamento cadastrado ainda.<br>Eles entram sozinhos quando você calcula um plano.</p>
+    <a href="/" class="btn">Calcular um plano</a>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+  async function alternar(acabamento, cor, botao) {
+    const ligado = !botao.classList.contains('on');
+    botao.classList.toggle('on', ligado);
+    const r = await fetch('/acabamentos/marcar', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({acabamento, cor, ligado})
+    });
+    if (!r.ok) { botao.classList.toggle('on', !ligado); return; }
+    const bloco = botao.closest('.acab');
+    const marcadas = [...bloco.querySelectorAll('.cores button.on')].map(b => b.textContent.trim());
+    const estado = bloco.querySelector('.estado');
+    estado.textContent = marcadas.length
+      ? `usa ${marcadas.length} chapa${marcadas.length > 1 ? 's' : ''}: ${marcadas.join(', ')}`
+      : 'nenhuma chapa marcada';
+    estado.classList.toggle('faltando', marcadas.length === 0);
+  }
+</script>
+{% endblock %}

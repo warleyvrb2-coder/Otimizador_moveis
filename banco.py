@@ -99,6 +99,33 @@ def criar_tabelas() -> None:
                 chave         TEXT PRIMARY KEY,
                 valor         TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS modelo (
+                cod           TEXT PRIMARY KEY,
+                descricao     TEXT NOT NULL,
+                visto_em      TEXT
+            );
+            -- lista técnica: quantas peças de cada tipo o móvel leva
+            CREATE TABLE IF NOT EXISTS modelo_peca (
+                modelo_cod    TEXT NOT NULL,
+                peca_cod      TEXT NOT NULL,
+                por_unidade   REAL,
+                confirmado    INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (modelo_cod, peca_cod)
+            );
+            -- acabamento comercial do móvel ("CINAMAMO/O FF WHITE ARENAS").
+            -- NÃO é a cor da chapa: um acabamento de duas cores usa o corpo
+            -- numa chapa e as portas em outra.
+            CREATE TABLE IF NOT EXISTS acabamento (
+                nome          TEXT PRIMARY KEY,
+                visto_em      TEXT
+            );
+            CREATE TABLE IF NOT EXISTS acabamento_cor (
+                acabamento    TEXT NOT NULL,
+                cor           TEXT NOT NULL,
+                PRIMARY KEY (acabamento, cor)
+            );
+            CREATE INDEX IF NOT EXISTS ix_mp_modelo ON modelo_peca(modelo_cod);
+            CREATE INDEX IF NOT EXISTS ix_mp_peca   ON modelo_peca(peca_cod);
         """)
 
 
@@ -208,6 +235,196 @@ def importar(pecas: list[dict]) -> dict:
                             (cor, int(palpite_amadeirada(cor)), agora))
                 novas_cores += 1
     return {'pecas_novas': novas_pecas, 'cores_novas': novas_cores}
+
+
+# palavras genéricas demais pra identificar um móvel: aparecem em quase todos
+GENERICAS = {'ROUPEIRO', 'MODULO', 'MODULOS', 'KIT', 'REF', 'PORTA', 'PORTAS',
+             'AEREO', 'COM', 'SEM', 'DE', 'DA', 'DO', 'NEW'}
+
+
+def _tokens_modelo(descricao: str) -> set:
+    """Palavras que realmente distinguem um móvel de outro."""
+    t = _normalizar(descricao)
+    t = re.sub(r'\bREF\b.*$', '', t)          # "REF 0129" e o que vier depois
+    return {p for p in t.split() if len(p) >= 4 and p not in GENERICAS and not p.isdigit()}
+
+
+def modelos_ambiguos(modelos: list[dict]) -> set:
+    """
+    Modelos que o nome sozinho não distingue.
+
+    "KIT DALLAS 1 PORTA" só tem DALLAS de distintivo, e isso também aparece em
+    "MODULO DALLAS CANTO RETO". Qualquer peça que cite Dallas casaria com os
+    dois, e o vínculo sairia errado - pior que vínculo faltando, porque um
+    vínculo errado vira lista técnica errada sem ninguém perceber.
+
+    Regra: se as palavras de um modelo são um subconjunto das de outro, ele
+    é ambíguo e fica de fora do vínculo automático.
+    """
+    tokens = {m['cod']: _tokens_modelo(m['desc']) for m in modelos}
+    ambiguos = set()
+    for cod, toks in tokens.items():
+        if not toks:
+            ambiguos.add(cod)
+            continue
+        for outro, toks2 in tokens.items():
+            if outro != cod and toks and toks < toks2:
+                ambiguos.add(cod)
+                break
+    return ambiguos
+
+
+def vincular_peca_modelo(desc_peca: str, modelos: list[dict],
+                          ambiguos: set | None = None) -> list[str]:
+    """
+    Descobre a quais móveis uma peça pertence, pelo nome.
+
+    A descrição da peça costuma trazer o modelo no fim ("LATERAL ESQUERDA N°01
+    ROUPEIRO ATLANTA/AREZZO" serve dois modelos). Casamos pelas palavras
+    distintivas: exigimos que TODAS as palavras que identificam o móvel
+    apareçam na peça, senão ATLANTA e AREZZO se confundiriam entre si.
+
+    Volta lista vazia quando a descrição foi truncada, quando não nomeia
+    modelo nenhum, ou quando o modelo é ambíguo - todos casos que precisam da
+    sua confirmação na tela.
+    """
+    if ambiguos is None:
+        ambiguos = modelos_ambiguos(modelos)
+    alvo = _normalizar(desc_peca)
+    achados = []
+    for m in modelos:
+        if m['cod'] in ambiguos:
+            continue
+        toks = _tokens_modelo(m['desc'])
+        if toks and all(t in alvo for t in toks):
+            achados.append(m['cod'])
+    return achados
+
+
+def importar_modelos(itens: list[dict], pecas: list[dict]) -> dict:
+    """
+    Cadastra os móveis do Kambam e deriva a lista técnica.
+
+    A conta é direta: se o lote produz 100 roupeiros e pede 600 rodapés, o
+    móvel leva 6 rodapés. Só grava quando a divisão dá inteiro exato - razão
+    quebrada significa que o vínculo peça↔modelo está errado, e um número
+    inventado aqui viraria lote errado lá na frente.
+
+    Não sobrescreve lista técnica que você já confirmou na tela.
+    """
+    agora = datetime.now(timezone.utc).isoformat(timespec='seconds')
+
+    # quantidade total por modelo e os acabamentos vistos
+    unidades: dict[str, float] = {}
+    modelos: list[dict] = []
+    for i in itens:
+        unidades[i['cod']] = unidades.get(i['cod'], 0) + i['qtd']
+        if not any(m['cod'] == i['cod'] for m in modelos):
+            modelos.append({'cod': i['cod'], 'desc': i['desc']})
+
+    # quantidade total por peça (somando as cores)
+    total_peca: dict[str, float] = {}
+    desc_peca: dict[str, str] = {}
+    for p in pecas:
+        total_peca[p['cod']] = total_peca.get(p['cod'], 0) + p['qtd']
+        desc_peca.setdefault(p['cod'], p['desc'])
+
+    novos = vinculos = sem_vinculo = 0
+    with conectar() as con:
+        for m in modelos:
+            con.execute('INSERT INTO modelo (cod, descricao, visto_em) VALUES (?,?,?) '
+                        'ON CONFLICT(cod) DO UPDATE SET visto_em=excluded.visto_em',
+                        (m['cod'], m['desc'], agora))
+            novos += 1
+        for i in itens:
+            if i['acabamento']:
+                con.execute('INSERT INTO acabamento (nome, visto_em) VALUES (?,?) '
+                            'ON CONFLICT(nome) DO UPDATE SET visto_em=excluded.visto_em',
+                            (i['acabamento'], agora))
+
+        ambiguos = modelos_ambiguos(modelos)
+        for cod, qtd in total_peca.items():
+            dos_modelos = vincular_peca_modelo(desc_peca[cod], modelos, ambiguos)
+            if not dos_modelos:
+                sem_vinculo += 1
+                continue
+            base = sum(unidades.get(c, 0) for c in dos_modelos)
+            if base <= 0:
+                sem_vinculo += 1
+                continue
+            razao = qtd / base
+            if abs(razao - round(razao)) > 0.001:   # não fechou: não inventa
+                sem_vinculo += 1
+                continue
+            for c in dos_modelos:
+                con.execute(
+                    'INSERT INTO modelo_peca (modelo_cod, peca_cod, por_unidade, confirmado) '
+                    'VALUES (?,?,?,0) ON CONFLICT(modelo_cod, peca_cod) DO UPDATE SET '
+                    'por_unidade=excluded.por_unidade WHERE modelo_peca.confirmado=0',
+                    (c, cod, round(razao)))
+                vinculos += 1
+    return {'modelos': novos, 'vinculos': vinculos, 'pecas_sem_modelo': sem_vinculo}
+
+
+def listar_modelos() -> list[sqlite3.Row]:
+    criar_tabelas()
+    with conectar() as con:
+        return con.execute("""
+            SELECT m.*, COUNT(mp.peca_cod) AS n_pecas,
+                   COALESCE(SUM(mp.por_unidade), 0) AS total_pecas
+              FROM modelo m LEFT JOIN modelo_peca mp ON mp.modelo_cod = m.cod
+             GROUP BY m.cod ORDER BY m.descricao
+        """).fetchall()
+
+
+def pecas_do_modelo(cod: str) -> list[sqlite3.Row]:
+    criar_tabelas()
+    with conectar() as con:
+        return con.execute("""
+            SELECT p.*, mp.por_unidade, mp.confirmado AS vinculo_confirmado,
+                   (SELECT GROUP_CONCAT(DISTINCT c2.nome) FROM cor c2) AS todas_cores
+              FROM modelo_peca mp JOIN peca p ON p.cod = mp.peca_cod
+             WHERE mp.modelo_cod = ?
+             ORDER BY mp.por_unidade DESC, p.descricao
+        """, (cod,)).fetchall()
+
+
+def modelo(cod: str) -> sqlite3.Row | None:
+    criar_tabelas()
+    with conectar() as con:
+        return con.execute('SELECT * FROM modelo WHERE cod=?', (cod,)).fetchone()
+
+
+def listar_acabamentos() -> list[dict]:
+    """Acabamentos com as cores de chapa já mapeadas para cada um."""
+    criar_tabelas()
+    with conectar() as con:
+        acabs = con.execute('SELECT * FROM acabamento ORDER BY nome').fetchall()
+        mapa: dict[str, list[str]] = {}
+        for r in con.execute('SELECT acabamento, cor FROM acabamento_cor'):
+            mapa.setdefault(r['acabamento'], []).append(r['cor'])
+    return [{'nome': a['nome'], 'cores': sorted(mapa.get(a['nome'], []))} for a in acabs]
+
+
+def definir_acabamento_cor(acabamento: str, cor: str, ligado: bool) -> None:
+    criar_tabelas()
+    with conectar() as con:
+        if ligado:
+            con.execute('INSERT OR IGNORE INTO acabamento_cor (acabamento, cor) VALUES (?,?)',
+                        (acabamento, cor))
+        else:
+            con.execute('DELETE FROM acabamento_cor WHERE acabamento=? AND cor=?',
+                        (acabamento, cor))
+
+
+def definir_por_unidade(modelo_cod: str, peca_cod: str, quantidade: float) -> None:
+    criar_tabelas()
+    with conectar() as con:
+        con.execute(
+            'INSERT INTO modelo_peca (modelo_cod, peca_cod, por_unidade, confirmado) '
+            'VALUES (?,?,?,1) ON CONFLICT(modelo_cod, peca_cod) DO UPDATE SET '
+            'por_unidade=excluded.por_unidade, confirmado=1',
+            (modelo_cod, peca_cod, quantidade))
 
 
 def listar_pecas(busca: str = '', so_pendentes: bool = False) -> list[sqlite3.Row]:

@@ -231,6 +231,48 @@ def cadastro(aba='pecas'):
                                           else res['cores_confirmadas']))
 
 
+@app.route('/modelos')
+def modelos():
+    return render_template('modelos.html', pagina='modelos',
+                            modelos=banco.listar_modelos())
+
+
+@app.route('/modelos/<cod>')
+def modelo_detalhe(cod):
+    m = banco.modelo(cod) or abort(404)
+    return render_template('modelo.html', pagina='modelos', m=m,
+                            pecas=banco.pecas_do_modelo(cod))
+
+
+@app.route('/acabamentos')
+def acabamentos():
+    return render_template('acabamentos.html', pagina='acabamentos',
+                            acabamentos=banco.listar_acabamentos(),
+                            cores=[c['nome'] for c in banco.listar_cores()])
+
+
+@app.route('/acabamentos/marcar', methods=['POST'])
+def acabamento_marcar():
+    d = request.get_json(silent=True) or {}
+    if not d.get('acabamento') or not d.get('cor'):
+        return jsonify({'ok': False}), 400
+    banco.definir_acabamento_cor(d['acabamento'], d['cor'], bool(d.get('ligado')))
+    return jsonify({'ok': True})
+
+
+@app.route('/modelos/por-unidade', methods=['POST'])
+def modelo_por_unidade():
+    d = request.get_json(silent=True) or {}
+    try:
+        qtd = float(str(d.get('quantidade', '')).replace(',', '.'))
+    except ValueError:
+        return jsonify({'ok': False}), 400
+    if not d.get('modelo') or not d.get('peca') or qtd < 0:
+        return jsonify({'ok': False}), 400
+    banco.definir_por_unidade(d['modelo'], d['peca'], qtd)
+    return jsonify({'ok': True})
+
+
 @app.route('/cadastro/marcar', methods=['POST'])
 def cadastro_marcar():
     dados = request.get_json(silent=True) or {}

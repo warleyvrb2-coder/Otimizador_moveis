@@ -11,7 +11,7 @@ import os
 from collections import defaultdict
 
 import banco
-from parser import parse_kambam, file_hash
+from parser import parse_kambam, parse_itens, file_hash
 from optimizer import PieceType
 from column_generation import optimize_group_cg
 from visualize import render_sheet
@@ -92,6 +92,9 @@ def ler_kambans(arquivos: list[tuple[str, str]]) -> tuple[list, list]:
         vistos[h] = nome
         pecas = parse_kambam(caminho, source_name=nome)
         todas_pecas.extend(pecas)
+        # a outra metade do relatório: os MÓVEIS que este lote monta. Com ela
+        # dá pra derivar quantas peças de cada tipo cada móvel leva.
+        banco.importar_modelos(parse_itens(caminho), pecas)
         info.append({'arquivo': nome, 'n_linhas': len(pecas),
                      'qtd_total': sum(p['qtd'] for p in pecas),
                      'lote': pecas[0]['lote'] if pecas else None,

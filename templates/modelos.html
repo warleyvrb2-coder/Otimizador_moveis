@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block titulo %}Modelos de móveis{% endblock %}
+{% block cabecalho %}Modelos de móveis{% endblock %}
+{% block subcabecalho %}A lista técnica de cada móvel, derivada dos Kambans{% endblock %}
+
+{% block estilo %}
+<style>
+  .grade { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:14px; }
+  .card-modelo { background:var(--papel); border:1px solid var(--linha); border-radius:var(--raio);
+                 padding:16px 18px; text-decoration:none; color:inherit; display:block;
+                 box-shadow:var(--sombra); }
+  .card-modelo:hover { border-color:var(--verde); }
+  .card-modelo .cod { color:var(--tinta-3); font-size:11.5px; font-variant-numeric:tabular-nums; }
+  .card-modelo .nome { font-weight:650; font-size:14px; margin:2px 0 10px; line-height:1.35; }
+  .card-modelo .nums { display:flex; gap:16px; align-items:baseline; }
+  .card-modelo .n { font-size:20px; font-weight:680; font-variant-numeric:tabular-nums; }
+  .card-modelo .r { color:var(--tinta-2); font-size:11.5px; }
+  .card-modelo.sem { border-style:dashed; }
+  .card-modelo.sem .nums { color:var(--ambar); }
+</style>
+{% endblock %}
+
+{% block conteudo %}
+<div class="recado info">
+  <span class="ic">ℹ️</span>
+  <div>A lista técnica sai de uma conta simples: se o lote produziu 100 roupeiros e pediu
+    600 rodapés, o móvel leva 6 rodapés. O sistema só grava quando a divisão dá
+    <strong>inteiro exato</strong> — número quebrado significa vínculo errado, e um valor
+    inventado aqui viraria lote errado lá na frente.</div>
+</div>
+
+{% set completos = modelos | selectattr('n_pecas') | list %}
+{% set vazios = modelos | rejectattr('n_pecas') | list %}
+
+<div class="metricas" style="margin-bottom:20px;">
+  <div class="metrica destaque"><div class="rot">Modelos</div><div class="val">{{ modelos|length }}</div></div>
+  <div class="metrica"><div class="rot">Com lista técnica</div><div class="val">{{ completos|length }}</div></div>
+  <div class="metrica {{ 'alerta' if vazios }}"><div class="rot">Sem lista</div><div class="val">{{ vazios|length }}</div></div>
+</div>
+
+{% if completos %}
+<h2 style="font-size:14px; margin:0 0 12px;">Com lista técnica</h2>
+<div class="grade" style="margin-bottom:26px;">
+  {% for m in completos %}
+  <a class="card-modelo" href="/modelos/{{ m.cod }}">
+    <div class="cod">{{ m.cod }}</div>
+    <div class="nome">{{ m.descricao }}</div>
+    <div class="nums">
+      <div><div class="n">{{ m.n_pecas }}</div><div class="r">tipos de peça</div></div>
+      <div><div class="n">{{ '%.0f'|format(m.total_pecas) }}</div><div class="r">peças por móvel</div></div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if vazios %}
+<h2 style="font-size:14px; margin:0 0 6px;">Sem lista técnica</h2>
+<p style="color:var(--tinta-2); font-size:13px; margin:0 0 12px;">
+  O sistema não conseguiu ligar peça nenhuma a estes móveis — ou a descrição da peça
+  vem cortada no relatório e não cita o modelo, ou o nome do móvel é genérico demais
+  para distinguir (vários "KIT DALLAS" diferentes). Precisam ser preenchidos por você.
+</p>
+<div class="grade">
+  {% for m in vazios %}
+  <a class="card-modelo sem" href="/modelos/{{ m.cod }}">
+    <div class="cod">{{ m.cod }}</div>
+    <div class="nome">{{ m.descricao }}</div>
+    <div class="nums"><div class="r">nenhuma peça vinculada</div></div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if not modelos %}
+<div class="cartao"><div class="vazio">
+  <div class="ic">🗄️</div>
+  <p>Nenhum modelo cadastrado ainda.<br>Eles entram sozinhos quando você calcula um plano.</p>
+  <a href="/" class="btn">Calcular um plano</a>
+</div></div>
+{% endif %}
+{% endblock %}

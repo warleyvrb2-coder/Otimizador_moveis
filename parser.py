@@ -127,6 +127,68 @@ def _aplicar_continuacao(peca: dict, linha: list[dict]) -> None:
             peca['desc'] += ' ' + w['text']
 
 
+def parse_itens(pdf_path: str) -> list[dict]:
+    """
+    Lê a seção "ITENS DA PRODUÇÃO": os MÓVEIS que este lote vai montar, com
+    acabamento e quantidade. Retorna [{cod, desc, acabamento, qtd}].
+
+    É a outra metade do relatório, que o parser ignorava. Com ela dá pra
+    montar a lista técnica: se o lote produz 100 roupeiros ATLANTA e pede 600
+    rodapés, o móvel leva 6 rodapés cada.
+
+    O acabamento quebra em várias linhas ("CINAMAMO/O" + "FF WHITE" +
+    "ARENAS" são um nome só), então vale a mesma leitura por coordenada usada
+    na tabela de peças.
+    """
+    itens: list[dict] = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            linhas = _linhas_da_pagina(page)
+
+            cabecalho = x_cor = x_qtd = None
+            for linha in linhas:
+                por_texto = {w['text']: w for w in linha}
+                if 'Item' in por_texto and 'Qtde.' in por_texto:
+                    cabecalho = min(w['top'] for w in linha)
+                    x_cor = por_texto['Cor']['x0'] if 'Cor' in por_texto else 360.0
+                    x_qtd = por_texto['Qtde.']['x0']
+                    break
+            if cabecalho is None:
+                continue
+
+            atual = None
+            for linha in linhas:
+                topo = min(w['top'] for w in linha)
+                if topo <= cabecalho + 4:
+                    continue
+                texto = ' '.join(w['text'] for w in linha)
+                if 'PEÇAS DA PRODUÇÃO' in texto or 'Cod./Desc.' in texto:
+                    break
+
+                # a coluna Qtde. é levemente à esquerda do seu cabeçalho em
+                # números de 6 dígitos ("150,00"), por isso a folga
+                col_cor = [w for w in linha if x_cor - 10 <= w['x0'] < x_qtd - 20]
+                col_qtd = [w for w in linha if w['x0'] >= x_qtd - 20 and NUM_RE.match(w['text'])]
+                col_esq = [w for w in linha if w['x0'] < x_cor - 10]
+
+                if col_esq and col_esq[0]['text'].isdigit():
+                    atual = {
+                        'cod': col_esq[0]['text'],
+                        'desc': ' '.join(w['text'] for w in col_esq[1:]).strip(),
+                        'acabamento': ' '.join(w['text'] for w in col_cor).strip(),
+                        'qtd': _to_float(col_qtd[0]['text']) if col_qtd else 0.0,
+                    }
+                    itens.append(atual)
+                elif atual is not None and col_cor and not col_esq:
+                    atual['acabamento'] = (atual['acabamento'] + ' ' +
+                                            ' '.join(w['text'] for w in col_cor)).strip()
+
+    for i in itens:
+        i['desc'] = re.sub(r'\s+', ' ', i['desc']).strip()
+        i['acabamento'] = re.sub(r'\s+', ' ', i['acabamento']).strip()
+    return [i for i in itens if i['qtd'] > 0]
+
+
 def parse_kambam(pdf_path: str, source_name: str | None = None) -> list[dict]:
     """
     Retorna uma lista de peças:
