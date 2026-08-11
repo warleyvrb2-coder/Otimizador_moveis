@@ -72,6 +72,16 @@
     <div><strong>Disco permanente ativo.</strong> O cadastro, os parâmetros e os planos
       sobrevivem às atualizações do sistema.</div>
   </div>
+  {% elif disco.em_nuvem and disco.caminho_diferente and disco.mesmo_disco %}
+  <div class="recado perigo" style="margin-bottom:14px;">
+    <span class="ic">⚠️</span>
+    <div><strong>A variável está certa, mas não há volume montado em
+      <code>{{ disco.caminho }}</code>.</strong>
+      O sistema criou uma pasta comum nesse caminho, dentro do próprio programa — ela
+      some a cada atualização igual antes. No painel da hospedagem, confira se o
+      <em>Mount Path</em> do volume é <strong>exatamente</strong> este caminho.
+      Ele precisa bater caractere por caractere.</div>
+  </div>
   {% elif disco.em_nuvem %}
   <div class="recado perigo" style="margin-bottom:14px;">
     <span class="ic">⚠️</span>
@@ -95,6 +105,11 @@
         <td class="num">
           {% if disco.permanente %}<span class="etiqueta ok">sim</span>
           {% else %}<span class="etiqueta perigo">não</span>{% endif %}</td></tr>
+    <tr><td>Volume montado neste caminho</td>
+        <td class="num">
+          {% if disco.mesmo_disco is none %}<span class="etiqueta">não verificável</span>
+          {% elif disco.mesmo_disco %}<span class="etiqueta perigo">não — é pasta comum</span>
+          {% else %}<span class="etiqueta ok">sim — disco separado</span>{% endif %}</td></tr>
     <tr><td>Cadastro gravado</td>
         <td class="num">{{ '%.0f'|format(disco.banco_kb) }} KB</td></tr>
     <tr><td>Planos guardados</td>

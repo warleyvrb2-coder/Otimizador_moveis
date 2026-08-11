@@ -126,10 +126,24 @@ def diagnostico_armazenamento() -> dict:
     perdido a cada atualização — em silêncio, que é o pior jeito de falhar.
     """
     import shutil
-    permanente = os.path.abspath(DATA_DIR) != os.path.abspath(BASE_DIR)
+    # Comparar caminhos não basta: apontar DATA_DIR pra /data sem volume
+    # montado ali cria só uma pasta comum dentro do container, que some no
+    # próximo deploy do mesmo jeito - e o app diria "permanente" mentindo.
+    # Volume de verdade é outro dispositivo de disco, então comparamos st_dev.
+    mesmo_disco = None
+    try:
+        mesmo_disco = os.stat(DATA_DIR).st_dev == os.stat(BASE_DIR).st_dev
+    except OSError:
+        pass
+    caminho_diferente = os.path.abspath(DATA_DIR) != os.path.abspath(BASE_DIR)
+    # fora da nuvem não faz sentido falar em volume; lá dentro, só é permanente
+    # quando o caminho difere E está num dispositivo separado
+    permanente = caminho_diferente and (mesmo_disco is False)
     info = {
         'caminho': os.path.abspath(DATA_DIR),
         'permanente': permanente,
+        'caminho_diferente': caminho_diferente,
+        'mesmo_disco': mesmo_disco,
         'em_nuvem': EM_NUVEM,
         'banco_kb': (os.path.getsize(banco.DB_PATH) / 1024
                      if os.path.exists(banco.DB_PATH) else 0),
@@ -251,6 +265,7 @@ def pecas_orfas():
     pecas = banco.pecas_sem_modelo(busca)
     return render_template('modelo.html', pagina='modelos', m=None, orfas=True,
                             titulo_pagina='Peças sem modelo', busca=busca, pecas=pecas,
+                            todos_modelos=banco.modelos_para_escolha(),
                             pendentes=sum(1 for p in pecas if not p['confirmado']))
 
 
@@ -260,6 +275,7 @@ def modelo_detalhe(cod):
     pecas = banco.pecas_do_modelo(cod)
     return render_template('modelo.html', pagina='modelos', m=m, orfas=False,
                             titulo_pagina=m['descricao'], pecas=pecas,
+                            todos_modelos=banco.modelos_para_escolha(),
                             pendentes=sum(1 for p in pecas if not p['confirmado']))
 
 
@@ -289,6 +305,26 @@ def modelo_por_unidade():
     if not d.get('modelo') or not d.get('peca') or qtd < 0:
         return jsonify({'ok': False}), 400
     banco.definir_por_unidade(d['modelo'], d['peca'], qtd)
+    return jsonify({'ok': True})
+
+
+@app.route('/modelos/vincular', methods=['POST'])
+def modelo_vincular():
+    """Liga uma peça a um móvel, ou desfaz a ligação."""
+    d = request.get_json(silent=True) or {}
+    modelo_cod, peca_cod = d.get('modelo'), d.get('peca')
+    if not modelo_cod or not peca_cod:
+        return jsonify({'ok': False}), 400
+    if d.get('remover'):
+        banco.remover_vinculo(modelo_cod, peca_cod)
+        return jsonify({'ok': True})
+    try:
+        qtd = float(str(d.get('quantidade', 1)).replace(',', '.'))
+    except ValueError:
+        return jsonify({'ok': False, 'erro': 'quantidade inválida'}), 400
+    if qtd <= 0:
+        return jsonify({'ok': False, 'erro': 'quantidade precisa ser maior que zero'}), 400
+    banco.definir_por_unidade(modelo_cod, peca_cod, qtd)
     return jsonify({'ok': True})
 
 

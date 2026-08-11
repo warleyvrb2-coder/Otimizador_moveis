@@ -28,6 +28,19 @@
   .estado.ok { color:var(--verde); }
   .filtros { display:flex; gap:9px; margin-bottom:14px; }
   .filtros input { flex:1; padding:9px 13px; border:1px solid var(--linha); border-radius:8px; font-size:13.5px; }
+  .vincular { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .vincular select { padding:6px 8px; border:1px solid var(--linha); border-radius:7px;
+                     font-size:12.5px; max-width:210px; }
+  .vincular input { width:46px; padding:6px 8px; border:1px solid var(--linha);
+                    border-radius:7px; font-size:13px; text-align:right; }
+  .vincular .btn-liga { border:1px solid var(--verde); background:var(--verde); color:#fff;
+                        padding:6px 12px; border-radius:7px; font-size:12.5px; cursor:pointer; }
+  .vincular .btn-liga:disabled { background:#fff; color:var(--tinta-3);
+                                  border-color:var(--linha); cursor:not-allowed; }
+  .desliga { background:none; border:none; color:var(--tinta-3); font-size:11px;
+             cursor:pointer; text-decoration:underline; padding:2px 0; }
+  .desliga:hover { color:var(--vermelho); }
+  tr.saindo { opacity:.35; transition:opacity .3s; }
 </style>
 {% endblock %}
 
@@ -70,7 +83,8 @@
     <thead>
       <tr>
         <th>Peça</th><th>Medida</th>
-        {% if not orfas %}<th class="num">Por móvel</th>{% endif %}
+        {% if orfas %}<th style="min-width:250px;">Vincular a um móvel</th>
+        {% else %}<th class="num">Por móvel</th>{% endif %}
         <th>No corte</th><th></th>
       </tr>
     </thead>
@@ -80,7 +94,22 @@
         <td><strong>{{ p.cod }}</strong><br>
             <span style="color:var(--tinta-2); font-size:12px;">{{ p.descricao }}</span></td>
         <td style="white-space:nowrap;">{{ p.comp_mm }} × {{ p.larg_mm }}</td>
-        {% if not orfas %}
+        {% if orfas %}
+        <td>
+          <div class="vincular">
+            <select onchange="prontoParaVincular(this)">
+              <option value="">escolha o móvel...</option>
+              {% for mo in todos_modelos %}
+              <option value="{{ mo.cod }}">{{ mo.descricao }}</option>
+              {% endfor %}
+            </select>
+            <input type="text" inputmode="decimal" value="1" title="quantas por móvel">
+            <span class="un">un</span>
+            <button class="btn-liga" disabled
+                    onclick="vincular('{{ p.cod }}',this)">Vincular</button>
+          </div>
+        </td>
+        {% else %}
         <td>
           <div class="qtd-cel">
             <input type="text" inputmode="decimal" value="{{ p.por_unidade|round|int }}"
@@ -97,8 +126,14 @@
                     onclick="marcar('{{ p.cod }}',0,this)">Fica escondida</button>
           </div>
         </td>
-        <td class="num"><span class="estado {{ 'ok' if p.confirmado }}">
-          {{ 'conferida' if p.confirmado else 'palpite' }}</span></td>
+        <td class="num">
+          <span class="estado {{ 'ok' if p.confirmado }}">
+            {{ 'conferida' if p.confirmado else 'palpite' }}</span>
+          {% if not orfas %}
+          <br><button class="desliga" title="Tirar esta peça deste móvel"
+                      onclick="desvincular('{{ m.cod }}','{{ p.cod }}',this)">desvincular</button>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -135,6 +170,38 @@
     });
     if (r.ok) { ok.classList.add('ver'); setTimeout(()=>ok.classList.remove('ver'), 1400); }
     else { campo.style.borderColor = 'var(--vermelho)'; }
+  }
+  function prontoParaVincular(sel) {
+    sel.parentElement.querySelector('.btn-liga').disabled = !sel.value;
+  }
+  async function vincular(peca, botao) {
+    const cel = botao.parentElement, linha = botao.closest('tr');
+    const modelo = cel.querySelector('select').value;
+    const quantidade = cel.querySelector('input').value;
+    if (!modelo) return;
+    botao.disabled = true; botao.textContent = 'salvando...';
+    const r = await fetch('/modelos/vincular', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({modelo, peca, quantidade})
+    });
+    if (r.ok) {
+      // vinculada deixa de ser órfã: some da lista
+      linha.classList.add('saindo');
+      setTimeout(() => linha.remove(), 320);
+    } else {
+      botao.disabled = false; botao.textContent = 'Vincular';
+      cel.querySelector('input').style.borderColor = 'var(--vermelho)';
+    }
+  }
+  async function desvincular(modelo, peca, botao) {
+    const linha = botao.closest('tr');
+    botao.textContent = 'saindo...';
+    const r = await fetch('/modelos/vincular', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({modelo, peca, remover: true})
+    });
+    if (r.ok) { linha.classList.add('saindo'); setTimeout(() => linha.remove(), 320); }
+    else { botao.textContent = 'erro'; }
   }
   async function marcar(peca, valor, botao) {
     const linha = botao.closest('tr'), estado = linha.querySelector('.estado');

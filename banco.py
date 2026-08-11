@@ -449,6 +449,27 @@ def definir_acabamento_cor(acabamento: str, cor: str, ligado: bool) -> None:
                         (acabamento, cor))
 
 
+def remover_vinculo(modelo_cod: str, peca_cod: str) -> None:
+    """
+    Desfaz a ligação peça↔móvel.
+
+    Necessário porque o vínculo automático erra: nome parecido entre dois
+    móveis pode ligar uma peça no lugar errado, e sem poder desfazer a lista
+    técnica ficaria suja pra sempre.
+    """
+    criar_tabelas()
+    with conectar() as con:
+        con.execute('DELETE FROM modelo_peca WHERE modelo_cod=? AND peca_cod=?',
+                    (modelo_cod, peca_cod))
+
+
+def modelos_para_escolha() -> list[sqlite3.Row]:
+    """Lista enxuta pra alimentar o seletor de vínculo manual."""
+    criar_tabelas()
+    with conectar() as con:
+        return con.execute('SELECT cod, descricao FROM modelo ORDER BY descricao').fetchall()
+
+
 def definir_por_unidade(modelo_cod: str, peca_cod: str, quantidade: float) -> None:
     criar_tabelas()
     with conectar() as con:
