@@ -116,6 +116,35 @@ def planos():
     return render_template('planos.html', pagina='planos', planos=lista)
 
 
+def diagnostico_armazenamento() -> dict:
+    """
+    Onde o app está realmente gravando, e se aquilo sobrevive a um deploy.
+
+    Existe porque "anexei o volume" e "o app está usando o volume" são coisas
+    diferentes: o volume só entra em uso quando DATA_DIR aponta pro caminho de
+    montagem. Sem isso ele fica montado e ocioso, e o cadastro continua sendo
+    perdido a cada atualização — em silêncio, que é o pior jeito de falhar.
+    """
+    import shutil
+    permanente = os.path.abspath(DATA_DIR) != os.path.abspath(BASE_DIR)
+    info = {
+        'caminho': os.path.abspath(DATA_DIR),
+        'permanente': permanente,
+        'em_nuvem': EM_NUVEM,
+        'banco_kb': (os.path.getsize(banco.DB_PATH) / 1024
+                     if os.path.exists(banco.DB_PATH) else 0),
+        'planos': (len(os.listdir(OUTPUT_DIR)) if os.path.isdir(OUTPUT_DIR) else 0),
+        'livre_mb': None, 'total_mb': None,
+    }
+    try:
+        uso = shutil.disk_usage(DATA_DIR)
+        info['livre_mb'] = uso.free / 1024 / 1024
+        info['total_mb'] = uso.total / 1024 / 1024
+    except OSError:
+        pass
+    return info
+
+
 @app.route('/parametros', methods=['GET', 'POST'])
 def parametros():
     erros, salvou = {}, False
@@ -124,7 +153,8 @@ def parametros():
         salvou = not erros
     return render_template('parametros.html', pagina='parametros',
                             campos=banco.PARAMETROS, valores=banco.obter_parametros(),
-                            erros=erros, salvou=salvou)
+                            erros=erros, salvou=salvou,
+                            disco=diagnostico_armazenamento())
 
 
 @app.route('/saude')

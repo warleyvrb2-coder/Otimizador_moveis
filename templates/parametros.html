@@ -63,6 +63,51 @@
 </form>
 
 <div class="cartao">
+  <h2>Armazenamento</h2>
+  <p class="ajuda">Onde o sistema está gravando o cadastro e os planos.</p>
+
+  {% if disco.permanente %}
+  <div class="recado info" style="margin-bottom:14px;">
+    <span class="ic">✓</span>
+    <div><strong>Disco permanente ativo.</strong> O cadastro, os parâmetros e os planos
+      sobrevivem às atualizações do sistema.</div>
+  </div>
+  {% elif disco.em_nuvem %}
+  <div class="recado perigo" style="margin-bottom:14px;">
+    <span class="ic">⚠️</span>
+    <div><strong>Sem disco permanente.</strong> O sistema está gravando dentro do próprio
+      programa, que é refeito a cada atualização — tudo que for cadastrado aqui vai se
+      perder. Se você já anexou um volume na hospedagem, falta apontar a variável
+      <strong>DATA_DIR</strong> para o caminho de montagem dele (algo como
+      <code>/data</code>).</div>
+  </div>
+  {% else %}
+  <div class="recado info" style="margin-bottom:14px;">
+    <span class="ic">ℹ️</span>
+    <div>Rodando na máquina local — os dados ficam na pasta do projeto.</div>
+  </div>
+  {% endif %}
+
+  <table class="dados">
+    <tr><td>Pasta de dados</td>
+        <td class="num"><code>{{ disco.caminho }}</code></td></tr>
+    <tr><td>Sobrevive a atualizações</td>
+        <td class="num">
+          {% if disco.permanente %}<span class="etiqueta ok">sim</span>
+          {% else %}<span class="etiqueta perigo">não</span>{% endif %}</td></tr>
+    <tr><td>Cadastro gravado</td>
+        <td class="num">{{ '%.0f'|format(disco.banco_kb) }} KB</td></tr>
+    <tr><td>Planos guardados</td>
+        <td class="num">{{ disco.planos }}</td></tr>
+    {% if disco.livre_mb %}
+    <tr><td>Espaço livre</td>
+        <td class="num">{{ '%.0f'|format(disco.livre_mb) }} MB
+          de {{ '%.0f'|format(disco.total_mb) }} MB</td></tr>
+    {% endif %}
+  </table>
+</div>
+
+<div class="cartao">
   <h2>O que perguntar na fábrica</h2>
   <p class="ajuda">Se algum destes valores ainda for chute, estas são as perguntas que
     resolvem — na ordem de impacto.</p>
