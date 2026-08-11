@@ -32,6 +32,11 @@
 {% set completos = modelos | selectattr('n_pecas') | list %}
 {% set vazios = modelos | rejectattr('n_pecas') | list %}
 
+<p style="font-size:13px; margin:-6px 0 16px;">
+  <a href="/cadastro/pecas">Ver a lista completa de peças →</a>
+  <span style="color:var(--tinta-2);">&nbsp;· para procurar uma peça por código sem saber o móvel</span>
+</p>
+
 <div class="metricas" style="margin-bottom:20px;">
   <div class="metrica destaque"><div class="rot">Modelos</div><div class="val">{{ modelos|length }}</div></div>
   <div class="metrica"><div class="rot">Com lista técnica</div><div class="val">{{ completos|length }}</div></div>
@@ -69,6 +74,23 @@
     <div class="nums"><div class="r">nenhuma peça vinculada</div></div>
   </a>
   {% endfor %}
+</div>
+{% endif %}
+
+{% if sem_modelo %}
+<h2 style="font-size:14px; margin:26px 0 6px;">Fora dos modelos</h2>
+<p style="color:var(--tinta-2); font-size:13px; margin:0 0 12px;">
+  Peças que o sistema não conseguiu ligar a nenhum móvel. Elas entram no corte
+  normalmente — o que falta é só o vínculo. Vale conferir o veio delas também.
+</p>
+<div class="grade">
+  <a class="card-modelo sem" href="/modelos/sem-modelo">
+    <div class="cod">—</div>
+    <div class="nome">Peças sem modelo</div>
+    <div class="nums">
+      <div><div class="n">{{ sem_modelo }}</div><div class="r">peças a revisar</div></div>
+    </div>
+  </a>
 </div>
 {% endif %}
 

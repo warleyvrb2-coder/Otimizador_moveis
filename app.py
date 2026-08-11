@@ -234,14 +234,33 @@ def cadastro(aba='pecas'):
 @app.route('/modelos')
 def modelos():
     return render_template('modelos.html', pagina='modelos',
-                            modelos=banco.listar_modelos())
+                            modelos=banco.listar_modelos(),
+                            sem_modelo=banco.contar_sem_modelo())
+
+
+@app.route('/modelos/sem-modelo')
+def pecas_orfas():
+    """
+    As peças que não ficaram ligadas a móvel nenhum.
+
+    Precisam de um lugar próprio: são a maioria hoje, e sem esta tela sairiam
+    do alcance quando o cadastro de peças virou parte dos modelos. Peça que
+    ninguém confere é tratada como aparente, o que gasta chapa a mais.
+    """
+    busca = request.args.get('busca', '').strip()
+    pecas = banco.pecas_sem_modelo(busca)
+    return render_template('modelo.html', pagina='modelos', m=None, orfas=True,
+                            titulo_pagina='Peças sem modelo', busca=busca, pecas=pecas,
+                            pendentes=sum(1 for p in pecas if not p['confirmado']))
 
 
 @app.route('/modelos/<cod>')
 def modelo_detalhe(cod):
     m = banco.modelo(cod) or abort(404)
-    return render_template('modelo.html', pagina='modelos', m=m,
-                            pecas=banco.pecas_do_modelo(cod))
+    pecas = banco.pecas_do_modelo(cod)
+    return render_template('modelo.html', pagina='modelos', m=m, orfas=False,
+                            titulo_pagina=m['descricao'], pecas=pecas,
+                            pendentes=sum(1 for p in pecas if not p['confirmado']))
 
 
 @app.route('/acabamentos')

@@ -179,6 +179,7 @@ def obter_parametros() -> dict:
 
 def salvar_parametros(valores: dict) -> dict:
     """Grava só o que for número válido e estiver dentro de um limite sensato."""
+    criar_tabelas()
     limites = {'chapa_larg': (500, 6000), 'chapa_alt': (500, 3000), 'kerf': (0, 15),
                'pilha_max': (15, 400), 'estagios': (2, 3), 'tempo_grupo': (5, 600)}
     erros = {}
@@ -208,6 +209,7 @@ def importar(pecas: list[dict]) -> dict:
     Kamban novo não vai desmarcar. Só atualiza a medida e a data, que servem
     pra você reconhecer a peça na tela.
     """
+    criar_tabelas()
     agora = datetime.now(timezone.utc).isoformat(timespec='seconds')
     novas_pecas = novas_cores = 0
     with conectar() as con:
@@ -312,6 +314,7 @@ def importar_modelos(itens: list[dict], pecas: list[dict]) -> dict:
 
     Não sobrescreve lista técnica que você já confirmou na tela.
     """
+    criar_tabelas()
     agora = datetime.now(timezone.utc).isoformat(timespec='seconds')
 
     # quantidade total por modelo e os acabamentos vistos
@@ -387,6 +390,35 @@ def pecas_do_modelo(cod: str) -> list[sqlite3.Row]:
              WHERE mp.modelo_cod = ?
              ORDER BY mp.por_unidade DESC, p.descricao
         """, (cod,)).fetchall()
+
+
+def pecas_sem_modelo(busca: str = '') -> list[sqlite3.Row]:
+    """
+    Peças que não ficaram ligadas a móvel nenhum.
+
+    Elas existem em quantidade: descrição truncada no relatório, ou modelo de
+    nome ambíguo demais pra vincular sem risco. Precisam de um lugar próprio,
+    senão sairiam da tela junto com a lista de peças e nunca teriam o veio
+    conferido - e peça não conferida é tratada como aparente, gastando chapa.
+    """
+    criar_tabelas()
+    sql = """SELECT p.* FROM peca p
+              WHERE NOT EXISTS (SELECT 1 FROM modelo_peca mp WHERE mp.peca_cod = p.cod)"""
+    args = []
+    if busca:
+        sql += ' AND (p.cod LIKE ? OR p.descricao LIKE ?)'
+        args += [f'%{busca}%', f'%{busca.upper()}%']
+    sql += ' ORDER BY p.confirmado, p.descricao'
+    with conectar() as con:
+        return con.execute(sql, args).fetchall()
+
+
+def contar_sem_modelo() -> int:
+    criar_tabelas()
+    with conectar() as con:
+        return con.execute("""SELECT COUNT(*) n FROM peca p WHERE NOT EXISTS
+                              (SELECT 1 FROM modelo_peca mp WHERE mp.peca_cod = p.cod)"""
+                            ).fetchone()['n']
 
 
 def modelo(cod: str) -> sqlite3.Row | None:

@@ -1,67 +1,104 @@
 {% extends "base.html" %}
-{% block titulo %}{{ m.descricao }}{% endblock %}
-{% block cabecalho %}{{ m.descricao }}{% endblock %}
-{% block subcabecalho %}Código {{ m.cod }} · lista técnica{% endblock %}
+{% block titulo %}{{ titulo_pagina }}{% endblock %}
+{% block cabecalho %}{{ titulo_pagina }}{% endblock %}
+{% block subcabecalho %}
+  {% if orfas %}Peças que não ficaram ligadas a nenhum móvel
+  {% else %}Código {{ m.cod }} · lista técnica e opções de corte{% endif %}
+{% endblock %}
 {% block acoes %}<a href="/modelos" class="btn secundario">← Todos os modelos</a>{% endblock %}
 
 {% block estilo %}
 <style>
-  .qtd-cel { display:flex; align-items:center; gap:6px; }
-  .qtd-cel input { width:62px; padding:6px 8px; border:1px solid var(--linha); border-radius:7px;
+  .qtd-cel { display:flex; align-items:center; gap:5px; }
+  .qtd-cel input { width:56px; padding:6px 8px; border:1px solid var(--linha); border-radius:7px;
                    font-size:13.5px; text-align:right; font-variant-numeric:tabular-nums; }
   .qtd-cel input:focus { outline:2px solid var(--verde-claro); border-color:var(--verde); }
   .qtd-cel .un { color:var(--tinta-3); font-size:11.5px; }
   .qtd-cel .ok { color:var(--verde); font-size:12px; opacity:0; transition:opacity .2s; }
   .qtd-cel .ok.ver { opacity:1; }
-  .marca-veio { font-size:11.5px; padding:2px 8px; border-radius:99px; white-space:nowrap; }
-  .marca-veio.vista { background:var(--verde-claro); color:var(--verde-escuro); }
-  .marca-veio.oculta { background:var(--azul-claro); color:var(--azul); }
+  .grupo-btn { display:inline-flex; border:1px solid var(--linha); border-radius:8px; overflow:hidden; }
+  .grupo-btn button { border:none; background:#fff; padding:7px 12px; font-size:12px;
+                      cursor:pointer; color:var(--tinta-2); white-space:nowrap; }
+  .grupo-btn button + button { border-left:1px solid var(--linha); }
+  .grupo-btn button:hover { background:var(--fundo); }
+  .grupo-btn button.on { background:var(--verde); color:#fff; font-weight:650; }
+  .grupo-btn button.on.alt { background:var(--azul); }
+  tr.pendente td:first-child { box-shadow:inset 3px 0 0 var(--ambar); }
+  .estado { font-size:11.5px; color:var(--ambar); white-space:nowrap; }
+  .estado.ok { color:var(--verde); }
+  .filtros { display:flex; gap:9px; margin-bottom:14px; }
+  .filtros input { flex:1; padding:9px 13px; border:1px solid var(--linha); border-radius:8px; font-size:13.5px; }
 </style>
 {% endblock %}
 
 {% block conteudo %}
+{% if orfas %}
+<div class="recado atencao">
+  <span class="ic">⚠️</span>
+  <div>Estas peças não puderam ser ligadas a um móvel automaticamente — ou a descrição
+    vem cortada no relatório e não cita o modelo, ou o nome do móvel é genérico demais
+    para distinguir de outro parecido. <strong>Elas continuam entrando no corte
+    normalmente</strong>; o que falta é só o vínculo com o móvel. Vale conferir o veio
+    delas aqui mesmo.</div>
+</div>
+<div class="filtros">
+  <input type="search" id="busca" placeholder="Buscar por código ou nome..."
+         value="{{ busca }}" onkeydown="if(event.key==='Enter')buscar()">
+</div>
+{% endif %}
+
 {% if pecas %}
 <div class="metricas" style="margin-bottom:18px;">
+  {% if not orfas %}
   <div class="metrica destaque">
     <div class="rot">Peças por móvel</div>
     <div class="val">{{ pecas|sum(attribute='por_unidade')|round|int }}</div>
   </div>
+  {% endif %}
   <div class="metrica"><div class="rot">Tipos de peça</div><div class="val">{{ pecas|length }}</div></div>
   <div class="metrica">
-    <div class="rot">Ficam à vista</div>
+    <div class="rot">Seguem o veio</div>
     <div class="val">{{ pecas|selectattr('aparente')|list|length }}</div>
+  </div>
+  <div class="metrica {{ 'alerta' if pendentes }}">
+    <div class="rot">A conferir</div><div class="val">{{ pendentes }}</div>
   </div>
 </div>
 
 <div class="cartao" style="padding:0;">
   <table class="dados">
     <thead>
-      <tr><th>Peça</th><th>Medida</th><th class="num">Por móvel</th>
-          <th>No corte</th><th>Situação</th></tr>
+      <tr>
+        <th>Peça</th><th>Medida</th>
+        {% if not orfas %}<th class="num">Por móvel</th>{% endif %}
+        <th>No corte</th><th></th>
+      </tr>
     </thead>
     <tbody>
       {% for p in pecas %}
-      <tr>
+      <tr class="{{ 'pendente' if not p.confirmado }}">
         <td><strong>{{ p.cod }}</strong><br>
             <span style="color:var(--tinta-2); font-size:12px;">{{ p.descricao }}</span></td>
         <td style="white-space:nowrap;">{{ p.comp_mm }} × {{ p.larg_mm }}</td>
+        {% if not orfas %}
         <td>
           <div class="qtd-cel">
             <input type="text" inputmode="decimal" value="{{ p.por_unidade|round|int }}"
-                   onchange="salvar('{{ m.cod }}','{{ p.cod }}',this)">
-            <span class="un">un</span>
-            <span class="ok">✓</span>
+                   onchange="salvarQtd('{{ m.cod }}','{{ p.cod }}',this)">
+            <span class="un">un</span><span class="ok">✓</span>
           </div>
         </td>
+        {% endif %}
         <td>
-          <span class="marca-veio {{ 'vista' if p.aparente else 'oculta' }}">
-            {{ 'segue o veio' if p.aparente else 'pode girar' }}
-          </span>
+          <div class="grupo-btn">
+            <button class="{{ 'on' if p.aparente }}"
+                    onclick="marcar('{{ p.cod }}',1,this)">Fica à vista</button>
+            <button class="alt {{ 'on' if not p.aparente }}"
+                    onclick="marcar('{{ p.cod }}',0,this)">Fica escondida</button>
+          </div>
         </td>
-        <td style="font-size:12px; color:var(--tinta-2);">
-          {{ 'conferida' if p.confirmado else 'palpite' }}
-          {% if not p.vinculo_confirmado %} · vínculo automático{% endif %}
-        </td>
+        <td class="num"><span class="estado {{ 'ok' if p.confirmado }}">
+          {{ 'conferida' if p.confirmado else 'palpite' }}</span></td>
       </tr>
       {% endfor %}
     </tbody>
@@ -69,31 +106,28 @@
 </div>
 
 <p style="color:var(--tinta-2); font-size:12.5px;">
-  A coluna <strong>No corte</strong> vem do
-  <a href="/cadastro/pecas">cadastro de peças</a> e vale para todos os móveis que usam
-  aquela peça — não é específica deste modelo.
+  <strong>Fica à vista</strong> = precisa sair com o desenho da madeira no sentido certo.
+  <strong>Fica escondida</strong> = pode ser virada na chapa para aproveitar melhor o
+  material. A marcação vale para a peça em todos os móveis que a usam.
 </p>
 
 {% else %}
 <div class="recado atencao">
   <span class="ic">⚠️</span>
-  <div><strong>Nenhuma peça vinculada a este móvel.</strong> Acontece quando a descrição
-    da peça vem cortada no relatório e não cita o modelo, ou quando o nome do móvel é
-    genérico demais para distinguir de outro parecido. Nesse caso o sistema prefere não
-    vincular a vincular errado.</div>
+  <div><strong>Nenhuma peça vinculada a este móvel.</strong> A descrição das peças vem
+    cortada no relatório, ou o nome deste móvel é genérico demais para distinguir de
+    outro parecido — nesse caso o sistema prefere não vincular a vincular errado.
+    As peças estão em <a href="/modelos/sem-modelo">peças sem modelo</a>.</div>
 </div>
-<div class="cartao"><div class="vazio">
-  <div class="ic">🔍</div>
-  <p>Para preencher, encontre as peças deste móvel no cadastro<br>
-     e volte aqui quando o vínculo manual estiver disponível.</p>
-  <a href="/cadastro/pecas" class="btn secundario">Ver todas as peças</a>
-</div></div>
 {% endif %}
 {% endblock %}
 
 {% block script %}
 <script>
-  async function salvar(modelo, peca, campo) {
+  function buscar() {
+    location.href = '/modelos/sem-modelo?busca=' + encodeURIComponent(document.getElementById('busca').value);
+  }
+  async function salvarQtd(modelo, peca, campo) {
     const ok = campo.parentElement.querySelector('.ok');
     const r = await fetch('/modelos/por-unidade', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -101,6 +135,20 @@
     });
     if (r.ok) { ok.classList.add('ver'); setTimeout(()=>ok.classList.remove('ver'), 1400); }
     else { campo.style.borderColor = 'var(--vermelho)'; }
+  }
+  async function marcar(peca, valor, botao) {
+    const linha = botao.closest('tr'), estado = linha.querySelector('.estado');
+    linha.querySelectorAll('.grupo-btn button').forEach(b => b.classList.remove('on'));
+    botao.classList.add('on');
+    estado.textContent = 'salvando'; estado.classList.remove('ok');
+    const r = await fetch('/cadastro/marcar', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tipo:'peca', id:peca, valor})
+    });
+    if (r.ok) {
+      estado.textContent = 'conferida'; estado.classList.add('ok');
+      linha.classList.remove('pendente');
+    } else { estado.textContent = 'erro'; estado.style.color = 'var(--vermelho)'; }
   }
 </script>
 {% endblock %}
