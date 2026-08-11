@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadastro de peças e cores</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f5f2;
+         margin:0; color:#2a2a2a; }
+  .wrap { max-width: 900px; margin: 32px auto; padding: 0 18px 60px; }
+  a.voltar { color:#2a6f4d; text-decoration:none; font-size:14px; }
+  h1 { font-size:22px; margin:8px 0 4px; }
+  .explica { background:#fff; border-radius:10px; padding:18px 20px; margin:18px 0 24px;
+             font-size:14px; line-height:1.6; color:#555; }
+  .explica strong { color:#2a2a2a; }
+  .abas { display:flex; gap:8px; margin-bottom:18px; }
+  .abas a { padding:9px 18px; border-radius:8px; text-decoration:none; font-size:14px;
+            background:#eceae4; color:#555; }
+  .abas a.ativa { background:#2a6f4d; color:#fff; font-weight:600; }
+  .barra-topo { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+  input[type=search] { flex:1; min-width:200px; padding:10px 14px; border-radius:8px;
+                       border:1px solid #d8d3c6; font-size:14px; }
+  .contador { font-size:13px; color:#777; }
+  .aviso { background:#fff8e6; border:1px solid #f0dfb5; color:#7a5a1c; padding:12px 16px;
+           border-radius:8px; font-size:13px; margin-bottom:16px; line-height:1.5; }
+  .linha { background:#fff; border-radius:10px; padding:14px 16px; margin-bottom:8px;
+           display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  .linha.pendente { border-left:4px solid #e8c46a; }
+  .info { flex:1; min-width:220px; }
+  .info .cod { font-weight:600; font-size:15px; }
+  .info .desc { color:#666; font-size:13px; margin-top:2px; }
+  .info .med { color:#aaa; font-size:12px; margin-top:2px; }
+  .escolha { display:flex; gap:6px; flex:none; }
+  .escolha button { border:1px solid #d8d3c6; background:#fff; color:#666; cursor:pointer;
+                    padding:9px 14px; font-size:13px; border-radius:8px; }
+  .escolha button:hover { border-color:#2a6f4d; }
+  .escolha button.on { background:#2a6f4d; border-color:#2a6f4d; color:#fff; font-weight:600; }
+  .escolha button.on.livre { background:#4a7fb5; border-color:#4a7fb5; }
+  .selo { font-size:11px; color:#b58a2a; flex:none; width:64px; text-align:right; }
+  .selo.ok { color:#2a6f4d; }
+  .vazio { background:#fff; border-radius:10px; padding:40px; text-align:center; color:#777; }
+  form.importar { display:inline; }
+  .btn { background:#2a6f4d; color:#fff; border:none; padding:10px 18px; border-radius:8px;
+         font-size:14px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="voltar" href="/">← voltar para o otimizador</a>
+  <h1>Cadastro</h1>
+
+  <div class="abas">
+    <a href="/cadastro/pecas" class="{{ 'ativa' if aba == 'pecas' }}">Peças ({{ res.pecas }})</a>
+    <a href="/cadastro/cores" class="{{ 'ativa' if aba == 'cores' }}">Cores ({{ res.cores }})</a>
+  </div>
+
+  {% if aba == 'pecas' %}
+  <div class="explica">
+    Aqui você diz <strong>quais peças ficam à vista</strong> no móvel montado.<br><br>
+    Peça <strong>aparente</strong> (porta, lateral, tampo, frente de gaveta) tem que ser
+    cortada com o desenho da madeira no sentido certo, senão o móvel sai com o
+    veio atravessado. Peça <strong>escondida</strong> (prateleira, divisória, suporte)
+    ninguém vê depois de montado, então ela pode ser virada na chapa para
+    aproveitar melhor o material.<br><br>
+    O sistema já deu um palpite pelo nome de cada peça. As marcadas em
+    <strong style="color:#b58a2a;">amarelo</strong> ainda não foram conferidas por você.
+  </div>
+  {% else %}
+  <div class="explica">
+    Aqui você diz <strong>quais chapas têm desenho de madeira</strong>.<br><br>
+    Chapa <strong>amadeirada</strong> tem o desenho correndo num sentido só, então
+    as peças aparentes precisam respeitar essa direção. Chapa <strong>lisa</strong>
+    (branco, cores sólidas) não tem desenho nenhum — nela qualquer peça pode
+    ser virada, e o aproveitamento fica melhor.
+  </div>
+  {% endif %}
+
+  {% if efemero %}
+  <div class="aviso" style="background:#fbe9e7; border-color:#f0c0b5; color:#a13a2a;">
+    <strong>⚠️ Este cadastro vai se perder.</strong>
+    O app está publicado sem disco permanente, então tudo que você marcar aqui
+    some na próxima atualização do sistema. Antes de conferir as peças uma a uma,
+    peça para anexar um <strong>volume</strong> na hospedagem e apontar a variável
+    <strong>DATA_DIR</strong> para ele.
+  </div>
+  {% endif %}
+
+  {% if res.pecas == 0 and aba == 'pecas' %}
+  <div class="aviso">
+    O cadastro está vazio. Ele se preenche sozinho quando você processa um
+    Kamban no otimizador — ou clique aqui para trazer as peças dos últimos
+    arquivos enviados.
+  </div>
+  {% endif %}
+
+  <div class="barra-topo">
+    {% if aba == 'pecas' %}
+    <input type="search" id="busca" placeholder="Buscar por código ou nome da peça..."
+           value="{{ busca }}" onkeydown="if(event.key==='Enter')buscar()">
+    <span class="contador">{{ res.pecas_confirmadas }} de {{ res.pecas }} conferidas</span>
+    {% else %}
+    <span class="contador">{{ res.cores_confirmadas }} de {{ res.cores }} conferidas</span>
+    {% endif %}
+  </div>
+
+  {% if aba == 'pecas' %}
+    {% for p in itens %}
+    <div class="linha {{ 'pendente' if not p.confirmado }}">
+      <div class="info">
+        <div class="cod">{{ p.cod }}</div>
+        <div class="desc">{{ p.descricao }}</div>
+        <div class="med">{{ p.comp_mm }} × {{ p.larg_mm }} mm</div>
+      </div>
+      <div class="escolha">
+        <button class="{{ 'on' if p.aparente }}"
+                onclick="marcar('peca','{{ p.cod }}',1,this)">Fica à vista</button>
+        <button class="livre {{ 'on' if not p.aparente }}"
+                onclick="marcar('peca','{{ p.cod }}',0,this)">Fica escondida</button>
+      </div>
+      <div class="selo {{ 'ok' if p.confirmado }}">{{ 'conferido' if p.confirmado else 'palpite' }}</div>
+    </div>
+    {% else %}
+    <div class="vazio">Nenhuma peça cadastrada ainda.</div>
+    {% endfor %}
+  {% else %}
+    {% for c in itens %}
+    <div class="linha {{ 'pendente' if not c.confirmado }}">
+      <div class="info"><div class="cod">{{ c.nome }}</div></div>
+      <div class="escolha">
+        <button class="{{ 'on' if c.amadeirada }}"
+                onclick="marcar('cor','{{ c.nome }}',1,this)">Tem desenho de madeira</button>
+        <button class="livre {{ 'on' if not c.amadeirada }}"
+                onclick="marcar('cor','{{ c.nome }}',0,this)">É lisa</button>
+      </div>
+      <div class="selo {{ 'ok' if c.confirmado }}">{{ 'conferido' if c.confirmado else 'palpite' }}</div>
+    </div>
+    {% else %}
+    <div class="vazio">Nenhuma cor cadastrada ainda.</div>
+    {% endfor %}
+  {% endif %}
+</div>
+
+<script>
+  function buscar() {
+    location.href = '/cadastro/pecas?busca=' + encodeURIComponent(document.getElementById('busca').value);
+  }
+  async function marcar(tipo, id, valor, botao) {
+    const linha = botao.closest('.linha');
+    linha.querySelectorAll('.escolha button').forEach(b => b.classList.remove('on'));
+    botao.classList.add('on');
+    const selo = linha.querySelector('.selo');
+    selo.textContent = 'salvando...'; selo.classList.remove('ok');
+    try {
+      const r = await fetch('/cadastro/marcar', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({tipo, id, valor})
+      });
+      if (!r.ok) throw new Error();
+      selo.textContent = 'conferido'; selo.classList.add('ok');
+      linha.classList.remove('pendente');
+    } catch (e) {
+      selo.textContent = 'erro'; selo.style.color = '#a13a2a';
+    }
+  }
+</script>
+</body>
+</html>

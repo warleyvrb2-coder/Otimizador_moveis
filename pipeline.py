@@ -10,6 +10,7 @@ sem subir servidor.
 import os
 from collections import defaultdict
 
+import banco
 from parser import parse_kambam, file_hash
 from optimizer import PieceType
 from column_generation import optimize_group_cg
@@ -34,23 +35,19 @@ PILHA_MAX_MM = float(os.environ.get('PILHA_MAX_MM', 105))
 # 3 = permite um corte de aparo pra tirar a sobra da faixa (padrão de fábrica)
 ESTAGIOS = int(os.environ.get('ESTAGIOS', 3))
 
-# Cores lisas, sem desenho direcional: a peça pode girar livremente mesmo
-# com o veio ligado. Qualquer cor fora desta lista é tratada como AMADEIRADA.
-# O default é o lado conservador de propósito: separar demais custa material,
-# girar peça de padrão madeirado custa a peça inteira.
-#
-# Isto aqui é provisório: na próxima fase vira cadastro no banco, peça a peça,
-# porque "a cor tem veio" é uma aproximação — dentro da mesma cor existe peça
-# interna, que ninguém vê, e poderia girar à vontade.
-CORES_SEM_VEIO = {c.strip().upper() for c in
-                  os.environ.get('CORES_SEM_VEIO', 'OFF WHITE 1').split(';') if c.strip()}
+def tem_veio(cor: str, respeitar: bool = True, cores: dict | None = None) -> bool:
+    """
+    A chapa dessa cor tem desenho direcional?
 
-
-def tem_veio(cor: str, respeitar: bool = True) -> bool:
-    """A peça dessa cor precisa sair com o veio no comprimento da chapa?"""
+    Vem do cadastro (banco.py). Cor que ainda não foi cadastrada é tratada
+    como amadeirada — o lado conservador: assumir liso por engano manda peça
+    aparente sair com o veio atravessado.
+    """
     if not respeitar:
         return False
-    return cor.strip().upper() not in CORES_SEM_VEIO
+    if cores is None:
+        _, cores = banco.regras()
+    return cores.get((cor or '').strip().upper(), True)
 
 
 def ratear_por_lote(padroes: list, tipos_dict: dict, ordem_lotes: list) -> list[dict]:
@@ -122,12 +119,19 @@ def agrupar(todas_pecas: list, respeitar_veio: bool) -> dict:
     Guardamos a demanda POR LOTE, não só o total: sem isso não dá pra dizer ao
     operador quantas peças de cada chapa vão pra cada Kambam, e as peças saem
     da máquina numa pilha só, sem destino.
+
+    A rotação de cada peça sai do cruzamento do cadastro: a cor precisa ter
+    desenho direcional E a peça precisa ficar aparente pra que girar seja
+    proibido. Prateleira em chapa amadeirada gira; porta em chapa lisa gira.
     """
+    regras_pecas, regras_cores = banco.regras()
     grupos = defaultdict(dict)
     for p in todas_pecas:
         cor, esp = p['cor'], p['esp_mm']
         chave = f"{p['cod']}_{int(p['comp_mm'])}x{int(p['larg_mm'])}"
         qtd = int(round(p['qtd']))
+        gira = True if not respeitar_veio else \
+            banco.pode_girar(p['cod'], cor, regras_pecas, regras_cores)
         d = grupos[(cor, esp)]
         if chave in d:
             d[chave].qty_total += qtd
@@ -138,7 +142,7 @@ def agrupar(todas_pecas: list, respeitar_veio: bool) -> dict:
                 key=chave, cod=p['cod'], desc=p['desc'],
                 w=int(round(p['comp_mm'])), h=int(round(p['larg_mm'])),
                 qty_total=qtd, origem=[p['origem']],
-                pode_girar=not tem_veio(cor, respeitar_veio),
+                pode_girar=gira,
             )
         d[chave].demanda_por_lote[p['origem']] = \
             d[chave].demanda_por_lote.get(p['origem'], 0) + qtd
@@ -164,6 +168,11 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         return {'erro': ('Não consegui extrair nenhuma peça dos PDFs enviados. '
                           'Verifique se o formato bate com o padrão do relatório Kambam.'),
                 'kambans_info': kambans_info}
+
+    # Todo Kamban processado alimenta o cadastro: peça nova entra com o palpite
+    # automático, peça já conferida por você não é mexida.
+    banco.criar_tabelas()
+    importado = banco.importar(todas_pecas)
 
     grupos = agrupar(todas_pecas, respeitar_veio)
     ordem_lotes = [k['arquivo'] for k in kambans_info if not k.get('duplicado_de')]
@@ -235,4 +244,6 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         'estagios': ESTAGIOS,
         'respeitar_veio': respeitar_veio,
         'total_chapas': sum(g['n_chapas'] for g in grupos_resultado),
+        'importado': importado,
+        'cadastro': banco.resumo(),
     }

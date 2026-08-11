@@ -7,3 +7,7 @@ static/resultados/*
 *.log
 .venv/
 venv/
+
+# banco do cadastro (dados locais, nao versionar)
+*.db
+*.sqlite3

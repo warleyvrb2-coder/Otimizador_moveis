@@ -22,6 +22,7 @@ from flask import (Flask, request, render_template, redirect, url_for,
                    jsonify, abort, Response)
 from werkzeug.utils import secure_filename
 
+import banco
 import jobs
 import pipeline
 
@@ -118,6 +119,34 @@ def acompanhar(job_id):
 def progresso(job_id):
     job = jobs.obter(job_id) or abort(404)
     return jsonify(job.como_json())
+
+
+@app.route('/cadastro/')
+@app.route('/cadastro/<aba>')
+def cadastro(aba='pecas'):
+    if aba not in ('pecas', 'cores'):
+        abort(404)
+    banco.criar_tabelas()
+    busca = request.args.get('busca', '').strip()
+    itens = banco.listar_pecas(busca) if aba == 'pecas' else banco.listar_cores()
+    # Publicado sem volume, o banco vive no disco efêmero e some no próximo
+    # deploy. Quem conferir 125 peças precisa saber disso ANTES, não depois.
+    efemero = EM_NUVEM and os.path.abspath(banco.DB_PATH).startswith(os.path.abspath(BASE_DIR))
+    return render_template('cadastro.html', aba=aba, itens=itens, busca=busca,
+                            res=banco.resumo(), efemero=efemero)
+
+
+@app.route('/cadastro/marcar', methods=['POST'])
+def cadastro_marcar():
+    dados = request.get_json(silent=True) or {}
+    tipo, ident, valor = dados.get('tipo'), dados.get('id'), bool(dados.get('valor'))
+    if tipo == 'peca' and ident:
+        banco.definir_peca(str(ident), valor)
+    elif tipo == 'cor' and ident:
+        banco.definir_cor(str(ident), valor)
+    else:
+        return jsonify({'ok': False}), 400
+    return jsonify({'ok': True})
 
 
 @app.route('/resultado/<job_id>')

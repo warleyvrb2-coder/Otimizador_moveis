@@ -37,8 +37,8 @@ Variáveis de ambiente:
 | `KERF_MM` | espessura do disco da seccionadora | 4.4 |
 | `PILHA_MAX_MM` | altura máxima da pilha no corte múltiplo | 105 |
 | `ESTAGIOS` | 2 = estrito, 3 = 2 estágios + aparo | 3 |
-| `CORES_SEM_VEIO` | cores lisas, separadas por `;` | `OFF WHITE 1` |
-| `DATA_DIR` | onde gravar uploads (aponte pro volume) | pasta do projeto |
+| `DATA_DIR` | onde gravar uploads e o cadastro (**aponte pro volume**) | pasta do projeto |
+| `DB_PATH` | caminho do SQLite, se quiser fora do `DATA_DIR` | `DATA_DIR/cadastro.db` |
 
 Dois pontos que NÃO são detalhe:
 
@@ -46,8 +46,31 @@ Dois pontos que NÃO são detalhe:
   cálculos em andamento vive na memória do processo (`jobs.py`). Com dois
   workers, o navegador pergunta o progresso pra um processo que não tem o
   job e recebe 404.
-- **Disco efêmero.** Sem volume, os PNGs gerados somem no próximo deploy.
-  Planos antigos param de abrir. Quem quiser guardar, imprime ou salva.
+- **Disco efêmero.** Sem volume, os PNGs gerados E o cadastro somem no próximo
+  deploy. Anexe um volume no Railway e aponte `DATA_DIR` pra ele antes de
+  alguém conferir as peças uma a uma — o app avisa na tela quando detecta essa
+  situação, mas é melhor resolver antes.
+
+## Cadastro (banco.py)
+
+Duas perguntas independentes decidem se uma peça pode ser girada na chapa:
+
+1. **A cor tem desenho direcional?** (amadeirada x lisa)
+2. **A peça fica aparente no móvel montado?**
+
+Girar só é proibido quando as duas respostas são "sim". Prateleira em chapa
+amadeirada gira (ninguém vê); porta em chapa branca lisa gira (não há desenho
+pra sair torto). Modelar separado é o que permite recuperar material sem
+arriscar peça aparente — no `CAST FF 2 L` a diferença medida entre girar e não
+girar foi de **62 chapas num lote só**.
+
+O cadastro se preenche sozinho: todo Kamban processado traz as peças e cores
+novas com um palpite pelo nome (`VISTA`, `PORTA`, `LATERAL`, `TAMPO` → aparente;
+`PRATELEIRA`, `DIVISÃO`, `SUPORTE` → escondida). Descrição composta cai no lado
+conservador. Peça já conferida na tela **nunca** é sobrescrita por importação.
+
+Sem cadastro, tudo é tratado como amadeirado e aparente — que é o pior
+aproveitamento e o menor risco.
 
 Abra http://localhost:5000 no navegador, suba o(s) PDF(s) do Kambam e
 clique em "Otimizar corte".
