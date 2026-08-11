@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>Calculando o plano de corte</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f5f2;
+         margin:0; color:#2a2a2a; display:flex; align-items:center; justify-content:center;
+         min-height:100vh; }
+  .caixa { background:#fff; padding:40px; border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,.06);
+           max-width:460px; width:90%; text-align:center; }
+  h1 { font-size:19px; margin:0 0 6px; }
+  .barra { height:8px; background:#eceae4; border-radius:99px; overflow:hidden; margin:22px 0 10px; }
+  .barra div { height:100%; background:#2a6f4d; width:0; transition:width .4s ease; border-radius:99px; }
+  #texto { color:#666; font-size:14px; min-height:20px; }
+  #tempo { color:#999; font-size:13px; margin-top:14px; font-variant-numeric:tabular-nums; }
+  .nota { color:#999; font-size:12px; margin-top:22px; line-height:1.5; }
+  .falhou { background:#fbe9e7; color:#a13a2a; padding:14px; border-radius:8px;
+            font-size:13px; text-align:left; margin-top:16px; }
+  a { color:#2a6f4d; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="caixa">
+  <h1>🪚 Calculando o plano de corte</h1>
+  <div class="barra"><div id="preencher"></div></div>
+  <div id="texto">{{ job.texto }}</div>
+  <div id="tempo">00:00</div>
+  <div id="falha"></div>
+  <div class="nota">
+    Pode levar alguns minutos em lotes grandes — o cálculo roda no servidor,
+    então você pode fechar esta aba e voltar depois neste mesmo endereço.
+  </div>
+</div>
+
+<script>
+  const inicio = Date.now();
+  setInterval(() => {
+    const s = Math.floor((Date.now() - inicio) / 1000);
+    document.getElementById('tempo').textContent =
+      String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }, 500);
+
+  async function verificar() {
+    try {
+      const r = await fetch('/progresso/{{ job.id }}');
+      if (!r.ok) return;
+      const j = await r.json();
+      document.getElementById('preencher').style.width = j.pct + '%';
+      document.getElementById('texto').textContent = j.texto;
+      if (j.estado === 'pronto') { location.href = '/resultado/{{ job.id }}'; return; }
+      if (j.estado === 'erro') {
+        document.getElementById('falha').innerHTML =
+          '<div class="falhou"><strong>O cálculo falhou.</strong><br>' + j.erro +
+          '</div><p><a href="/">← tentar de novo</a></p>';
+        return;
+      }
+    } catch (e) { /* rede oscilou, tenta de novo no próximo ciclo */ }
+    setTimeout(verificar, 1500);
+  }
+  verificar();
+</script>
+</body>
+</html>

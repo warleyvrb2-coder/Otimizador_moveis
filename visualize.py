@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
 """Gera uma imagem PNG do layout de corte de uma chapa."""
+import os
+import tempfile
+
+# Em hospedagem o HOME costuma ser somente leitura, e aí o matplotlib
+# reclama (ou falha) ao montar o cache de fontes. Apontar pra um diretório
+# temporário resolve. Precisa vir ANTES do import do matplotlib.
+os.environ.setdefault('MPLCONFIGDIR', os.path.join(tempfile.gettempdir(), 'mpl'))
+os.makedirs(os.environ['MPLCONFIGDIR'], exist_ok=True)
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -15,11 +24,21 @@ def _color_for(cod: str):
     return (r, g, b)
 
 
-def render_sheet(sheet, sheet_w_mm: int, sheet_h_mm: int, out_path: str, titulo: str = ''):
+def render_sheet(sheet, sheet_w_mm: int, sheet_h_mm: int, out_path: str, titulo: str = '',
+                 veio: bool = False):
     fig, ax = plt.subplots(figsize=(11, 11 * sheet_h_mm / sheet_w_mm))
 
     ax.add_patch(patches.Rectangle((0, 0), sheet_w_mm, sheet_h_mm,
                                     facecolor='#f4f1ea', edgecolor='#333', linewidth=2))
+
+    # O veio corre no comprimento da chapa. Desenhar isso não é enfeite: se
+    # uma peça foi cadastrada com comprimento e largura trocados no Agrosys,
+    # o otimizador não tem como perceber (pra ele são dois números), mas o
+    # operador percebe na hora que vê o traço atravessado.
+    if veio:
+        for y in range(0, sheet_h_mm, 60):
+            ax.plot([0, sheet_w_mm], [y, y], color='#c9b99a', linewidth=0.4,
+                    zorder=0, alpha=0.7)
 
     seen_cods = {}
     for it in sheet.items:
@@ -42,8 +61,11 @@ def render_sheet(sheet, sheet_w_mm: int, sheet_h_mm: int, out_path: str, titulo:
     ax.set_ylim(0, sheet_h_mm)
     ax.invert_yaxis()
     ax.set_aspect('equal')
-    ax.set_title(f'{titulo}  |  Aproveitamento: {sheet.aproveitamento:.1f}%', fontsize=11)
-    ax.set_xlabel('mm')
+    sub = f'  |  Aproveitamento: {sheet.aproveitamento:.1f}%'
+    if getattr(sheet, 'repeticoes', 0):
+        sub += f'  |  repetir {sheet.repeticoes}x'
+    ax.set_title(titulo + sub, fontsize=11)
+    ax.set_xlabel('mm  ——— sentido do veio ———' if veio else 'mm')
     ax.set_ylabel('mm')
     plt.tight_layout()
     plt.savefig(out_path, dpi=130)

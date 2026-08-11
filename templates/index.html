@@ -13,6 +13,11 @@
   button { background:#2a6f4d; color:#fff; border:none; padding: 12px 22px; border-radius: 8px; font-size:15px; cursor:pointer; }
   button:hover { background:#235c40; }
   .info { font-size: 13px; color:#777; margin-top: 18px; line-height:1.5; }
+  .chave { display:flex; gap:10px; align-items:flex-start; background:#faf9f6;
+           border:1px solid #e6e2d7; border-radius:8px; padding:12px 14px; margin-bottom:20px; }
+  .chave input { margin-top:3px; flex:none; }
+  .chave strong { font-size:14px; color:#333; display:block; }
+  .chave small { color:#777; font-size:12px; line-height:1.45; display:block; margin-top:3px; }
 
   #overlay {
     display:none; position:fixed; inset:0; background:rgba(246,245,242,0.97);
@@ -32,7 +37,7 @@
 <div id="overlay">
   <div class="spinner"></div>
   <div id="tempo">00:00</div>
-  <div class="msg">Calculando o corte ótimo (column generation) — pode levar até 1-2 minutos por grupo de cor/espessura.</div>
+  <div class="msg">Enviando os arquivos...</div>
 </div>
 <div class="wrap">
   <h1>🪚 Otimizador de Corte de Chapas</h1>
@@ -52,6 +57,19 @@
       <option value="3">3 — mais um nível de re-corte</option>
       <option value="ilimitado">Sem limite (melhor aproveitamento, mais estágios de corte)</option>
     </select>
+
+    <label class="chave">
+      <input type="checkbox" name="respeitar_veio" id="respeitar_veio" checked>
+      <span>
+        <strong>Respeitar o veio da chapa</strong>
+        <small>
+          Peça de cor amadeirada sai sempre com o comprimento no sentido do veio,
+          sem girar. Desmarcando, o otimizador gira tudo e o aproveitamento sobe —
+          mas o desenho da chapa sai atravessado na peça, o que na montagem vira
+          refugo. Desmarque só para comparar, não para produzir.
+        </small>
+      </span>
+    </label>
 
     <button type="submit">Otimizar corte</button>
   </form>

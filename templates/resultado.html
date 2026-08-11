@@ -2,37 +2,80 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<title>Resultado - Otimizador de Corte</title>
+<title>Plano de corte</title>
 <style>
-  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f5f2; margin:0; padding:0; color:#2a2a2a; }
-  .wrap { max-width: 1000px; margin: 40px auto; padding: 0 20px 60px; }
-  h1 { font-size: 22px; }
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f5f2; margin:0; color:#2a2a2a; }
+  .wrap { max-width: 1080px; margin: 40px auto; padding: 0 20px 60px; }
+  h1 { font-size: 22px; margin-bottom: 2px; }
   a.voltar { color:#2a6f4d; text-decoration:none; font-size:14px; }
+  .params { font-size:12px; color:#777; margin-bottom:20px; }
   .kambans { background:#fff; border-radius:10px; padding:16px 20px; margin: 16px 0 28px; font-size: 13px; color:#555; }
+  .kambans ul { margin:8px 0 0; padding-left:18px; }
   .grupo { background:#fff; border-radius: 12px; padding: 24px; margin-bottom: 28px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-  .grupo h2 { margin-top:0; font-size: 18px; }
-  .badges { display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 18px; }
+  .grupo h2 { margin:0 0 4px; font-size: 18px; }
+  .badges { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0 20px; }
   .badge { background:#f1efe8; border-radius: 20px; padding:6px 14px; font-size:13px; color:#444; }
-  .badge.bom { background:#e3f2e8; color:#1e6b3e; }
+  .badge.forte { background:#e3f2e8; color:#1e6b3e; font-weight:600; }
   .badge.ruim { background:#fbe9e7; color:#a13a2a; }
-  .chapas { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-  .chapa img { width:100%; border-radius: 8px; border:1px solid #eee; }
-  .chapa .legenda { font-size:12px; color:#666; text-align:center; margin-top:4px; }
-  .sobras { margin-top: 16px; font-size: 13px; color:#a13a2a; background:#fff6f5; padding: 10px 14px; border-radius: 8px; }
+  .padrao { border:1px solid #eceae4; border-radius:10px; padding:16px; margin-bottom:18px; }
+  .padrao-topo { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+  .padrao-topo .n { font-size:16px; font-weight:600; }
+  .repetir { background:#2a6f4d; color:#fff; border-radius:6px; padding:4px 12px; font-size:15px; font-weight:600; }
+  .padrao-corpo { display:grid; grid-template-columns: minmax(300px, 1.2fr) minmax(320px, 1fr); gap:18px; align-items:start; }
+  .padrao img { width:100%; border-radius:6px; border:1px solid #eee; }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  th, td { text-align:left; padding:5px 8px; border-bottom:1px solid #f0eee8; }
+  th { color:#777; font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; }
+  td.num, th.num { text-align:right; font-variant-numeric: tabular-nums; }
+  .lote { display:inline-block; background:#f1efe8; border-radius:4px; padding:1px 6px; margin:1px 2px 1px 0; font-size:11.5px; }
+  .sobras { margin-top: 16px; font-size: 13px; color:#a13a2a; background:#fff6f5; padding: 12px 14px; border-radius: 8px; }
   .erro { background:#fbe9e7; color:#a13a2a; padding:20px; border-radius:10px; }
+  .alerta-veio { background:#fff4e5; border:1px solid #f0d9b5; color:#8a5a1c;
+                 padding:14px 18px; border-radius:10px; margin-bottom:24px;
+                 font-size:13px; line-height:1.5; }
+  @media (max-width: 820px) { .padrao-corpo { grid-template-columns: 1fr; } }
+  @media print {
+    body { background:#fff; } .wrap { margin:0; max-width:none; }
+    .padrao { page-break-inside: avoid; } a.voltar { display:none; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <a class="voltar" href="/">← novo cálculo</a>
-  <h1>Resultado da otimização</h1>
+  <h1>Plano de corte</h1>
+  <div class="params">
+    chapa {{ sheet_w }}×{{ sheet_h }}mm · serra {{ kerf }}mm ·
+    {{ '2 estágios + aparo' if estagios >= 3 else '2 estágios' }} ·
+    {{ 'veio respeitado' if respeitar_veio else 'veio IGNORADO' }}
+    {% if total_chapas %} · <strong>{{ total_chapas }} chapas no total</strong>{% endif %}
+  </div>
+
+  {% if not respeitar_veio %}
+  <div class="alerta-veio">
+    <strong>⚠️ Este plano ignora o veio da chapa.</strong>
+    As peças foram giradas livremente para maximizar o aproveitamento, então o
+    desenho da madeira sai atravessado em parte delas. Serve para comparar
+    quanto o veio custa em material — <strong>não mande para a máquina</strong>
+    sem confirmar que todas as cores deste lote são lisas.
+  </div>
+  {% endif %}
 
   {% if kambans_info %}
   <div class="kambans">
     <strong>Kambans enviados:</strong>
+    <ul>
     {% for k in kambans_info %}
-      {{ k.arquivo }} ({{ k.n_linhas }} tipos de peça, {{ '%.0f'|format(k.qtd_total) }} peças){{ "," if not loop.last }}
+      <li>
+        {{ k.arquivo }} —
+        {% if k.duplicado_de %}
+          <span style="color:#a13a2a;">⚠️ arquivo idêntico a "{{ k.duplicado_de }}", ignorado para não dobrar a produção</span>
+        {% else %}
+          lote {{ k.lote }} · {{ k.n_linhas }} tipos de peça · {{ '%.0f'|format(k.qtd_total) }} peças
+        {% endif %}
+      </li>
     {% endfor %}
+    </ul>
   </div>
   {% endif %}
 
@@ -43,28 +86,60 @@
     <div class="grupo">
       <h2>{{ g.cor }} · {{ '%.0f'|format(g.esp) }}mm</h2>
       <div class="badges">
-        <div class="badge">{{ g.qtd_total_pecas }} peças · {{ g.n_tipos_peca }} tipos</div>
-        <div class="badge">{{ g.n_chapas }} chapa(s) usada(s)</div>
-        <div class="badge {{ 'bom' if g.aproveitamento_medio >= 75 else ('ruim' if g.aproveitamento_medio < 55 else '') }}">
-          {{ '%.1f'|format(g.aproveitamento_medio) }}% aproveitamento médio
+        <div class="badge forte">{{ g.n_chapas }} chapas</div>
+        <div class="badge">{{ g.n_padroes }} padrão(ões) de corte</div>
+        <div class="badge">{{ g.ciclos_total }} ciclos de empilhamento</div>
+        <div class="badge {{ 'ruim' if g.aproveitamento_medio < 75 else '' }}">
+          {{ '%.1f'|format(g.aproveitamento_medio) }}% aproveitamento
         </div>
+        <div class="badge">{{ g.qtd_total_pecas }} peças · {{ g.n_tipos_peca }} tipos</div>
+        <div class="badge">{{ 'veio travado (não gira)' if g.tem_veio else 'liso (pode girar)' }}</div>
       </div>
 
-      {% if g.amostra %}
-      <div class="badge" style="margin-bottom:14px;">📌 mostrando amostra: as 5 primeiras, as 5 melhores e as 5 piores chapas em aproveitamento</div>
-      {% endif %}
-      <div class="chapas">
-        {% for img in g.imagens %}
-        <div class="chapa">
-          <img src="/static/{{ img.arquivo }}" alt="Chapa {{ img.chapa }}">
-          <div class="legenda">Chapa {{ img.chapa }} — {{ '%.1f'|format(img.aproveitamento) }}%</div>
+      {% for p in g.padroes %}
+      <div class="padrao">
+        <div class="padrao-topo">
+          <span class="n">Padrão {{ p.n }}</span>
+          <span class="repetir">cortar {{ p.repeticoes }} chapa{{ 's' if p.repeticoes > 1 }}</span>
+          <span style="font-size:13px; color:#666;">
+            {{ p.ciclos }} ciclo{{ 's' if p.ciclos > 1 }} de {{ p.pilha }} chapas ·
+            {{ '%.1f'|format(p.aproveitamento) }}% de aproveitamento
+          </span>
         </div>
-        {% endfor %}
+        <div class="padrao-corpo">
+          <img src="/static/{{ p.arquivo }}" alt="Padrão {{ p.n }}">
+          <table>
+            <thead>
+              <tr>
+                <th>peça</th><th>medida</th>
+                <th class="num">por chapa</th><th class="num">total</th>
+                <th>destino</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for pc in p.pecas %}
+              <tr>
+                <td><strong>{{ pc.cod }}</strong><br><span style="color:#888;">{{ pc.desc[:34] }}</span></td>
+                <td>{{ pc.medida }}</td>
+                <td class="num">{{ pc.por_chapa }}</td>
+                <td class="num"><strong>{{ pc.total }}</strong></td>
+                <td>
+                  {% for lote, qtd in pc.lotes.items() %}
+                    <span class="lote">{{ qtd }}× {{ lote|replace('Kambam - ','')|replace('.pdf','') }}</span>
+                  {% endfor %}
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
+      {% endfor %}
 
       {% if g.sobras %}
       <div class="sobras">
-        ⚠️ Não coube em nenhuma chapa: {% for s in g.sobras %}{{ s.cod }} ({{ s.qtd }} un){{ ", " if not loop.last }}{% endfor %}
+        ⚠️ <strong>Não coube em nenhuma chapa</strong> — precisa de tratamento manual:
+        {% for s in g.sobras %}{{ s.cod }} ({{ s.medida }}mm, {{ s.qtd }} un){{ ", " if not loop.last }}{% endfor %}
       </div>
       {% endif %}
     </div>

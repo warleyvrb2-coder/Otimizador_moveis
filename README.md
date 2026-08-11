@@ -15,21 +15,63 @@ aproveitada por peça de outro lote.
 
 ```bash
 pip install -r requirements.txt
-# também precisa do poppler-utils instalado no sistema (pdftotext):
-#   Ubuntu/Debian: sudo apt install poppler-utils
-#   Mac: brew install poppler
-
-python3 app.py
+python app.py
 ```
+
+Não depende de nada fora do `requirements.txt` — a leitura do PDF é feita
+pelo pdfplumber, em Python puro.
+
+## Publicar (Railway)
+
+O repositório já traz `Procfile`, `railway.json`, `.python-version` e as
+versões travadas no `requirements.txt`. No Railway basta apontar pro repo.
+
+Variáveis de ambiente:
+
+| variável | para quê | padrão |
+|---|---|---|
+| `APP_SENHA` | tranca a URL (Basic Auth). **Sem ela o app fica aberto** | vazio |
+| `APP_USUARIO` | usuário do Basic Auth | `benetil` |
+| `SECRET_KEY` | chave de sessão do Flask | aleatória a cada boot |
+| `CG_TIME_BUDGET_S` | segundos de otimização por grupo | 45 |
+| `KERF_MM` | espessura do disco da seccionadora | 4.4 |
+| `PILHA_MAX_MM` | altura máxima da pilha no corte múltiplo | 105 |
+| `ESTAGIOS` | 2 = estrito, 3 = 2 estágios + aparo | 3 |
+| `CORES_SEM_VEIO` | cores lisas, separadas por `;` | `OFF WHITE 1` |
+| `DATA_DIR` | onde gravar uploads (aponte pro volume) | pasta do projeto |
+
+Dois pontos que NÃO são detalhe:
+
+- **Um worker só.** O `Procfile` fixa `--workers 1` porque o estado dos
+  cálculos em andamento vive na memória do processo (`jobs.py`). Com dois
+  workers, o navegador pergunta o progresso pra um processo que não tem o
+  job e recebe 404.
+- **Disco efêmero.** Sem volume, os PNGs gerados somem no próximo deploy.
+  Planos antigos param de abrir. Quem quiser guardar, imprime ou salva.
 
 Abra http://localhost:5000 no navegador, suba o(s) PDF(s) do Kambam e
 clique em "Otimizar corte".
 
 ## Como funciona por dentro
 
-- `parser.py` — extrai a tabela "PEÇAS DA PRODUÇÃO" do PDF via
-  `pdftotext -layout` + regex (código, comprimento, largura, espessura,
-  cor, quantidade).
+- `parser.py` — extrai a tabela "PEÇAS DA PRODUÇÃO" do PDF pelas
+  COORDENADAS das palavras (pdfplumber): agrupa por posição vertical pra
+  formar as linhas e usa a posição horizontal pra saber a que coluna cada
+  palavra pertence.
+
+  Isso não é preciosismo. O relatório quebra células no meio da linha: a
+  cor `CINAMO FF 2` sai como "CINAMO FF" numa linha e "2" na linha de
+  baixo, e a descrição da peça continua abaixo também. Lendo o texto
+  linearizado (`pdftotext` + regex, como era antes), esse "2" vira um
+  número solto sem dono — e a linha inteira da peça deixa de casar com o
+  regex quando a quebra acontece no lugar errado. **A versão anterior
+  perdia 37% das peças em silêncio e truncava toda cor com sufixo**,
+  fazendo `CINAMO FF 1` e `CINAMO FF 2` — materiais diferentes — caírem
+  no mesmo pool de corte.
+
+  Conferência: a soma de `comp × larg × esp × qtd` bate com o campo
+  `Volume Cúbico` que o próprio relatório imprime no rodapé, nos 6 PDFs
+  de teste, com folga de 0,05% (o arredondamento do PDF).
 - `optimizer.py` — peças de base do corte guilhotinado: empacotamento
   recursivo (heurístico, usado como ponto de partida) e um solver
   CP-SAT de 1 chapa (modelo de faixas), reaproveitado tanto pra refino

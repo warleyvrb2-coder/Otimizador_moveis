@@ -28,7 +28,8 @@ from dataclasses import dataclass
 from ortools.linear_solver import pywraplp
 from ortools.sat.python import cp_model
 
-from optimizer import PieceType, PlacedItem, SheetResult, _pack_rect, _refine_last_sheet_cpsat
+from optimizer import (PieceType, PlacedItem, SheetResult, _pack_rect,
+                        _refine_last_sheet_cpsat, KERF_MM)
 
 
 @dataclass
@@ -36,6 +37,11 @@ class Pattern:
     counts: dict          # piece_key -> quantidade nesse padrão
     items: list            # PlacedItem já posicionados (pra desenhar depois)
     used_area: float
+    repeticoes: int = 0    # quantas chapas usam ESTE padrão
+
+    @property
+    def aproveitamento(self) -> float:
+        return 100.0 * self.used_area / self._area_chapa if getattr(self, '_area_chapa', 0) else 0.0
 
 
 def _pattern_signature(counts: dict) -> tuple:
@@ -45,7 +51,8 @@ def _pattern_signature(counts: dict) -> tuple:
 def _generate_pattern(piece_info: dict, demand_cap: dict, sheet_w: int, sheet_h: int,
                        strategy: str = 'area', value_dict: dict | None = None,
                        exact: bool = False, max_shelves: int = 12, time_limit_s: float = 4.0,
-                       max_depth: int | None = None) -> Pattern:
+                       max_depth: int | None = None, kerf: float = KERF_MM,
+                       estagios: int = 3) -> Pattern:
     """
     Gera 1 padrão de corte (1 chapa).
     - exact=False: empacotamento guilhotinado recursivo (rápido, heurístico).
@@ -64,16 +71,18 @@ def _generate_pattern(piece_info: dict, demand_cap: dict, sheet_w: int, sheet_h:
             continue
         base = piece_info[key]
         pool.append(PieceType(key=base.key, cod=base.cod, desc=base.desc,
-                               w=base.w, h=base.h, qty_total=cap))
+                               w=base.w, h=base.h, qty_total=cap,
+                               pode_girar=base.pode_girar))
 
     if exact:
         placed, qty_used = _refine_last_sheet_cpsat(pool, sheet_w, sheet_h, max_shelves, time_limit_s,
-                                                      value_dict=value_dict)
+                                                      value_dict=value_dict, kerf=kerf,
+                                                      estagios=estagios)
     else:
         min_piece_area = min((p.w * p.h for p in pool), default=1)
         placed, qty_used = [], {}
         _pack_rect(pool, 0, 0, sheet_w, sheet_h, placed, qty_used, min_piece_area,
-                   strategy=strategy, value_dict=value_dict, max_depth=max_depth)
+                   strategy=strategy, value_dict=value_dict, max_depth=max_depth, kerf=kerf)
     used_area = sum(it.w * it.h for it in placed) / 1_000_000
     return Pattern(counts=qty_used, items=placed, used_area=used_area)
 
@@ -124,7 +133,8 @@ def _solve_master_ip(patterns: list, demand: dict, piece_keys: list, time_limit_
 
 def optimize_group_cg(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
                        max_iters: int = 80, time_budget_s: float = 40.0,
-                       max_depth: int | None = None) -> tuple:
+                       max_depth: int | None = None, kerf: float = KERF_MM,
+                       estagios: int = 3) -> tuple:
     """
     Otimiza um grupo (mesma cor+espessura) via column generation.
     Retorna (sheets, sobras) no mesmo formato que optimizer.optimize_group,
@@ -152,7 +162,7 @@ def optimize_group_cg(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
         while sum(remaining.values()) > 0 and guard < 3000:
             guard += 1
             pat = _generate_pattern(piece_info, remaining, sheet_w_mm, sheet_h_mm, strategy=strategy,
-                                     max_depth=max_depth)
+                                     max_depth=max_depth, kerf=kerf, estagios=estagios)
             if not pat.items:
                 break
             sig = _pattern_signature(pat.counts)
@@ -174,9 +184,14 @@ def optimize_group_cg(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
         # usando como teto a própria demanda (não faz sentido um padrão
         # ter mais peças de um tipo do que o total ainda precisado).
         # Exato via CP-SAT - encontra combinações que a heurística gulosa
-        # não acha sozinha, o que é o ponto principal do method.
+        # não acha sozinha, o que é o ponto principal do método.
+        # kerf e estagios PRECISAM ser repassados aqui: é este o caminho
+        # que gera os padrões que o CG de fato adiciona à solução, e sem
+        # eles o resultado final saía com corte de espessura zero e mais
+        # estágios do que a máquina foi configurada pra fazer.
         new_pat = _generate_pattern(piece_info, demand, sheet_w_mm, sheet_h_mm,
-                                     value_dict=duals, exact=True, time_limit_s=4.0)
+                                     value_dict=duals, exact=True, time_limit_s=4.0,
+                                     kerf=kerf, estagios=estagios)
         if not new_pat.items:
             break
 
@@ -194,18 +209,31 @@ def optimize_group_cg(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
     if usage is None:
         return [], list(pieces)
 
+    # Os padrões (não as chapas) são a unidade que interessa pro operador:
+    # ele prepara a máquina UMA vez e corta N chapas iguais. Um lote de 600
+    # chapas costuma ser umas poucas dezenas de padrões repetidos.
+    usados = []
+    for pat, n in zip(patterns, usage):
+        if n <= 0:
+            continue
+        pat.repeticoes = n
+        pat.used_area = sum((it.w / 1000) * (it.h / 1000) for it in pat.items)
+        pat._area_chapa = sheet_area
+        usados.append(pat)
+    usados.sort(key=lambda p: -p.repeticoes)
+
     sheets = []
     idx = 1
-    for pat, n in zip(patterns, usage):
-        for _ in range(n):
-            used_area = sum((it.w / 1000) * (it.h / 1000) for it in pat.items)
-            sheets.append(SheetResult(index=idx, items=pat.items, used_area=used_area, sheet_area=sheet_area))
+    for pat in usados:
+        for _ in range(pat.repeticoes):
+            sheets.append(SheetResult(index=idx, items=pat.items,
+                                       used_area=pat.used_area, sheet_area=sheet_area))
             idx += 1
 
     produced = {}
-    for pat, n in zip(patterns, usage):
+    for pat in usados:
         for k, q in pat.counts.items():
-            produced[k] = produced.get(k, 0) + q * n
+            produced[k] = produced.get(k, 0) + q * pat.repeticoes
 
     sobras = []
     for p in pieces:
@@ -213,4 +241,4 @@ def optimize_group_cg(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
         if falta > 0:
             sobras.append(PieceType(key=p.key, cod=p.cod, desc=p.desc, w=p.w, h=p.h, qty_total=falta))
 
-    return sheets, sobras
+    return sheets, sobras, usados
