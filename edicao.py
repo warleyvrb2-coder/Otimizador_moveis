@@ -178,6 +178,127 @@ def _estagios(rects, x0, y0, w, h, dir_pai, memo) -> int:
     return melhor
 
 
+def _decompor(rects, x0, y0, w, h, dir_pai, nivel, memo):
+    """
+    Acha a melhor árvore de cortes e devolve (estagios, lista_de_cortes).
+
+    Mesma busca do contador de estágios, mas guardando os cortes escolhidos em
+    vez de só contá-los — é essa lista que o operador digita na máquina.
+
+    `nivel` é o estágio em que o corte acontece. Ele NÃO é um contador
+    sequencial: regiões irmãs são cortadas no mesmo estágio, porque a máquina
+    faz todos os cortes paralelos antes de virar a chapa. Contar em sequência
+    daria estágio 9 num padrão que a serra resolve em 3.
+
+    A memória por região é obrigatória, não otimização: a mesma sub-região
+    reaparece muitas vezes na busca, e sem guardá-la o tempo explode já num
+    padrão de meia dúzia de peças.
+    """
+    chave = (round(x0), round(y0), round(w), round(h), dir_pai, nivel)
+    if chave in memo:
+        return memo[chave]
+    dentro = [r for r in rects
+              if r[0] >= x0 - TOL and r[1] >= y0 - TOL
+              and r[0] + r[2] <= x0 + w + TOL and r[1] + r[3] <= y0 + h + TOL]
+    if not dentro:
+        memo[chave] = (0, [])
+        return memo[chave]
+    if len(dentro) == 1:
+        r = dentro[0]
+        if (abs(r[0] - x0) < TOL and abs(r[1] - y0) < TOL
+                and abs(r[2] - w) < TOL and abs(r[3] - h) < TOL):
+            memo[chave] = (0, [])
+            return memo[chave]
+
+    melhor, melhores_cortes = 99, []
+    for d in ('V', 'H'):
+        i, t = (0, 2) if d == 'V' else (1, 3)
+        lim0, lim1 = (x0, x0 + w) if d == 'V' else (y0, y0 + h)
+        nivel_aqui = nivel if d == dir_pai else nivel + 1
+        for c in sorted({r[i] for r in dentro} | {r[i] + r[t] for r in dentro}):
+            if not (lim0 + TOL < c < lim1 - TOL):
+                continue
+            if any(r[i] < c - TOL and r[i] + r[t] > c + TOL for r in dentro):
+                continue
+            a = [r for r in dentro if r[i] + r[t] <= c + TOL]
+            b = [r for r in dentro if r[i] >= c - TOL]
+            if len(a) + len(b) != len(dentro) or (not a and not b):
+                continue
+            if d == 'V':
+                ea, ca = _decompor(a, x0, y0, c - x0, h, d, nivel_aqui, memo)
+                eb, cb = _decompor(b, c, y0, x0 + w - c, h, d, nivel_aqui, memo)
+            else:
+                ea, ca = _decompor(a, x0, y0, w, c - y0, d, nivel_aqui, memo)
+                eb, cb = _decompor(b, x0, c, w, y0 + h - c, d, nivel_aqui, memo)
+            custo = max(ea, eb) + (0 if d == dir_pai else 1)
+            if custo < melhor:
+                melhor = custo
+                melhores_cortes = [{'dir': d, 'pos': c, 'nivel': nivel_aqui,
+                                     'de': (x0, y0, w, h)}] + ca + cb
+    memo[chave] = (melhor, melhores_cortes)
+    return memo[chave]
+
+
+def sequencia_cortes(itens: list[dict], w: float, h: float,
+                     kerf: float = 0.0) -> list[dict]:
+    """
+    Os cortes na ordem em que a máquina executa, com a medida de cada um.
+
+    A seccionadora é programada assim: tipo do corte e dimensão, um a um. Como
+    o operador vai digitar isso de qualquer forma, entregar a lista pronta tira
+    dele a tradução de cabeça — que é onde entra erro.
+
+    As peças são infladas pela espessura da serra antes de decompor. Sem isso,
+    a folga entre duas peças vira uma faixa própria e a lista sai cheia de
+    "cortar 4mm", que não existe: aqueles 4mm são o próprio corte, não um
+    pedaço a separar.
+
+    Vocabulário conferido no vídeo da máquina: "Pré-corte" fatia a chapa no
+    sentido do comprimento (as posições somam os 2750) e "Corte Longitudinal"
+    subdivide dentro da tira. Confirme os nomes com quem opera.
+    """
+    if not itens:
+        return []
+    caixas = []
+    for i in itens:
+        x, y = float(i['x']), float(i['y'])
+        caixas.append((x, y,
+                       min(float(i['w']) + kerf, float(w) - x),
+                       min(float(i['h']) + kerf, float(h) - y)))
+
+    _, cortes = _decompor(caixas, 0.0, 0.0, float(w), float(h), None, 0, {})
+    if not cortes:
+        return []
+
+    saida = []
+    for c in cortes:
+        origem = c['de'][0] if c['dir'] == 'V' else c['de'][1]
+        medida = round(c['pos'] - origem)
+        if medida <= max(1, kerf):        # sobra do tamanho da serra: não é corte
+            continue
+        saida.append({
+            'estagio': max(1, c['nivel']),
+            'tipo': 'Pré-corte' if c['dir'] == 'V' else 'Corte Longitudinal',
+            'medida': medida,
+            'posicao': round(c['pos']),
+            'regiao': f"{round(c['de'][2])}x{round(c['de'][3])}",
+        })
+    # Cortes iguais no mesmo estágio viram uma linha com quantidade — é assim
+    # que a máquina é programada (ela tem coluna "Quantidade"), e poupa o
+    # operador de digitar a mesma medida doze vezes.
+    agrupado: dict = {}
+    for c in saida:
+        chave = (c['estagio'], c['tipo'], c['medida'])
+        if chave in agrupado:
+            agrupado[chave]['quantidade'] += 1
+        else:
+            agrupado[chave] = {**c, 'quantidade': 1}
+    final = sorted(agrupado.values(), key=lambda c: (c['estagio'], -c['medida']))
+    for n, c in enumerate(final, start=1):
+        c['ordem'] = n
+    return final
+
+
 def encaixar(retalho: Retalho, comp: float, larg: float, kerf: float,
              pode_girar: bool) -> dict | None:
     """

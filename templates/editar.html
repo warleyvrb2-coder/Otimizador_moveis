@@ -117,6 +117,31 @@
       {% endfor %}
     </div>
 
+    {% if cortes %}
+    <div class="cartao" style="padding:0;">
+      <div style="padding:16px 16px 6px;">
+        <h2 style="margin:0 0 4px;">Sequência de corte na máquina</h2>
+        <p class="ajuda" style="margin:0;">Os mesmos campos que a seccionadora pede.
+          Confira os nomes dos cortes com quem opera — cada fabricante usa o seu.</p>
+      </div>
+      <table class="dados">
+        <thead><tr><th>#</th><th>Est.</th><th>Código do corte</th>
+                   <th class="num">Dimensão</th><th class="num">Qtd</th></tr></thead>
+        <tbody>
+        {% for c in cortes %}
+          <tr>
+            <td style="color:var(--tinta-3);">{{ c.ordem }}</td>
+            <td>{{ c.estagio }}</td>
+            <td><strong>{{ c.tipo }}</strong></td>
+            <td class="num">{{ c.medida }} mm</td>
+            <td class="num">{{ c.quantidade }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
     {% if escolhido is not none %}
     <div class="cartao">
       <h2>O que cabe nesta sobra</h2>

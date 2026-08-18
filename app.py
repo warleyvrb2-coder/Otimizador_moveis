@@ -599,7 +599,9 @@ def editar_padrao(plano_id, gi, pi):
                             escolhido=escolhido, busca=busca, candidatas=candidatas[:80],
                             erro=request.args.get('erro'), ok=request.args.get('ok'),
                             estagios_atuais=edicao.estagios(padrao['itens'],
-                                                             r['sheet_w'], r['sheet_h']))
+                                                             r['sheet_w'], r['sheet_h']),
+                            cortes=edicao.sequencia_cortes(padrao['itens'], r['sheet_w'],
+                                                            r['sheet_h'], r['kerf']))
 
 
 @app.route('/resultado/<plano_id>/padrao/<int:gi>/<int:pi>/aplicar', methods=['POST'])

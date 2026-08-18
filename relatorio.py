@@ -20,6 +20,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
+from edicao import sequencia_cortes
 from visualize import desenhar_chapa
 
 A4 = (8.27, 11.69)          # retrato, em polegadas
@@ -144,8 +145,7 @@ def _pagina_padrao(pdf, r: dict, g: dict, p: dict, imagem_dir: str) -> None:
 
     y = 0.885 - altura_ax - 0.045
     _regua(fig, y + 0.018)
-    for cab, x in (('PEÇA', MARGEM), ('MEDIDA', 0.40), ('POR CHAPA', 0.58),
-                    ('TOTAL', 0.70), ('DESTINO', 0.80)):
+    for cab, x in (('PEÇA', MARGEM), ('MEDIDA', 0.30), ('CHAPA', 0.44), ('TOTAL', 0.50)):
         _texto(fig, x, y, cab, 8, CINZA, 'bold')
     y -= 0.02
 
@@ -154,15 +154,30 @@ def _pagina_padrao(pdf, r: dict, g: dict, p: dict, imagem_dir: str) -> None:
             _texto(fig, MARGEM, y, '... continua', 8.5, CINZA)
             break
         _texto(fig, MARGEM, y, str(pc['cod']), 9.5, TINTA, 'bold')
-        _texto(fig, MARGEM + 0.058, y, pc['desc'][:26], 8, CINZA)
-        _texto(fig, 0.40, y, pc['medida'], 9)
-        _texto(fig, 0.58, y, str(pc['por_chapa']), 9.5, TINTA, 'bold')
-        _texto(fig, 0.70, y, str(pc['total']), 9.5)
-        destinos = ' / '.join(
-            f"{q}× {l.replace('Kambam - ', '').replace('.pdf', '')[:16]}"
-            for l, q in (pc.get('lotes') or {}).items())
-        _texto(fig, 0.80, y, destinos[:34] or '—', 8)
+        _texto(fig, MARGEM + 0.058, y, pc['desc'][:20], 7.5, CINZA)
+        _texto(fig, 0.30, y, pc['medida'], 8.5)
+        _texto(fig, 0.44, y, str(pc['por_chapa']), 9.5, TINTA, 'bold')
+        _texto(fig, 0.50, y, str(pc['total']), 9)
         y -= 0.0205
+
+    # Sequência de corte: os campos que o operador digita na máquina. Vai na
+    # mesma página do desenho de propósito — ele confere a figura e digita
+    # sem trocar de papel.
+    cortes = sequencia_cortes(p['itens'], r['sheet_w'], r['sheet_h'], r.get('kerf', 0))
+    if cortes:
+        x_seq = 0.58
+        yy = y - 0.012
+        if yy > 0.10:
+            _texto(fig, x_seq, yy, 'SEQUÊNCIA NA MÁQUINA', 8, CINZA, 'bold')
+            yy -= 0.019
+            for c in cortes:
+                if yy < 0.04:
+                    break
+                _texto(fig, x_seq, yy, f"{c['estagio']}", 8.5, CINZA)
+                _texto(fig, x_seq + 0.03, yy, c['tipo'], 8.5)
+                _texto(fig, x_seq + 0.20, yy, f"{c['medida']} mm", 9, TINTA, 'bold')
+                _texto(fig, x_seq + 0.30, yy, f"x{c['quantidade']}", 8.5, CINZA)
+                yy -= 0.0185
 
     pdf.savefig(fig)
     plt.close(fig)
