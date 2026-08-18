@@ -156,6 +156,24 @@ def criar_tabelas() -> None:
                 ativa         INTEGER NOT NULL DEFAULT 1,
                 criada_em     TEXT
             );
+            -- Histórico das edições manuais. É o dado que permite o sistema
+            -- repetir sozinho o que o operador faz sempre — e, principalmente,
+            -- descobrir ONDE o otimizador está deixando a desejar.
+            CREATE TABLE IF NOT EXISTS edicao_log (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                quando       TEXT NOT NULL,
+                plano_id     TEXT,
+                cor          TEXT,
+                esp          REAL,
+                acao         TEXT NOT NULL,
+                peca_cod     TEXT,
+                sobra_w      INTEGER,
+                sobra_h      INTEGER,
+                repeticoes   INTEGER,
+                aprov_antes  REAL,
+                aprov_depois REAL
+            );
+            CREATE INDEX IF NOT EXISTS ix_edicao_cor ON edicao_log(cor, peca_cod);
             CREATE INDEX IF NOT EXISTS ix_mp_modelo ON modelo_peca(modelo_cod);
             CREATE INDEX IF NOT EXISTS ix_mp_peca   ON modelo_peca(peca_cod);
             CREATE INDEX IF NOT EXISTS ix_plano_data ON plano(criado_em DESC);
@@ -816,6 +834,53 @@ def aprovar_plano(plano_id: str, por: str, observacao: str = '', aprovar: bool =
         con.execute('UPDATE plano SET aprovado=?, aprovado_em=?, aprovado_por=?, observacao=? '
                     'WHERE id=?',
                     (int(aprovar), agora, por if aprovar else None, observacao or None, plano_id))
+
+
+def registrar_edicao(dados: dict) -> None:
+    """Anota o que o operador mudou, pra virar sugestão depois."""
+    criar_tabelas()
+    with conectar() as con:
+        con.execute(
+            'INSERT INTO edicao_log (quando, plano_id, cor, esp, acao, peca_cod, sobra_w,'
+            ' sobra_h, repeticoes, aprov_antes, aprov_depois) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            (datetime.now(timezone.utc).isoformat(timespec='seconds'),
+             dados.get('plano_id'), dados.get('cor'), dados.get('esp'), dados['acao'],
+             dados.get('peca_cod'), dados.get('sobra_w'), dados.get('sobra_h'),
+             dados.get('repeticoes'), dados.get('aprov_antes'), dados.get('aprov_depois')))
+
+
+def regras_aprendidas(minimo: int = 2) -> list[dict]:
+    """
+    O que o operador faz sempre, virado regra.
+
+    Um acréscimo repetido na mesma cor é intenção, não acaso: se a peça 8195
+    já foi chamada à mão três vezes em CINAMO FF 2, provavelmente vai ser de
+    novo. Guardamos a MENOR sobra em que ela coube, que é o espaço mínimo
+    necessário pra sugerir com segurança.
+
+    `minimo` é quantas repetições exigimos antes de confiar. Dois já indica
+    padrão; um pode ter sido um caso isolado.
+    """
+    criar_tabelas()
+    with conectar() as con:
+        linhas = con.execute("""
+            SELECT cor, esp, peca_cod, COUNT(*) vezes,
+                   MIN(sobra_w) menor_w, MIN(sobra_h) menor_h,
+                   MAX(quando) ultima
+              FROM edicao_log
+             WHERE acao = 'adicionar' AND peca_cod IS NOT NULL AND cor IS NOT NULL
+             GROUP BY cor, esp, peca_cod
+            HAVING COUNT(*) >= ?
+             ORDER BY vezes DESC
+        """, (minimo,)).fetchall()
+    return [dict(r) for r in linhas]
+
+
+def historico_edicoes(limite: int = 100) -> list[dict]:
+    criar_tabelas()
+    with conectar() as con:
+        return [dict(r) for r in con.execute(
+            'SELECT * FROM edicao_log ORDER BY quando DESC LIMIT ?', (limite,))]
 
 
 def resumo() -> dict:

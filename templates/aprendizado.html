@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block titulo %}Aprendizado{% endblock %}
+{% block cabecalho %}O que o sistema aprendeu{% endblock %}
+{% block subcabecalho %}Edições manuais viram sugestão automática nos próximos planos{% endblock %}
+
+{% block estilo %}
+<style>
+  .regra { display:flex; gap:13px; align-items:center; padding:13px 16px;
+           border-bottom:1px solid var(--linha); }
+  .regra:last-child { border-bottom:none; }
+  .regra .cod { font-weight:680; font-variant-numeric:tabular-nums; min-width:62px; }
+  .regra .ds { flex:1; }
+  .regra .ds small { display:block; color:var(--tinta-2); font-size:12px; }
+  .regra .vezes { background:var(--verde-claro); color:var(--verde-escuro); font-weight:680;
+                  border-radius:99px; padding:3px 12px; font-size:12.5px; white-space:nowrap; }
+  .regra.fraca .vezes { background:var(--fundo); color:var(--tinta-2); font-weight:600; }
+</style>
+{% endblock %}
+
+{% block conteudo %}
+<div class="recado atencao">
+  <span class="ic">⚠️</span>
+  <div><strong>Sugestão automática não economiza chapa.</strong> O plano do otimizador já
+    atende toda a demanda dos Kambans, então uma peça acrescentada numa sobra é
+    <strong>produção a mais</strong> — só vale se você quiser mesmo aquelas peças, para
+    estoque ou para um lote que já sabe que vem. O sistema mostra o saldo em cada plano
+    para isso nunca passar despercebido.</div>
+</div>
+
+<div class="metricas" style="margin-bottom:20px;">
+  <div class="metrica destaque">
+    <div class="rot">Regras ativas</div>
+    <div class="val">{{ regras | selectattr('vezes', 'ge', 2) | list | length }}</div>
+  </div>
+  <div class="metrica">
+    <div class="rot">Em observação</div>
+    <div class="val">{{ regras | rejectattr('vezes', 'ge', 2) | list | length }}</div>
+  </div>
+  <div class="metrica">
+    <div class="rot">Edições registradas</div><div class="val">{{ historico | length }}</div>
+  </div>
+</div>
+
+<div class="cartao" style="padding:0;">
+  <div style="padding:16px 16px 4px;">
+    <h2 style="margin:0 0 4px;">Peças que você costuma chamar à mão</h2>
+    <p class="ajuda" style="margin:0 0 10px;">A partir da <strong>segunda vez</strong> na
+      mesma cor, o sistema passa a colocar sozinho quando houver sobra que caiba. Antes
+      disso fica só em observação — uma vez só pode ter sido caso isolado.</p>
+  </div>
+  {% for r in regras %}
+  <div class="regra {{ '' if r.vezes >= 2 else 'fraca' }}">
+    <span class="cod">{{ r.peca_cod }}</span>
+    <span class="ds">
+      {{ r.cor }} · {{ '%.0f'|format(r.esp or 0) }}mm
+      <small>menor sobra em que coube: {{ r.menor_w }} × {{ r.menor_h }} mm</small>
+    </span>
+    <span class="vezes">
+      {{ r.vezes }}× {{ 'aplicando' if r.vezes >= 2 else 'observando' }}
+    </span>
+  </div>
+  {% else %}
+  <div class="vazio">
+    <div class="ic">🧠</div>
+    <p>Nada aprendido ainda.<br>Assim que você editar um padrão, o sistema começa a anotar.</p>
+    <a href="/planos" class="btn secundario">Ver os planos</a>
+  </div>
+  {% endfor %}
+</div>
+
+{% if historico %}
+<div class="cartao" style="padding:0;">
+  <div style="padding:16px 16px 0;">
+    <h2 style="margin:0 0 4px;">Histórico de edições</h2>
+    <p class="ajuda">Serve também para outra coisa: se um grupo aparece sempre aqui, é
+      sinal de que o otimizador está deixando espaço na mesa naquele material — vale
+      aumentar o tempo de cálculo daquela máquina.</p>
+  </div>
+  <table class="dados">
+    <thead><tr><th>Quando</th><th>Material</th><th>Ação</th><th>Peça</th>
+               <th>Sobra</th><th class="num">Aproveitamento</th></tr></thead>
+    <tbody>
+      {% for e in historico %}
+      <tr>
+        <td style="white-space:nowrap;">{{ e.quando[:16]|replace('T',' ') }}</td>
+        <td>{{ e.cor }}</td>
+        <td>{% if e.acao == 'adicionar' %}<span class="etiqueta ok">colocou</span>
+            {% else %}<span class="etiqueta perigo">tirou</span>{% endif %}</td>
+        <td><strong>{{ e.peca_cod or '—' }}</strong></td>
+        <td>{{ (e.sobra_w ~ ' × ' ~ e.sobra_h) if e.sobra_w else '—' }}</td>
+        <td class="num">
+          {% if e.aprov_antes is not none %}
+            {{ '%.1f'|format(e.aprov_antes) }}% → {{ '%.1f'|format(e.aprov_depois) }}%
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

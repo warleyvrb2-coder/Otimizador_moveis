@@ -154,6 +154,11 @@
         {% if nav and nav.cores_pendentes %}<span class="selo">{{ nav.cores_pendentes }}</span>{% endif %}
       </a>
 
+      <a href="/aprendizado" class="{{ 'ativo' if pagina == 'aprendizado' }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a4 4 0 00-4 4v1a3 3 0 000 6v3a4 4 0 008 0v-3a3 3 0 000-6V7a4 4 0 00-4-4z"/></svg>
+        Aprendizado
+      </a>
+
       <div class="grupo">Configuração</div>
       <a href="/maquinas" class="{{ 'ativo' if pagina == 'maquinas' }}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="12" rx="2"/><path d="M6 7V5a2 2 0 012-2h8a2 2 0 012 2v2M2 13h20"/></svg>

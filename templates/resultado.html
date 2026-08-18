@@ -94,6 +94,19 @@
 </div>
 {% endif %}
 
+{% if sugestoes %}
+<div class="recado atencao">
+  <span class="ic">🧠</span>
+  <div><strong>{{ sugestoes|length }} peça(s) acrescentadas pelo aprendizado.</strong>
+    O sistema repetiu o que você costuma fazer à mão:
+    {% for s in sugestoes %}{{ s.cod }} no padrão {{ s.padrao }} de {{ s.cor }}
+      ({{ s.quantidade }} un){{ ', ' if not loop.last }}{% endfor %}.
+    <br><strong>Isso é produção a mais</strong>, não economia de chapa — o plano já
+    atendia os Kambans sem elas. Se não quiser, abra o padrão e tire.
+    <a href="/aprendizado">Ver o que o sistema aprendeu →</a></div>
+</div>
+{% endif %}
+
 <div class="metricas" style="margin-bottom:20px;">
   <div class="metrica destaque">
     <div class="rot">Chapas no total</div><div class="val">{{ total_chapas }}</div>
@@ -136,6 +149,7 @@
 {% endif %}
 
 {% for g in grupos %}
+{% set gi = loop.index0 %}
 <div class="cartao">
   <div class="cabeca-grupo">
     <h2>{{ g.cor }} · {{ '%.0f'|format(g.esp) }}mm</h2>
@@ -158,9 +172,10 @@
         {{ '%.1f'|format(p.aproveitamento) }}% de aproveitamento
       </span>
       {% if p.editado %}<span class="etiqueta atencao">editado à mão</span>{% endif %}
+      {% if p.sugerido %}<span class="etiqueta atencao">🧠 sugestão automática</span>{% endif %}
       {% if plano %}
       <a class="btn secundario editar-pad"
-         href="/resultado/{{ plano.id }}/padrao/{{ loop.parent.loop.index0 }}/{{ loop.index0 }}">
+         href="/resultado/{{ plano.id }}/padrao/{{ gi }}/{{ loop.index0 }}">
          Editar</a>
       {% endif %}
     </div>

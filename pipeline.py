@@ -148,6 +148,58 @@ def agrupar(todas_pecas: list, respeitar_veio: bool) -> dict:
     return grupos
 
 
+def aplicar_aprendizado(grupos_resultado: list, par: dict) -> list[dict]:
+    """
+    Repete sozinho o que o operador faz sempre.
+
+    Uma peca chamada a mao mais de uma vez na mesma cor deixa de ser acaso e
+    vira intencao. Quando um padrao novo tem sobra onde aquela peca cabe, o
+    sistema ja coloca — marcada como sugestao, pra dar pra tirar.
+
+    IMPORTANTE, e por isso as sugestoes vem separadas no relatorio: acrescentar
+    peca aqui NAO economiza chapa. O plano do otimizador ja atende toda a
+    demanda, entao o que entra na sobra e producao a mais, que so vale se voce
+    quiser mesmo aquelas pecas. Esconder isso seria vender ganho que nao existe.
+    """
+    import edicao
+    regras = banco.regras_aprendidas(minimo=2)
+    if not regras:
+        return []
+
+    pecas_cad = {p['cod']: p for p in banco.listar_pecas(limite=5000)}
+    aplicadas = []
+    for g in grupos_resultado:
+        do_grupo = [r for r in regras
+                    if (r['cor'] or '').strip().upper() == g['cor'].strip().upper()]
+        if not do_grupo:
+            continue
+        for pad in g['padroes']:
+            for regra in do_grupo:
+                p = pecas_cad.get(regra['peca_cod'])
+                if not p:
+                    continue
+                livres = edicao.retalhos_livres(pad['itens'], par['chapa_larg'], par['chapa_alt'])
+                for ret in livres:
+                    enc = edicao.encaixar(ret, p['comp_mm'], p['larg_mm'], par['kerf'],
+                                           pode_girar=not (g['tem_veio'] and p['aparente']))
+                    if not enc:
+                        continue
+                    teste = pad['itens'] + [{'cod': p['cod'], 'desc': p['descricao'],
+                                              'piece_key': p['cod'] + '_sugerido',
+                                              'shelf': 0, **enc}]
+                    if edicao.validar_padrao(teste, par['chapa_larg'], par['chapa_alt'],
+                                              par['estagios']):
+                        continue
+                    pad['itens'] = teste
+                    pad['sugerido'] = True
+                    aplicadas.append({'cor': g['cor'], 'cod': p['cod'],
+                                       'desc': p['descricao'], 'padrao': pad['n'],
+                                       'vezes': regra['vezes'],
+                                       'quantidade': pad['repeticoes']})
+                    break
+    return aplicadas
+
+
 def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
           respeitar_veio: bool = True, max_depth: int | None = None,
           maquina_id=None, progresso=None) -> dict:
@@ -241,6 +293,9 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
                         'qtd': s.qty_total} for s in sobras],
         })
 
+    aviso(total, total, 'Aplicando o que o sistema aprendeu...')
+    sugestoes = aplicar_aprendizado(grupos_resultado, par)
+
     aviso(total, total, 'Montando o plano...')
     grupos_resultado.sort(key=lambda g: -g['qtd_total_pecas'])
     return {
@@ -255,6 +310,7 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         'maquina': par.get('maquina_nome'),
         'pilha_max': par['pilha_max'],
         'total_chapas': sum(g['n_chapas'] for g in grupos_resultado),
+        'sugestoes': sugestoes,
         'importado': importado,
         'cadastro': banco.resumo(),
     }

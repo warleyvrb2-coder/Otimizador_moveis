@@ -614,11 +614,16 @@ def aplicar_edicao(plano_id, gi, pi):
 
     itens = [dict(i) for i in padrao['itens']]
     acao = request.form.get('acao')
+    peca = None
+    removida = None
+    livres = []
+    i_ret = None
 
     if acao == 'remover':
         idx = request.form.get('indice', type=int)
         if idx is None or not (0 <= idx < len(itens)):
             return volta(erro='Peca nao encontrada neste padrao.')
+        removida = itens[idx].get('cod')
         itens.pop(idx)
     elif acao == 'adicionar':
         i_ret = request.form.get('retalho', type=int)
@@ -643,13 +648,35 @@ def aplicar_edicao(plano_id, gi, pi):
     if problemas:
         return volta(erro=' '.join(problemas))
 
+    aprov_antes = padrao.get('aproveitamento')
     padrao['itens'] = itens
     padrao['editado'] = True
     _recalcular(r)
     _conferir_demanda(r)
     banco.atualizar_resultado(plano_id, r)
     _redesenhar(plano_id, r, grupo, padrao)
+
+    # O registro e o que permite o sistema repetir sozinho o que voce faz
+    # sempre - e, mais util ainda, mostrar onde o otimizador esta deixando
+    # espaco na mesa de forma sistematica.
+    banco.registrar_edicao({
+        'plano_id': plano_id, 'cor': grupo.get('cor'), 'esp': grupo.get('esp'),
+        'acao': acao, 'peca_cod': (peca['cod'] if acao == 'adicionar' else removida),
+        'sobra_w': int(livres[i_ret].w) if acao == 'adicionar' else None,
+        'sobra_h': int(livres[i_ret].h) if acao == 'adicionar' else None,
+        'repeticoes': padrao.get('repeticoes'),
+        'aprov_antes': aprov_antes, 'aprov_depois': padrao.get('aproveitamento'),
+    })
     return volta(ok='1')
+
+
+@app.route('/aprendizado')
+def aprendizado():
+    """O que o sistema aprendeu com as edicoes manuais."""
+    return render_template('aprendizado.html', pagina='aprendizado',
+                            regras=banco.regras_aprendidas(minimo=1),
+                            historico=banco.historico_edicoes(60),
+                            auto=banco.obter_parametros().get('auto_sugerir', 1))
 
 
 @app.route('/resultado/<job_id>/aprovar', methods=['POST'])
