@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block titulo %}Máquinas{% endblock %}
+{% block cabecalho %}Máquinas de corte{% endblock %}
+{% block subcabecalho %}Cada máquina tem seu disco, sua chapa e seu limite de empilhamento{% endblock %}
+{% block acoes %}<a href="/maquinas/nova" class="btn">+ Nova máquina</a>{% endblock %}
+
+{% block estilo %}
+<style>
+  .grade { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr)); gap:14px; }
+  .cardm { background:var(--papel); border:1px solid var(--linha); border-radius:var(--raio);
+           box-shadow:var(--sombra); padding:18px 20px; text-decoration:none; color:inherit;
+           display:block; }
+  .cardm:hover { border-color:var(--verde); }
+  .cardm.off { opacity:.6; border-style:dashed; }
+  .cardm .topo { display:flex; align-items:center; gap:8px; margin-bottom:3px; }
+  .cardm .nome { font-weight:680; font-size:15px; }
+  .cardm .desc { color:var(--tinta-2); font-size:12.5px; margin-bottom:12px; min-height:17px; }
+  .cardm table { width:100%; font-size:12.5px; border-collapse:collapse; }
+  .cardm td { padding:3px 0; color:var(--tinta-2); }
+  .cardm td:last-child { text-align:right; color:var(--tinta); font-variant-numeric:tabular-nums;
+                          font-weight:600; }
+</style>
+{% endblock %}
+
+{% block conteudo %}
+<div class="recado info">
+  <span class="ic">ℹ️</span>
+  <div>Ao calcular um plano, você escolhe quais arquivos vão para cada máquina — e cada
+    uma gera seu próprio plano, com seus próprios números. Faz diferença real: disco
+    mais grosso, chapa de outro tamanho ou limite de pilha diferente mudam quantas peças
+    cabem e quantos ciclos o lote leva.</div>
+</div>
+
+<div class="grade">
+  {% for m in maquinas %}
+  <a class="cardm {{ '' if m.ativa else 'off' }}" href="/maquinas/{{ m.id }}">
+    <div class="topo">
+      <span class="nome">{{ m.nome }}</span>
+      {% if not m.ativa %}<span class="etiqueta">inativa</span>{% endif %}
+    </div>
+    <div class="desc">{{ m.descricao or '' }}</div>
+    <table>
+      <tr><td>Chapa</td><td>{{ m.chapa_larg }} × {{ m.chapa_alt }} mm</td></tr>
+      <tr><td>Serra</td><td>{{ m.kerf }} mm</td></tr>
+      <tr><td>Pilha máxima</td><td>{{ m.pilha_max }} mm</td></tr>
+      <tr><td>Estágios</td><td>{{ '2 + aparo' if m.estagios >= 3 else '2 estritos' }}</td></tr>
+      <tr><td>Tempo de cálculo</td><td>{{ m.tempo_grupo }} s por cor</td></tr>
+    </table>
+  </a>
+  {% else %}
+  <div class="cartao"><div class="vazio">
+    <div class="ic">🛠️</div>
+    <p>Nenhuma máquina cadastrada.</p>
+    <a href="/maquinas/nova" class="btn">Cadastrar a primeira</a>
+  </div></div>
+  {% endfor %}
+</div>
+{% endblock %}

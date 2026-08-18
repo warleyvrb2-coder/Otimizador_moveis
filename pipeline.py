@@ -16,9 +16,18 @@ from optimizer import PieceType
 from column_generation import optimize_group_cg
 from visualize import render_sheet
 
-def parametros() -> dict:
-    """Lidos a cada rodada, não na importação: assim mudar na tela vale já na
-    próxima otimização, sem reiniciar o servidor."""
+def parametros(maquina_id=None) -> dict:
+    """
+    Os parâmetros da máquina que vai cortar.
+
+    Lidos a cada rodada, não na importação: mudar na tela vale já na próxima
+    otimização, sem reiniciar o servidor. Sem máquina informada, cai nos
+    parâmetros globais — que é o caso de quem ainda não cadastrou nenhuma.
+    """
+    if maquina_id is not None:
+        m = banco.maquina(maquina_id)
+        if m:
+            return {c: m[c] for c in banco.CAMPOS_MAQUINA} | {'maquina_nome': m['nome']}
     return banco.obter_parametros()
 
 
@@ -141,7 +150,7 @@ def agrupar(todas_pecas: list, respeitar_veio: bool) -> dict:
 
 def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
           respeitar_veio: bool = True, max_depth: int | None = None,
-          progresso=None) -> dict:
+          maquina_id=None, progresso=None) -> dict:
     """
     Calcula o plano de corte completo.
 
@@ -152,7 +161,7 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         if progresso:
             progresso(feito, total, texto)
 
-    par = parametros()
+    par = parametros(maquina_id)
     largura, altura = par['chapa_larg'], par['chapa_alt']
 
     aviso(0, 1, 'Lendo os PDFs...')
@@ -236,6 +245,8 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         'kerf': par['kerf'],
         'estagios': par['estagios'],
         'respeitar_veio': respeitar_veio,
+        'maquina': par.get('maquina_nome'),
+        'pilha_max': par['pilha_max'],
         'total_chapas': sum(g['n_chapas'] for g in grupos_resultado),
         'importado': importado,
         'cadastro': banco.resumo(),

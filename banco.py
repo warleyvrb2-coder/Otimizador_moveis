@@ -139,6 +139,23 @@ def criar_tabelas() -> None:
                 aprovado_por  TEXT,
                 observacao    TEXT
             );
+            -- Máquinas de corte. Cada uma tem seu disco, sua chapa e seu
+            -- limite de empilhamento, então o mesmo lote rende diferente em
+            -- cada uma. Fábrica com uma seccionadora só é caso particular,
+            -- não a regra.
+            CREATE TABLE IF NOT EXISTS maquina (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome          TEXT NOT NULL,
+                descricao     TEXT,
+                chapa_larg    INTEGER NOT NULL,
+                chapa_alt     INTEGER NOT NULL,
+                kerf          REAL NOT NULL,
+                pilha_max     INTEGER NOT NULL,
+                estagios      INTEGER NOT NULL,
+                tempo_grupo   INTEGER NOT NULL,
+                ativa         INTEGER NOT NULL DEFAULT 1,
+                criada_em     TEXT
+            );
             CREATE INDEX IF NOT EXISTS ix_mp_modelo ON modelo_peca(modelo_cod);
             CREATE INDEX IF NOT EXISTS ix_mp_peca   ON modelo_peca(peca_cod);
             CREATE INDEX IF NOT EXISTS ix_plano_data ON plano(criado_em DESC);
@@ -621,6 +638,111 @@ def definir_peca(cod: str, aparente: bool) -> None:
 def definir_cor(nome: str, amadeirada: bool) -> None:
     with conectar() as con:
         con.execute('UPDATE cor SET amadeirada=?, confirmado=1 WHERE nome=?', (int(amadeirada), nome))
+
+
+CAMPOS_MAQUINA = ('chapa_larg', 'chapa_alt', 'kerf', 'pilha_max', 'estagios', 'tempo_grupo')
+
+
+def listar_maquinas(so_ativas: bool = False) -> list[sqlite3.Row]:
+    """
+    As máquinas cadastradas. Cria a primeira na estreia, a partir dos
+    parâmetros globais que existiam antes — assim quem já usava o sistema não
+    perde a configuração nem precisa recadastrar.
+    """
+    criar_tabelas()
+    with conectar() as con:
+        tem = con.execute('SELECT COUNT(*) n FROM maquina').fetchone()['n']
+    if not tem:
+        p = obter_parametros()
+        criar_maquina({'nome': 'Seccionadora principal',
+                        'descricao': 'Criada automaticamente com os parâmetros que já estavam salvos',
+                        **{c: p[c] for c in CAMPOS_MAQUINA}})
+    sql = 'SELECT * FROM maquina'
+    if so_ativas:
+        sql += ' WHERE ativa = 1'
+    sql += ' ORDER BY ativa DESC, nome'
+    with conectar() as con:
+        return con.execute(sql).fetchall()
+
+
+def maquina(maquina_id) -> sqlite3.Row | None:
+    criar_tabelas()
+    with conectar() as con:
+        return con.execute('SELECT * FROM maquina WHERE id=?', (maquina_id,)).fetchone()
+
+
+def _validar_maquina(dados: dict) -> tuple[dict, dict]:
+    limites = {'chapa_larg': (500, 6000), 'chapa_alt': (500, 3000), 'kerf': (0, 15),
+               'pilha_max': (15, 400), 'estagios': (2, 3), 'tempo_grupo': (5, 600)}
+    limpos, erros = {}, {}
+    nome = (dados.get('nome') or '').strip()
+    if not nome:
+        erros['nome'] = 'dê um nome para a máquina'
+    limpos['nome'] = nome[:80]
+    limpos['descricao'] = (dados.get('descricao') or '').strip()[:200]
+    for c in CAMPOS_MAQUINA:
+        meta = PARAMETROS[c]
+        try:
+            v = meta['tipo'](str(dados.get(c, meta['padrao'])).replace(',', '.'))
+        except (TypeError, ValueError):
+            erros[c] = 'precisa ser um número'
+            continue
+        lo, hi = limites[c]
+        if not (lo <= v <= hi):
+            erros[c] = f'precisa ficar entre {lo} e {hi}'
+            continue
+        limpos[c] = v
+    # Checkbox desmarcado simplesmente não é enviado, então ausência sozinha
+    # não distingue "desmarquei" de "nem passei por um formulário". O campo
+    # oculto resolve: sem ele, o padrão é ATIVA - senão a máquina criada
+    # automaticamente na estreia nasceria invisível.
+    if 'ativa_marcador' in dados:
+        limpos['ativa'] = 1 if dados.get('ativa') in (1, '1', True, 'on') else 0
+    else:
+        limpos['ativa'] = 1
+    return limpos, erros
+
+
+def criar_maquina(dados: dict) -> tuple[int | None, dict]:
+    criar_tabelas()
+    limpos, erros = _validar_maquina(dados)
+    if erros:
+        return None, erros
+    with conectar() as con:
+        cur = con.execute(
+            'INSERT INTO maquina (nome, descricao, chapa_larg, chapa_alt, kerf, pilha_max,'
+            ' estagios, tempo_grupo, ativa, criada_em) VALUES (?,?,?,?,?,?,?,?,?,?)',
+            (limpos['nome'], limpos['descricao'], limpos['chapa_larg'], limpos['chapa_alt'],
+             limpos['kerf'], limpos['pilha_max'], limpos['estagios'], limpos['tempo_grupo'],
+             limpos.get('ativa', 1),
+             datetime.now(timezone.utc).isoformat(timespec='seconds')))
+        return cur.lastrowid, {}
+
+
+def atualizar_maquina(maquina_id, dados: dict) -> dict:
+    criar_tabelas()
+    limpos, erros = _validar_maquina(dados)
+    if erros:
+        return erros
+    with conectar() as con:
+        con.execute(
+            'UPDATE maquina SET nome=?, descricao=?, chapa_larg=?, chapa_alt=?, kerf=?,'
+            ' pilha_max=?, estagios=?, tempo_grupo=?, ativa=? WHERE id=?',
+            (limpos['nome'], limpos['descricao'], limpos['chapa_larg'], limpos['chapa_alt'],
+             limpos['kerf'], limpos['pilha_max'], limpos['estagios'], limpos['tempo_grupo'],
+             limpos['ativa'], maquina_id))
+    return {}
+
+
+def excluir_maquina(maquina_id) -> None:
+    """
+    Remove a máquina. Planos antigos não são afetados: cada um guarda os
+    parâmetros com que foi calculado, então continuam abrindo corretamente
+    mesmo depois da máquina sair do cadastro.
+    """
+    criar_tabelas()
+    with conectar() as con:
+        con.execute('DELETE FROM maquina WHERE id=?', (maquina_id,))
 
 
 def salvar_plano(plano_id: str, resultado: dict) -> None:

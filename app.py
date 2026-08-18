@@ -99,8 +99,8 @@ def contexto_lateral():
 
 @app.route('/')
 def index():
-    return render_template('index.html', pagina='novo',
-                            res=banco.resumo(), par=banco.obter_parametros())
+    return render_template('index.html', pagina='novo', res=banco.resumo(),
+                            maquinas=banco.listar_maquinas(so_ativas=True))
 
 
 def _quando(iso: str) -> str:
@@ -191,31 +191,80 @@ def saude():
 
 @app.route('/otimizar', methods=['POST'])
 def otimizar():
-    arquivos_form = [f for f in request.files.getlist('kambans') if f and f.filename]
-    if not arquivos_form:
-        return redirect(url_for('index'))
+    """
+    Cada máquina tem sua própria caixa de upload e vira um plano separado.
 
+    Separado de propósito: máquinas com chapa ou disco diferentes produzem
+    planos diferentes, e juntar tudo num documento só impediria o PCP de
+    aprovar o de uma máquina sem aprovar o da outra. Também não faria sentido
+    compartilhar sobra entre chapas de tamanhos distintos.
+    """
     max_estagios_raw = request.form.get('max_estagios', 'ilimitado')
     max_depth = None if max_estagios_raw == 'ilimitado' else int(max_estagios_raw)
-    # checkbox: só chega no request quando marcado
     respeitar_veio = request.form.get('respeitar_veio') is not None
 
-    job_id = os.urandom(5).hex()
-    salvos = []
-    for f in arquivos_form:
-        nome = secure_filename(f.filename) or 'kambam.pdf'
-        caminho = os.path.join(UPLOAD_DIR, f'{job_id}_{nome}')
-        f.save(caminho)
-        salvos.append((caminho, f.filename))
+    criados = []
+    for maq in banco.listar_maquinas(so_ativas=True):
+        arquivos = [f for f in request.files.getlist(f'kambans_{maq["id"]}')
+                    if f and f.filename]
+        if not arquivos:
+            continue
+        job_id = os.urandom(5).hex()
+        salvos = []
+        for f in arquivos:
+            nome = secure_filename(f.filename) or 'kambam.pdf'
+            caminho = os.path.join(UPLOAD_DIR, f'{job_id}_{nome}')
+            f.save(caminho)
+            salvos.append((caminho, f.filename))
+        job = jobs.criar(
+            pipeline.rodar, salvos, os.path.join(OUTPUT_DIR, job_id), f'/plano/{job_id}',
+            respeitar_veio=respeitar_veio, max_depth=max_depth, maquina_id=maq['id'],
+            ao_terminar=lambda j: (banco.salvar_plano(j.id, j.resultado)
+                                    if j.resultado and not j.resultado.get('erro') else None),
+        )
+        criados.append(job.id)
 
-    run_dir = os.path.join(OUTPUT_DIR, job_id)
-    job = jobs.criar(
-        pipeline.rodar, salvos, run_dir, f'/plano/{job_id}',
-        respeitar_veio=respeitar_veio, max_depth=max_depth,
-        ao_terminar=lambda j: (banco.salvar_plano(j.id, j.resultado)
-                                if j.resultado and not j.resultado.get('erro') else None),
-    )
-    return redirect(url_for('acompanhar', job_id=job.id))
+    if not criados:
+        return redirect(url_for('index'))
+    if len(criados) == 1:
+        return redirect(url_for('acompanhar', job_id=criados[0]))
+    return redirect(url_for('planos'))
+
+
+@app.route('/maquinas')
+def maquinas():
+    return render_template('maquinas.html', pagina='maquinas',
+                            maquinas=banco.listar_maquinas())
+
+
+@app.route('/maquinas/nova', methods=['GET', 'POST'])
+@app.route('/maquinas/<int:maquina_id>', methods=['GET', 'POST'])
+def maquina_form(maquina_id=None):
+    m = banco.maquina(maquina_id) if maquina_id else None
+    if maquina_id and not m:
+        abort(404)
+    erros = {}
+    if request.method == 'POST':
+        dados = request.form.to_dict()
+        if request.form.get('excluir') == '1' and maquina_id:
+            banco.excluir_maquina(maquina_id)
+            return redirect(url_for('maquinas'))
+        if maquina_id:
+            erros = banco.atualizar_maquina(maquina_id, dados)
+            if not erros:
+                return redirect(url_for('maquinas'))
+            m = dict(m) | dados
+        else:
+            novo_id, erros = banco.criar_maquina(dados)
+            if not erros:
+                return redirect(url_for('maquinas'))
+            m = dados
+    # o que voltou do formulário pode estar incompleto (campo em branco, número
+    # inválido); os padrões preenchem o resto pra tela conseguir renderizar
+    padroes = {c: banco.PARAMETROS[c]['padrao'] for c in banco.CAMPOS_MAQUINA}
+    valores = padroes | dict(m or {})
+    return render_template('maquina.html', pagina='maquinas', m=valores,
+                            maquina_id=maquina_id, campos=banco.PARAMETROS, erros=erros)
 
 
 @app.route('/plano/<job_id>/<nome>')

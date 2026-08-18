@@ -39,25 +39,37 @@
 <form method="post" action="/otimizar" enctype="multipart/form-data" id="frm">
 <div class="duas">
   <div>
+    {% for maq in maquinas %}
     <div class="cartao">
-      <h2>Relatórios Kambam</h2>
-      <p class="ajuda">Aceita vários de uma vez. Peças da mesma cor e espessura entram
-        no mesmo cálculo, mesmo vindo de lotes diferentes — é assim que a sobra de uma
-        chapa vira peça de outro Kambam.</p>
-
-      <label class="solta" id="solta">
+      <h2>{{ maq.nome }}</h2>
+      <p class="ajuda">
+        {% if maq.descricao %}{{ maq.descricao }} · {% endif %}
+        chapa {{ maq.chapa_larg }}×{{ maq.chapa_alt }}mm · serra {{ maq.kerf }}mm ·
+        pilha {{ maq.pilha_max }}mm
+      </p>
+      <label class="solta">
         <div class="ic">📄</div>
-        <div class="t">Clique aqui ou arraste os PDFs</div>
-        <div class="s">Arquivos idênticos são detectados e ignorados automaticamente</div>
-        <input type="file" name="kambans" accept="application/pdf" multiple required id="arq">
+        <div class="t">Kambans desta máquina</div>
+        <div class="s">Clique ou arraste os PDFs · arquivos idênticos são ignorados</div>
+        <input type="file" name="kambans_{{ maq.id }}" accept="application/pdf" multiple
+               class="arq" data-maq="{{ maq.id }}">
       </label>
-      <div class="lista-arq" id="lista"></div>
+      <div class="lista-arq" id="lista-{{ maq.id }}"></div>
     </div>
+    {% else %}
+    <div class="cartao">
+      <div class="vazio">
+        <div class="ic">🛠️</div>
+        <p>Nenhuma máquina cadastrada.<br>O plano precisa saber em qual máquina vai ser cortado.</p>
+        <a href="/maquinas/nova" class="btn">Cadastrar uma máquina</a>
+      </div>
+    </div>
+    {% endfor %}
 
     <div class="cartao">
       <h2>Opções desta rodada</h2>
-      <p class="ajuda">Os parâmetros fixos da máquina ficam em
-        <a href="/parametros">Parâmetros</a>.</p>
+      <p class="ajuda">Valem para todas as máquinas desta rodada. Chapa, serra e
+        empilhamento são de cada <a href="/maquinas">máquina</a>.</p>
 
       <div class="opcao">
         <label class="chave">
@@ -84,7 +96,7 @@
       </div>
     </div>
 
-    <button type="submit" class="btn" id="enviar">Calcular plano de corte →</button>
+    <button type="submit" class="btn" id="enviar" disabled>Calcular plano de corte →</button>
   </div>
 
   <div>
@@ -118,13 +130,16 @@
     </div>
 
     <div class="cartao">
-      <h2>Máquina</h2>
+      <h2>Máquinas</h2>
+      <p class="ajuda">Suba os arquivos na máquina que vai cortá-los. Cada uma gera seu
+        próprio plano, aprovado separadamente.</p>
       <table class="dados">
-        <tr><td>Chapa</td><td class="num">{{ par.chapa_larg }}×{{ par.chapa_alt }} mm</td></tr>
-        <tr><td>Serra</td><td class="num">{{ par.kerf }} mm</td></tr>
-        <tr><td>Pilha</td><td class="num">{{ par.pilha_max }} mm</td></tr>
-        <tr><td>Estágios</td><td class="num">{{ '2 + aparo' if par.estagios >= 3 else '2' }}</td></tr>
+        {% for maq in maquinas %}
+        <tr><td>{{ maq.nome }}</td>
+            <td class="num">{{ maq.chapa_larg }}×{{ maq.chapa_alt }} · {{ maq.kerf }}mm</td></tr>
+        {% endfor %}
       </table>
+      <p style="margin:12px 0 0;"><a href="/maquinas">Gerenciar máquinas →</a></p>
     </div>
   </div>
 </div>
@@ -133,26 +148,35 @@
 
 {% block script %}
 <script>
-  const arq = document.getElementById('arq'), solta = document.getElementById('solta'),
-        lista = document.getElementById('lista');
-  function mostrar() {
-    lista.innerHTML = '';
-    for (const f of arq.files) {
-      const d = document.createElement('div');
-      d.innerHTML = '<span class="pdf">PDF</span><span>' + f.name +
-                    '</span><span style="margin-left:auto;color:var(--tinta-2)">' +
-                    (f.size/1024).toFixed(0) + ' KB</span>';
-      lista.appendChild(d);
+  document.querySelectorAll('.arq').forEach(arq => {
+    const solta = arq.closest('.solta');
+    const lista = document.getElementById('lista-' + arq.dataset.maq);
+    function mostrar() {
+      lista.innerHTML = '';
+      for (const f of arq.files) {
+        const d = document.createElement('div');
+        d.innerHTML = '<span class="pdf">PDF</span><span>' + f.name +
+                      '</span><span style="margin-left:auto;color:var(--tinta-2)">' +
+                      (f.size/1024).toFixed(0) + ' KB</span>';
+        lista.appendChild(d);
+      }
+      atualizarBotao();
     }
+    arq.addEventListener('change', mostrar);
+    ['dragenter','dragover'].forEach(e => solta.addEventListener(e, ev => {
+      ev.preventDefault(); solta.classList.add('sobre');
+    }));
+    ['dragleave','drop'].forEach(e => solta.addEventListener(e, ev => {
+      ev.preventDefault(); solta.classList.remove('sobre');
+    }));
+    solta.addEventListener('drop', ev => { arq.files = ev.dataTransfer.files; mostrar(); });
+  });
+  // só habilita o cálculo quando alguma máquina recebeu arquivo
+  function atualizarBotao() {
+    const algum = [...document.querySelectorAll('.arq')].some(a => a.files.length);
+    document.getElementById('enviar').disabled = !algum;
   }
-  arq.addEventListener('change', mostrar);
-  ['dragenter','dragover'].forEach(e => solta.addEventListener(e, ev => {
-    ev.preventDefault(); solta.classList.add('sobre');
-  }));
-  ['dragleave','drop'].forEach(e => solta.addEventListener(e, ev => {
-    ev.preventDefault(); solta.classList.remove('sobre');
-  }));
-  solta.addEventListener('drop', ev => { arq.files = ev.dataTransfer.files; mostrar(); });
+  atualizarBotao();
   document.getElementById('frm').addEventListener('submit', () => {
     const b = document.getElementById('enviar');
     b.disabled = true; b.textContent = 'Enviando...';
