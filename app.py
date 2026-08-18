@@ -25,6 +25,7 @@ from werkzeug.utils import secure_filename
 import banco
 import jobs
 import pipeline
+import planilha
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Em hospedagem o disco é efêmero: escrever dentro do projeto some no próximo
@@ -232,7 +233,7 @@ def cadastro(aba='pecas'):
     banco.criar_tabelas()
     busca = request.args.get('busca', '').strip()
     pendentes = request.args.get('pendentes') == '1'
-    itens = (banco.listar_pecas(busca, so_pendentes=pendentes) if aba == 'pecas'
+    itens = (banco.listar_pecas(busca, so_pendentes=pendentes, limite=300) if aba == 'pecas'
              else banco.listar_cores())
     res = banco.resumo()
     # Publicado sem volume, o banco vive no disco efêmero e some no próximo
@@ -262,7 +263,7 @@ def pecas_orfas():
     ninguém confere é tratada como aparente, o que gasta chapa a mais.
     """
     busca = request.args.get('busca', '').strip()
-    pecas = banco.pecas_sem_modelo(busca)
+    pecas = banco.pecas_sem_modelo(busca, limite=300)
     return render_template('modelo.html', pagina='modelos', m=None, orfas=True,
                             titulo_pagina='Peças sem modelo', busca=busca, pecas=pecas,
                             todos_modelos=banco.modelos_para_escolha(),
@@ -306,6 +307,67 @@ def modelo_por_unidade():
         return jsonify({'ok': False}), 400
     banco.definir_por_unidade(d['modelo'], d['peca'], qtd)
     return jsonify({'ok': True})
+
+
+CATALOGO_DIR = os.path.join(DATA_DIR, 'catalogo')
+os.makedirs(CATALOGO_DIR, exist_ok=True)
+
+
+@app.route('/cadastro/importar', methods=['GET', 'POST'])
+def importar_catalogo():
+    """
+    Traz o catálogo de itens do Agrosys em duas etapas.
+
+    Duas porque o arquivo mistura peça de chapa com MANTA, CAIXA de papelão e
+    ISOPOR - coisas que não passam pela serra. Em vez de eu adivinhar o que
+    interessa, mostro as espessuras encontradas com exemplos e você escolhe.
+    """
+    if request.method == 'GET':
+        return render_template('importar.html', pagina='modelos', etapa='enviar')
+
+    # etapa 2: confirmar as espessuras de um arquivo já enviado
+    token = request.form.get('token')
+    if token:
+        caminho = os.path.join(CATALOGO_DIR, secure_filename(token))
+        if not os.path.exists(caminho):
+            return redirect(url_for('importar_catalogo'))
+        escolhidas = {float(e) for e in request.form.getlist('espessura')}
+        resultado = banco.importar_catalogo(planilha.ler_itens(caminho), escolhidas)
+        os.remove(caminho)
+        return render_template('importar.html', pagina='modelos', etapa='pronto',
+                                resultado=resultado)
+
+    # etapa 1: recebe o arquivo e mostra o que tem dentro
+    f = request.files.get('planilha')
+    if not f or not f.filename:
+        return redirect(url_for('importar_catalogo'))
+    token = os.urandom(6).hex() + '.xml'
+    caminho = os.path.join(CATALOGO_DIR, token)
+    f.save(caminho)
+    try:
+        itens = planilha.ler_itens(caminho)
+    except Exception as e:                      # noqa: BLE001 - arquivo de terceiro
+        os.remove(caminho)
+        return render_template('importar.html', pagina='modelos', etapa='enviar',
+                                erro=f'Não consegui ler a planilha ({type(e).__name__}). '
+                                      'O arquivo precisa ser o "Itens com Especificações" '
+                                      'exportado pelo Agrosys.')
+    if not itens:
+        os.remove(caminho)
+        return render_template('importar.html', pagina='modelos', etapa='enviar',
+                                erro='A planilha foi lida mas não tem nenhuma linha de item '
+                                      'com medidas. Confira se é o relatório certo.')
+
+    grupos = {}
+    for i in itens:
+        g = grupos.setdefault(i['esp_mm'], {'qtd': 0, 'exemplos': []})
+        g['qtd'] += 1
+        if len(g['exemplos']) < 3:
+            g['exemplos'].append(i['desc'][:46])
+    espessuras = [{'valor': e, **v} for e, v in sorted(grupos.items(), key=lambda kv: -kv[1]['qtd'])]
+    return render_template('importar.html', pagina='modelos', etapa='escolher',
+                            arquivo=f.filename, token=token, total=len(itens),
+                            espessuras=espessuras)
 
 
 @app.route('/modelos/vincular', methods=['POST'])

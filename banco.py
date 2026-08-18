@@ -392,7 +392,7 @@ def pecas_do_modelo(cod: str) -> list[sqlite3.Row]:
         """, (cod,)).fetchall()
 
 
-def pecas_sem_modelo(busca: str = '') -> list[sqlite3.Row]:
+def pecas_sem_modelo(busca: str = '', limite: int = 0) -> list[sqlite3.Row]:
     """
     Peças que não ficaram ligadas a móvel nenhum.
 
@@ -409,6 +409,8 @@ def pecas_sem_modelo(busca: str = '') -> list[sqlite3.Row]:
         sql += ' AND (p.cod LIKE ? OR p.descricao LIKE ?)'
         args += [f'%{busca}%', f'%{busca.upper()}%']
     sql += ' ORDER BY p.confirmado, p.descricao'
+    if limite:
+        sql += f' LIMIT {int(limite)}'
     with conectar() as con:
         return con.execute(sql, args).fetchall()
 
@@ -480,7 +482,52 @@ def definir_por_unidade(modelo_cod: str, peca_cod: str, quantidade: float) -> No
             (modelo_cod, peca_cod, quantidade))
 
 
-def listar_pecas(busca: str = '', so_pendentes: bool = False) -> list[sqlite3.Row]:
+def importar_catalogo(itens: list[dict], espessuras: set[float]) -> dict:
+    """
+    Traz o catálogo completo do Agrosys ("Itens com Especificações").
+
+    Só entra o que estiver nas espessuras escolhidas: o arquivo mistura peça
+    de chapa com MANTA, CAIXA de papelão e ISOPOR, que não passam pela serra
+    e só poluiriam o cadastro.
+
+    Como sempre, não mexe no que você já confirmou - e a medida do catálogo é
+    a oficial, então ela atualiza a que veio do Kambam.
+    """
+    criar_tabelas()
+    agora = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    novas = atualizadas = divergentes = 0
+    conflitos = []
+    with conectar() as con:
+        for i in itens:
+            if espessuras and i['esp_mm'] not in espessuras:
+                continue
+            cod = str(i['cod'])
+            comp, larg = int(round(i['comp_mm'])), int(round(i['larg_mm']))
+            atual = con.execute('SELECT comp_mm, larg_mm FROM peca WHERE cod=?', (cod,)).fetchone()
+            if atual is None:
+                con.execute(
+                    'INSERT INTO peca (cod, descricao, aparente, confirmado, comp_mm, larg_mm, visto_em)'
+                    ' VALUES (?,?,?,0,?,?,?)',
+                    (cod, i['desc'], int(palpite_aparente(i['desc'])), comp, larg, agora))
+                novas += 1
+                continue
+            # comprimento e largura trocados entre as duas fontes é sinal de
+            # cadastro invertido - e a regra do veio depende de qual é qual
+            if atual['comp_mm'] and (atual['comp_mm'], atual['larg_mm']) == (larg, comp) \
+                    and comp != larg:
+                divergentes += 1
+                conflitos.append({'cod': cod, 'desc': i['desc'],
+                                   'kambam': f"{atual['comp_mm']}x{atual['larg_mm']}",
+                                   'catalogo': f'{comp}x{larg}'})
+                continue
+            con.execute('UPDATE peca SET comp_mm=?, larg_mm=?, visto_em=? WHERE cod=?',
+                        (comp, larg, agora, cod))
+            atualizadas += 1
+    return {'novas': novas, 'atualizadas': atualizadas,
+            'divergentes': divergentes, 'conflitos': conflitos[:40]}
+
+
+def listar_pecas(busca: str = '', so_pendentes: bool = False, limite: int = 0) -> list[sqlite3.Row]:
     criar_tabelas()
     sql = 'SELECT * FROM peca'
     cond, args = [], []
@@ -492,6 +539,8 @@ def listar_pecas(busca: str = '', so_pendentes: bool = False) -> list[sqlite3.Ro
     if cond:
         sql += ' WHERE ' + ' AND '.join(cond)
     sql += ' ORDER BY confirmado, descricao, cod'
+    if limite:
+        sql += f' LIMIT {int(limite)}'
     with conectar() as con:
         return con.execute(sql, args).fetchall()
 

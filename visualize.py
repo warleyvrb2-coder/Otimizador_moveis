@@ -26,7 +26,7 @@ def _color_for(cod: str):
 
 def render_sheet(sheet, sheet_w_mm: int, sheet_h_mm: int, out_path: str, titulo: str = '',
                  veio: bool = False):
-    fig, ax = plt.subplots(figsize=(11, 11 * sheet_h_mm / sheet_w_mm))
+    fig, ax = plt.subplots(figsize=(13, 13 * sheet_h_mm / sheet_w_mm))
 
     ax.add_patch(patches.Rectangle((0, 0), sheet_w_mm, sheet_h_mm,
                                     facecolor='#f4f1ea', edgecolor='#333', linewidth=2))
@@ -47,15 +47,23 @@ def render_sheet(sheet, sheet_w_mm: int, sheet_h_mm: int, out_path: str, titulo:
         rect = patches.Rectangle((it.x, it.y), it.w, it.h,
                                   facecolor=color, edgecolor='#222', linewidth=0.8)
         ax.add_patch(rect)
-        dims = f'{it.w:.0f}x{it.h:.0f}'
-        label = f'{it.cod}\n{dims}' + (' (R)' if it.rotated else '')
-        if it.w > 160 and it.h > 90:
-            ax.text(it.x + it.w / 2, it.y + it.h / 2, label,
-                    ha='center', va='center', fontsize=6.5, color='#111')
-        elif it.w > 80 and it.h > 40:
+        # A fonte acompanha o tamanho da peça em vez de ser fixa: o desenho é
+        # lido na máquina, muitas vezes impresso, e código que não se lê não
+        # serve pra nada. Peça grande ganha rótulo grande.
+        escala = min(it.w, it.h) / 14.0
+        tam = max(7.0, min(escala, 22.0))
+        dims = f'{it.w:.0f} x {it.h:.0f}'
+        rot = '  ⟲' if it.rotated else ''
+        if it.w > 150 and it.h > 85:
+            ax.text(it.x + it.w / 2, it.y + it.h / 2 - it.h * 0.10, it.cod,
+                    ha='center', va='center', fontsize=tam, fontweight='bold', color='#111')
+            ax.text(it.x + it.w / 2, it.y + it.h / 2 + it.h * 0.16, dims + rot,
+                    ha='center', va='center', fontsize=max(6.5, tam * 0.62), color='#333')
+        elif it.w > 70 and it.h > 34:
             # peça pequena: só o código, sem dimensão, pra não poluir
             ax.text(it.x + it.w / 2, it.y + it.h / 2, it.cod,
-                    ha='center', va='center', fontsize=5.5, color='#111')
+                    ha='center', va='center', fontsize=max(6.5, min(tam, 11.0)),
+                    fontweight='bold', color='#111')
 
     ax.set_xlim(0, sheet_w_mm)
     ax.set_ylim(0, sheet_h_mm)

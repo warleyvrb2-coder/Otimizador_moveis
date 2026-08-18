@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block titulo %}Importar catálogo{% endblock %}
+{% block cabecalho %}Importar catálogo de peças{% endblock %}
+{% block subcabecalho %}Traz todas as peças do Agrosys de uma vez, sem depender de Kambam{% endblock %}
+{% block acoes %}<a href="/modelos" class="btn secundario">← Modelos</a>{% endblock %}
+
+{% block estilo %}
+<style>
+  .solta { border:2px dashed #cdd3d9; border-radius:var(--raio); padding:34px 20px;
+           text-align:center; background:#fbfcfc; cursor:pointer; }
+  .solta:hover { border-color:var(--verde); background:var(--verde-claro); }
+  .solta input { display:none; }
+  .esp { display:flex; gap:14px; align-items:flex-start; padding:14px 16px;
+         border-bottom:1px solid var(--linha); }
+  .esp:last-child { border-bottom:none; }
+  .esp input { margin-top:4px; width:17px; height:17px; flex:none; }
+  .esp .n { font-weight:650; font-size:14px; min-width:78px; }
+  .esp .q { color:var(--tinta-2); font-size:12.5px; min-width:92px; }
+  .esp .ex { color:var(--tinta-3); font-size:12px; line-height:1.5; }
+</style>
+{% endblock %}
+
+{% block conteudo %}
+{% if erro %}
+<div class="recado perigo"><span class="ic">✕</span><div>{{ erro }}</div></div>
+{% endif %}
+
+{% if etapa == 'enviar' %}
+<div class="recado info">
+  <span class="ic">ℹ️</span>
+  <div>No Agrosys, exporte o relatório <strong>"Itens com Especificações"</strong> em Excel.
+    Ele traz código, descrição e medidas de todas as peças — inclusive as que ainda não
+    apareceram em nenhum Kambam.</div>
+</div>
+
+<form method="post" enctype="multipart/form-data">
+  <div class="cartao">
+    <h2>Planilha do Agrosys</h2>
+    <p class="ajuda">O arquivo vem com extensão .xls mas é XML por dentro. Pode enviar
+      como está.</p>
+    <label class="solta">
+      <div style="font-size:30px; opacity:.5;">📊</div>
+      <div style="font-weight:600; margin-top:8px;">Clique para escolher a planilha</div>
+      <div style="color:var(--tinta-2); font-size:12.5px; margin-top:3px;">.xls ou .xml</div>
+      <input type="file" name="planilha" accept=".xls,.xml" required
+             onchange="this.form.querySelector('button').disabled=false;
+                       this.parentElement.querySelector('div:nth-child(2)').textContent=this.files[0].name">
+    </label>
+    <div style="margin-top:16px;">
+      <button type="submit" class="btn" disabled>Ler planilha →</button>
+    </div>
+  </div>
+</form>
+
+{% elif etapa == 'escolher' %}
+<div class="recado atencao">
+  <span class="ic">⚠️</span>
+  <div>Li <strong>{{ total }}</strong> itens em <em>{{ arquivo }}</em>. Mas o catálogo não
+    tem só peça de chapa — vem junto <strong>MANTA</strong> (plástico),
+    <strong>CAIXA</strong> de papelão e <strong>ISOPOR</strong>, que não passam pela serra.
+    Marque só as espessuras que você realmente corta.</div>
+</div>
+
+<form method="post">
+  <input type="hidden" name="token" value="{{ token }}">
+  <div class="cartao" style="padding:0;">
+    {% for e in espessuras %}
+    <label class="esp">
+      <input type="checkbox" name="espessura" value="{{ e.valor }}"
+             {{ 'checked' if e.valor >= 6 }}>
+      <span class="n">{{ '%.0f'|format(e.valor) }} mm</span>
+      <span class="q">{{ e.qtd }} peças</span>
+      <span class="ex">{{ e.exemplos | join(' · ') }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  <p style="color:var(--tinta-2); font-size:12.5px; margin:0 0 16px;">
+    Já deixei marcadas as espessuras de 6mm para cima, que é o que costuma ser painel.
+    Confira — quem conhece o material é você.
+  </p>
+  <button type="submit" class="btn">Importar as espessuras marcadas</button>
+  <a href="/cadastro/importar" class="btn secundario">Cancelar</a>
+</form>
+
+{% else %}
+<div class="recado info"><span class="ic">✓</span>
+  <div>Importação concluída.</div></div>
+
+<div class="metricas" style="margin-bottom:20px;">
+  <div class="metrica destaque"><div class="rot">Peças novas</div>
+    <div class="val">{{ resultado.novas }}</div></div>
+  <div class="metrica"><div class="rot">Medidas atualizadas</div>
+    <div class="val">{{ resultado.atualizadas }}</div></div>
+  <div class="metrica {{ 'alerta' if resultado.divergentes }}">
+    <div class="rot">Conflitos</div><div class="val">{{ resultado.divergentes }}</div></div>
+</div>
+
+{% if resultado.conflitos %}
+<div class="recado perigo">
+  <span class="ic">⚠️</span>
+  <div><strong>Peças com comprimento e largura trocados entre o Kambam e o catálogo.</strong>
+    Não alterei nenhuma delas — decidir sozinho seria arriscado demais.
+    <br><br>
+    Isso importa porque a regra do veio depende de qual medida é o comprimento:
+    é nele que corre o desenho da madeira. Se as duas fontes discordam, uma está
+    errada, e cortar com o veio trocado inutiliza a peça. Vale conferir no Agrosys
+    qual das duas está certa.</div>
+</div>
+
+<div class="cartao" style="padding:0;">
+  <table class="dados">
+    <thead><tr><th>Código</th><th>Peça</th><th>No Kambam</th><th>No catálogo</th></tr></thead>
+    <tbody>
+      {% for c in resultado.conflitos %}
+      <tr><td><strong>{{ c.cod }}</strong></td><td>{{ c.desc[:52] }}</td>
+          <td>{{ c.kambam }}</td><td>{{ c.catalogo }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<a href="/modelos" class="btn">Ver os modelos e peças →</a>
+{% endif %}
+{% endblock %}
