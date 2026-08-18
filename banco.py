@@ -451,6 +451,52 @@ def definir_acabamento_cor(acabamento: str, cor: str, ligado: bool) -> None:
                         (acabamento, cor))
 
 
+def sugestao_de_busca(descricao_modelo: str) -> str:
+    """
+    Palavras do móvel que valem procurar nas peças.
+
+    A descrição da peça quase sempre cita o móvel ("LATERAL ESQUERDA N°01
+    ROUPEIRO ATLANTA/AREZZO"). O vínculo automático exige que TODAS as
+    palavras batam e por isso recusa os casos ambíguos - mas pra busca manual
+    o interessante é o contrário: uma palavra só já traz os candidatos, e quem
+    escolhe é você.
+    """
+    toks = sorted(_tokens_modelo(descricao_modelo), key=len, reverse=True)
+    return toks[0] if toks else ''
+
+
+def candidatas_para_modelo(modelo_cod: str, busca: str, limite: int = 120) -> list[sqlite3.Row]:
+    """Peças que combinam com a busca e ainda NÃO estão neste móvel."""
+    criar_tabelas()
+    if not busca.strip():
+        return []
+    termo = f'%{busca.strip().upper()}%'
+    with conectar() as con:
+        return con.execute("""
+            SELECT p.*, EXISTS(SELECT 1 FROM modelo_peca mp2 WHERE mp2.peca_cod = p.cod)
+                   AS em_outro
+              FROM peca p
+             WHERE (UPPER(p.descricao) LIKE ? OR p.cod LIKE ?)
+               AND NOT EXISTS (SELECT 1 FROM modelo_peca mp
+                                WHERE mp.peca_cod = p.cod AND mp.modelo_cod = ?)
+             ORDER BY em_outro, p.descricao
+             LIMIT ?
+        """, (termo, termo, modelo_cod, limite)).fetchall()
+
+
+def vincular_varias(modelo_cod: str, pecas: list[tuple[str, float]]) -> int:
+    """Liga várias peças de uma vez ao mesmo móvel."""
+    criar_tabelas()
+    with conectar() as con:
+        for cod, qtd in pecas:
+            con.execute(
+                'INSERT INTO modelo_peca (modelo_cod, peca_cod, por_unidade, confirmado) '
+                'VALUES (?,?,?,1) ON CONFLICT(modelo_cod, peca_cod) DO UPDATE SET '
+                'por_unidade=excluded.por_unidade, confirmado=1',
+                (modelo_cod, cod, qtd))
+    return len(pecas)
+
+
 def remover_vinculo(modelo_cod: str, peca_cod: str) -> None:
     """
     Desfaz a ligação peça↔móvel.

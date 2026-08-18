@@ -274,8 +274,15 @@ def pecas_orfas():
 def modelo_detalhe(cod):
     m = banco.modelo(cod) or abort(404)
     pecas = banco.pecas_do_modelo(cod)
+    # o campo de busca já vem preenchido com a palavra que identifica o móvel:
+    # a descrição da peça quase sempre cita o modelo, então isso costuma trazer
+    # os candidatos de primeira
+    busca = request.args.get('busca')
+    if busca is None:
+        busca = banco.sugestao_de_busca(m['descricao'])
     return render_template('modelo.html', pagina='modelos', m=m, orfas=False,
-                            titulo_pagina=m['descricao'], pecas=pecas,
+                            titulo_pagina=m['descricao'], pecas=pecas, busca=busca,
+                            candidatas=banco.candidatas_para_modelo(cod, busca),
                             todos_modelos=banco.modelos_para_escolha(),
                             pendentes=sum(1 for p in pecas if not p['confirmado']))
 
@@ -368,6 +375,25 @@ def importar_catalogo():
     return render_template('importar.html', pagina='modelos', etapa='escolher',
                             arquivo=f.filename, token=token, total=len(itens),
                             espessuras=espessuras)
+
+
+@app.route('/modelos/<cod>/adicionar', methods=['POST'])
+def modelo_adicionar(cod):
+    """Vincula várias peças ao móvel de uma vez, vindo da busca."""
+    if not banco.modelo(cod):
+        abort(404)
+    escolhidas = []
+    for peca in request.form.getlist('peca'):
+        try:
+            qtd = float((request.form.get(f'qtd_{peca}') or '1').replace(',', '.'))
+        except ValueError:
+            qtd = 1.0
+        if qtd > 0:
+            escolhidas.append((peca, qtd))
+    if escolhidas:
+        banco.vincular_varias(cod, escolhidas)
+    return redirect(url_for('modelo_detalhe', cod=cod,
+                             busca=request.form.get('busca', '')))
 
 
 @app.route('/modelos/vincular', methods=['POST'])

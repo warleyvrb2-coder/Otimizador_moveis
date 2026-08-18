@@ -41,6 +41,23 @@
              cursor:pointer; text-decoration:underline; padding:2px 0; }
   .desliga:hover { color:var(--vermelho); }
   tr.saindo { opacity:.35; transition:opacity .3s; }
+  .busca-linha { display:flex; gap:9px; margin-bottom:14px; }
+  .busca-linha input { flex:1; padding:9px 13px; border:1px solid var(--linha);
+                       border-radius:8px; font-size:13.5px; }
+  .candidatas { max-height:400px; overflow-y:auto; border:1px solid var(--linha);
+                border-radius:8px; }
+  .cand { display:flex; gap:11px; align-items:center; padding:8px 12px;
+          border-bottom:1px solid var(--linha); cursor:pointer; font-size:13px; }
+  .cand:last-child { border-bottom:none; }
+  .cand:hover { background:#fafbfb; }
+  .cand input[type=checkbox] { width:16px; height:16px; flex:none; }
+  .cand .c-cod { font-weight:650; font-variant-numeric:tabular-nums; min-width:56px; }
+  .cand .c-desc { flex:1; color:var(--tinta-2); }
+  .cand .c-med { color:var(--tinta-3); font-size:12px; white-space:nowrap; }
+  .cand .c-uso { background:var(--ambar-claro); color:var(--ambar); font-size:10.5px;
+                 padding:1px 7px; border-radius:99px; white-space:nowrap; }
+  .cand .c-qtd { width:44px; padding:4px 6px; border:1px solid var(--linha);
+                 border-radius:6px; text-align:right; font-size:12.5px; }
 </style>
 {% endblock %}
 
@@ -149,10 +166,53 @@
 {% else %}
 <div class="recado atencao">
   <span class="ic">⚠️</span>
-  <div><strong>Nenhuma peça vinculada a este móvel.</strong> A descrição das peças vem
-    cortada no relatório, ou o nome deste móvel é genérico demais para distinguir de
-    outro parecido — nesse caso o sistema prefere não vincular a vincular errado.
-    As peças estão em <a href="/modelos/sem-modelo">peças sem modelo</a>.</div>
+  <div><strong>Nenhuma peça vinculada ainda.</strong> Ou a descrição das peças vem cortada
+    no relatório, ou o nome deste móvel é genérico demais para distinguir de outro
+    parecido — nesses casos o sistema prefere não vincular a vincular errado.
+    Monte a lista abaixo.</div>
+</div>
+{% endif %}
+
+{% if not orfas %}
+<div class="cartao">
+  <h2>Adicionar peças a este móvel</h2>
+  <p class="ajuda">Procure pelo nome ou código. Já deixei preenchido com a palavra que
+    identifica este móvel — a descrição da peça costuma citá-la. Marque as que pertencem,
+    informe quantas cada móvel leva, e adicione todas de uma vez.</p>
+
+  <form method="get" class="busca-linha">
+    <input type="search" name="busca" value="{{ busca }}"
+           placeholder="ex: ATLANTA, COPACABANA, DALLAS...">
+    <button type="submit" class="btn secundario">Procurar</button>
+  </form>
+
+  {% if candidatas %}
+  <form method="post" action="/modelos/{{ m.cod }}/adicionar">
+    <input type="hidden" name="busca" value="{{ busca }}">
+    <div class="candidatas">
+      {% for c in candidatas %}
+      <label class="cand">
+        <input type="checkbox" name="peca" value="{{ c.cod }}">
+        <span class="c-cod">{{ c.cod }}</span>
+        <span class="c-desc">{{ c.descricao }}</span>
+        <span class="c-med">{{ c.comp_mm }}×{{ c.larg_mm }}</span>
+        {% if c.em_outro %}<span class="c-uso" title="já pertence a outro móvel">em outro móvel</span>{% endif %}
+        <input class="c-qtd" type="text" inputmode="decimal" name="qtd_{{ c.cod }}"
+               value="1" title="quantas por móvel" onclick="event.preventDefault()">
+      </label>
+      {% endfor %}
+    </div>
+    <div style="margin-top:14px; display:flex; gap:10px; align-items:center;">
+      <button type="submit" class="btn">Adicionar marcadas</button>
+      <button type="button" class="btn secundario" onclick="marcarTodas(this)">Marcar todas</button>
+      <span style="color:var(--tinta-2); font-size:12.5px;">{{ candidatas|length }} encontradas</span>
+    </div>
+  </form>
+  {% elif busca %}
+  <p style="color:var(--tinta-2); font-size:13px;">
+    Nenhuma peça encontrada para “{{ busca }}” que já não esteja neste móvel.
+  </p>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}
@@ -202,6 +262,12 @@
     });
     if (r.ok) { linha.classList.add('saindo'); setTimeout(() => linha.remove(), 320); }
     else { botao.textContent = 'erro'; }
+  }
+  function marcarTodas(botao) {
+    const cxs = document.querySelectorAll('.cand input[type=checkbox]');
+    const ligar = [...cxs].some(c => !c.checked);
+    cxs.forEach(c => c.checked = ligar);
+    botao.textContent = ligar ? 'Desmarcar todas' : 'Marcar todas';
   }
   async function marcar(peca, valor, botao) {
     const linha = botao.closest('tr'), estado = linha.querySelector('.estado');
