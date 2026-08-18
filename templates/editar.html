@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block titulo %}Editar padrão {{ padrao.n }}{% endblock %}
+{% block cabecalho %}Padrão {{ padrao.n }} · {{ grupo.cor }}{% endblock %}
+{% block subcabecalho %}
+  {{ padrao.repeticoes }} chapas · {{ '%.1f'|format(padrao.aproveitamento) }}% de aproveitamento ·
+  {{ estagios_atuais if estagios_atuais < 99 else '—' }} estágios de corte
+{% endblock %}
+{% block acoes %}<a href="/resultado/{{ plano.id }}" class="btn secundario">← Voltar ao plano</a>{% endblock %}
+
+{% block estilo %}
+<style>
+  .duas { display:grid; grid-template-columns: 1.1fr 1fr; gap:18px; align-items:start; }
+  @media (max-width:980px) { .duas { grid-template-columns:1fr; } }
+  .chapa-img { width:100%; border-radius:8px; border:1px solid var(--linha); display:block; }
+  .sobra { display:flex; gap:11px; align-items:center; padding:10px 13px;
+           border:1px solid var(--linha); border-radius:8px; margin-bottom:7px;
+           text-decoration:none; color:inherit; }
+  .sobra:hover { border-color:var(--verde); }
+  .sobra.sel { border-color:var(--verde); background:var(--verde-claro); }
+  .sobra .med { font-weight:650; font-variant-numeric:tabular-nums; }
+  .sobra .area { color:var(--tinta-2); font-size:12.5px; margin-left:auto; }
+  .cand { display:flex; gap:10px; align-items:center; padding:8px 11px;
+          border-bottom:1px solid var(--linha); font-size:13px; }
+  .cand:last-child { border-bottom:none; }
+  .cand .cod { font-weight:650; min-width:56px; font-variant-numeric:tabular-nums; }
+  .cand .ds { flex:1; color:var(--tinta-2); }
+  .cand .md { color:var(--tinta-3); font-size:12px; white-space:nowrap; }
+  .lista-cand { max-height:330px; overflow-y:auto; border:1px solid var(--linha);
+                border-radius:8px; }
+  .busca-linha { display:flex; gap:8px; margin-bottom:12px; }
+  .busca-linha input { flex:1; padding:9px 12px; border:1px solid var(--linha);
+                       border-radius:8px; font-size:13.5px; }
+  .btn-mini { border:1px solid var(--verde); background:var(--verde); color:#fff;
+              padding:5px 11px; border-radius:6px; font-size:12px; cursor:pointer; }
+  .btn-tirar { background:none; border:none; color:var(--tinta-3); font-size:11.5px;
+               cursor:pointer; text-decoration:underline; }
+  .btn-tirar:hover { color:var(--vermelho); }
+</style>
+{% endblock %}
+
+{% block conteudo %}
+{% if erro %}<div class="recado perigo"><span class="ic">✕</span><div>{{ erro }}</div></div>{% endif %}
+{% if ok %}<div class="recado info"><span class="ic">✓</span>
+  <div>Padrão atualizado. A aprovação do PCP foi retirada — o desenho mudou e precisa
+    de nova conferência.</div></div>{% endif %}
+
+<div class="recado atencao">
+  <span class="ic">⚠️</span>
+  <div>Este padrão é cortado <strong>{{ padrao.repeticoes }} vezes</strong>. Tirar ou
+    acrescentar uma peça aqui muda {{ padrao.repeticoes }} peças na produção —
+    a conferência abaixo mostra o efeito. O material é
+    <strong>{{ grupo.cor }} · {{ '%.0f'|format(grupo.esp) }}mm</strong>; confira antes de
+    chamar uma peça de outra cor.</div>
+</div>
+
+{% if grupo.diferencas %}
+<div class="recado perigo">
+  <span class="ic">⚠️</span>
+  <div><strong>O plano deixou de bater com o pedido:</strong>
+    {% for d in grupo.diferencas %}
+      {{ d.cod }} {{ '+' if d.dif > 0 }}{{ d.dif }}{{ ', ' if not loop.last }}
+    {% endfor %}
+    <br>Número negativo é peça faltando para fechar os Kambans; positivo é excedente.</div>
+</div>
+{% endif %}
+
+<div class="duas">
+  <div>
+    <div class="cartao">
+      <h2>Desenho atual</h2>
+      <img class="chapa-img" src="{{ padrao.arquivo }}?v={{ padrao.itens|length }}"
+           alt="Padrão {{ padrao.n }}">
+    </div>
+
+    <div class="cartao" style="padding:0;">
+      <table class="dados">
+        <thead><tr><th>Peça</th><th>Medida</th><th>Posição</th><th></th></tr></thead>
+        <tbody>
+        {% for it in padrao.itens %}
+          <tr>
+            <td><strong>{{ it.cod }}</strong>
+                {% if it.rotated %}<span class="etiqueta" style="margin-left:6px;">girada</span>{% endif %}
+                <br><span style="color:var(--tinta-2); font-size:12px;">{{ it.desc[:34] }}</span></td>
+            <td style="white-space:nowrap;">{{ it.w|round|int }} × {{ it.h|round|int }}</td>
+            <td style="white-space:nowrap; color:var(--tinta-3);">
+              x {{ it.x|round|int }} · y {{ it.y|round|int }}</td>
+            <td class="num">
+              <form method="post" action="/resultado/{{ plano.id }}/padrao/{{ gi }}/{{ pi }}/aplicar">
+                <input type="hidden" name="acao" value="remover">
+                <input type="hidden" name="indice" value="{{ loop.index0 }}">
+                <button class="btn-tirar" type="submit"
+                        onclick="return confirm('Tirar {{ it.cod }} deste padrão? Isso remove {{ padrao.repeticoes }} peças da produção.')">
+                  tirar</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div>
+    <div class="cartao">
+      <h2>Sobras da chapa</h2>
+      <p class="ajuda">Espaços vazios que o otimizador deixou. Escolha um para ver o que
+        cabe nele.</p>
+      {% for s in livres %}
+      <a class="sobra {{ 'sel' if escolhido == loop.index0 }}"
+         href="?retalho={{ loop.index0 }}{{ '&busca=' ~ busca if busca }}">
+        <span class="med">{{ s.w|round|int }} × {{ s.h|round|int }} mm</span>
+        <span class="area">{{ '%.2f'|format(s.area_m2) }} m²</span>
+      </a>
+      {% else %}
+      <p style="color:var(--tinta-2); font-size:13px;">
+        Nenhuma sobra aproveitável — a chapa está bem preenchida.</p>
+      {% endfor %}
+    </div>
+
+    {% if escolhido is not none %}
+    <div class="cartao">
+      <h2>O que cabe nesta sobra</h2>
+      <p class="ajuda">Peças do cadastro que entram no espaço escolhido, já descontando a
+        folga da serra.</p>
+      <form method="get" class="busca-linha">
+        <input type="hidden" name="retalho" value="{{ escolhido }}">
+        <input type="search" name="busca" value="{{ busca }}"
+               placeholder="filtrar por código ou nome...">
+        <button class="btn secundario" type="submit">Filtrar</button>
+      </form>
+
+      {% if candidatas %}
+      <div class="lista-cand">
+        {% for c in candidatas %}
+        <div class="cand">
+          <span class="cod">{{ c.cod }}</span>
+          <span class="ds">{{ c.desc[:38] }}</span>
+          <span class="md">{{ c.comp }}×{{ c.larg }}{{ ' ⟲' if c.girada }}</span>
+          <form method="post" action="/resultado/{{ plano.id }}/padrao/{{ gi }}/{{ pi }}/aplicar">
+            <input type="hidden" name="acao" value="adicionar">
+            <input type="hidden" name="retalho" value="{{ escolhido }}">
+            <input type="hidden" name="cod" value="{{ c.cod }}">
+            <button class="btn-mini" type="submit">colocar</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      <p style="color:var(--tinta-2); font-size:12px; margin:10px 0 0;">
+        {{ candidatas|length }} peça(s) cabem aqui. Toda inclusão é conferida contra a
+        serra, a sobreposição e os estágios de corte antes de valer.</p>
+      {% else %}
+      <p style="color:var(--tinta-2); font-size:13px;">
+        Nenhuma peça do cadastro cabe nesta sobra{{ ' com esse filtro' if busca }}.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -23,9 +23,11 @@ from flask import (Flask, request, render_template, redirect, url_for,
 from werkzeug.utils import secure_filename
 
 import banco
+import edicao
 import jobs
 import pipeline
 import planilha
+from visualize import render_sheet
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Em hospedagem o disco é efêmero: escrever dentro do projeto some no próximo
@@ -504,6 +506,150 @@ def resultado(job_id):
     if job.estado != 'pronto':
         return redirect(url_for('acompanhar', job_id=job_id))
     return render_template('resultado.html', **job.resultado)
+
+
+def _localizar_padrao(resultado, gi, pi):
+    try:
+        grupo = resultado['grupos'][gi]
+        return grupo, grupo['padroes'][pi]
+    except (IndexError, KeyError, TypeError):
+        return None, None
+
+
+def _recalcular(resultado):
+    """Refaz os numeros do plano depois de mexer nas pecas de um padrao."""
+    area_chapa = (resultado['sheet_w'] / 1000) * (resultado['sheet_h'] / 1000)
+    for g in resultado['grupos']:
+        chapas = 0
+        area_usada = 0.0
+        for pad in g['padroes']:
+            usada = sum((i['w'] / 1000) * (i['h'] / 1000) for i in pad.get('itens', []))
+            pad['aproveitamento'] = 100 * usada / area_chapa if area_chapa else 0
+            chapas += pad['repeticoes']
+            area_usada += usada * pad['repeticoes']
+        g['n_chapas'] = chapas
+        g['aproveitamento_medio'] = (100 * area_usada / (chapas * area_chapa)
+                                      if chapas and area_chapa else 0)
+        g['n_padroes'] = len(g['padroes'])
+    resultado['total_chapas'] = sum(g['n_chapas'] for g in resultado['grupos'])
+
+
+def _conferir_demanda(resultado):
+    """
+    Compara o que o plano produz com o que os Kambans pediram.
+
+    Mexer num padrao repetido 42 vezes mexe em 42 pecas de uma vez: tirar uma
+    peca deixa o lote incompleto, acrescentar gera excedente. Sem esta conta a
+    edicao pareceria inofensiva e o operador so descobriria na montagem.
+    """
+    for g in resultado['grupos']:
+        pedido, produzido = {}, {}
+        for pad in g['padroes']:
+            for pc in pad.get('pecas', []):
+                pedido[pc['cod']] = pedido.get(pc['cod'], 0) + sum(pc.get('lotes', {}).values())
+            for it in pad.get('itens', []):
+                produzido[it['cod']] = produzido.get(it['cod'], 0) + pad['repeticoes']
+        g['diferencas'] = [{'cod': c, 'dif': produzido.get(c, 0) - pedido.get(c, 0)}
+                            for c in sorted(set(pedido) | set(produzido))
+                            if produzido.get(c, 0) != pedido.get(c, 0)]
+
+
+def _pode_girar_aqui(peca, grupo):
+    """Peca so e obrigada a manter a orientacao se a cor tem veio E ela aparece."""
+    return not (grupo.get('tem_veio') and peca['aparente'])
+
+
+def _redesenhar(plano_id, r, grupo, padrao):
+    """Refaz o PNG do padrao editado, senao o desenho mentiria."""
+    from types import SimpleNamespace
+    itens = [SimpleNamespace(**i) for i in padrao['itens']]
+    chapa = SimpleNamespace(items=itens, repeticoes=padrao['repeticoes'],
+                             aproveitamento=padrao['aproveitamento'])
+    nome = padrao['arquivo'].rsplit('/', 1)[-1]
+    caminho = os.path.join(OUTPUT_DIR, secure_filename(plano_id), nome)
+    os.makedirs(os.path.dirname(caminho), exist_ok=True)
+    render_sheet(chapa, r['sheet_w'], r['sheet_h'], caminho,
+                 titulo=(grupo['cor'] + ' - Padrao ' + str(padrao['n']) + ' (editado)'),
+                 veio=grupo.get('tem_veio'))
+
+
+@app.route('/resultado/<plano_id>/padrao/<int:gi>/<int:pi>')
+def editar_padrao(plano_id, gi, pi):
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+    grupo, padrao = _localizar_padrao(r, gi, pi)
+    if padrao is None or 'itens' not in padrao:
+        abort(404)
+    livres = edicao.retalhos_livres(padrao['itens'], r['sheet_w'], r['sheet_h'])
+    escolhido = request.args.get('retalho', type=int)
+    busca = request.args.get('busca', '').strip()
+    candidatas = []
+    if escolhido is not None and 0 <= escolhido < len(livres):
+        ret = livres[escolhido]
+        for p in banco.listar_pecas(busca, limite=500):
+            enc = edicao.encaixar(ret, p['comp_mm'], p['larg_mm'], r['kerf'],
+                                   _pode_girar_aqui(p, grupo))
+            if enc:
+                candidatas.append({'cod': p['cod'], 'desc': p['descricao'],
+                                    'comp': p['comp_mm'], 'larg': p['larg_mm'],
+                                    'girada': enc['rotated']})
+    return render_template('editar.html', pagina='planos', plano=salvo, r=r,
+                            grupo=grupo, padrao=padrao, gi=gi, pi=pi, livres=livres,
+                            escolhido=escolhido, busca=busca, candidatas=candidatas[:80],
+                            erro=request.args.get('erro'), ok=request.args.get('ok'),
+                            estagios_atuais=edicao.estagios(padrao['itens'],
+                                                             r['sheet_w'], r['sheet_h']))
+
+
+@app.route('/resultado/<plano_id>/padrao/<int:gi>/<int:pi>/aplicar', methods=['POST'])
+def aplicar_edicao(plano_id, gi, pi):
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+    grupo, padrao = _localizar_padrao(r, gi, pi)
+    if padrao is None or 'itens' not in padrao:
+        abort(404)
+
+    def volta(**extra):
+        return redirect(url_for('editar_padrao', plano_id=plano_id, gi=gi, pi=pi, **extra))
+
+    itens = [dict(i) for i in padrao['itens']]
+    acao = request.form.get('acao')
+
+    if acao == 'remover':
+        idx = request.form.get('indice', type=int)
+        if idx is None or not (0 <= idx < len(itens)):
+            return volta(erro='Peca nao encontrada neste padrao.')
+        itens.pop(idx)
+    elif acao == 'adicionar':
+        i_ret = request.form.get('retalho', type=int)
+        cod = (request.form.get('cod') or '').strip()
+        livres = edicao.retalhos_livres(itens, r['sheet_w'], r['sheet_h'])
+        peca = next((p for p in banco.listar_pecas(cod, limite=80) if p['cod'] == cod), None)
+        if peca is None:
+            return volta(erro='Codigo ' + cod + ' nao existe no cadastro de pecas.')
+        if i_ret is None or not (0 <= i_ret < len(livres)):
+            return volta(erro='Escolha em qual sobra a peca vai entrar.')
+        enc = edicao.encaixar(livres[i_ret], peca['comp_mm'], peca['larg_mm'], r['kerf'],
+                               _pode_girar_aqui(peca, grupo))
+        if not enc:
+            return volta(retalho=i_ret,
+                          erro='A peca nao cabe nesta sobra considerando a folga da serra.')
+        itens.append({'cod': peca['cod'], 'desc': peca['descricao'],
+                       'piece_key': peca['cod'] + '_manual', 'shelf': 0, **enc})
+    else:
+        return volta(erro='Acao desconhecida.')
+
+    problemas = edicao.validar_padrao(itens, r['sheet_w'], r['sheet_h'], r['estagios'])
+    if problemas:
+        return volta(erro=' '.join(problemas))
+
+    padrao['itens'] = itens
+    padrao['editado'] = True
+    _recalcular(r)
+    _conferir_demanda(r)
+    banco.atualizar_resultado(plano_id, r)
+    _redesenhar(plano_id, r, grupo, padrao)
+    return volta(ok='1')
 
 
 @app.route('/resultado/<job_id>/aprovar', methods=['POST'])

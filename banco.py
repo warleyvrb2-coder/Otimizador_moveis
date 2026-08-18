@@ -764,6 +764,23 @@ def salvar_plano(plano_id: str, resultado: dict) -> None:
              arquivos, resultado.get('total_chapas'), json.dumps(resultado, ensure_ascii=False)))
 
 
+def atualizar_resultado(plano_id: str, resultado: dict) -> None:
+    """
+    Regrava o plano depois de uma edicao manual.
+
+    Retira a aprovacao de proposito: o PCP aprovou um desenho especifico, e
+    mexer nele depois torna aquela assinatura invalida. Melhor pedir nova
+    conferencia do que deixar circular um papel aprovado que nao corresponde
+    mais ao que esta na tela.
+    """
+    criar_tabelas()
+    with conectar() as con:
+        con.execute('UPDATE plano SET resultado=?, total_chapas=?, aprovado=0, '
+                    'aprovado_em=NULL, aprovado_por=NULL WHERE id=?',
+                    (json.dumps(resultado, ensure_ascii=False),
+                     resultado.get('total_chapas'), plano_id))
+
+
 def obter_plano(plano_id: str) -> dict | None:
     criar_tabelas()
     with conectar() as con:

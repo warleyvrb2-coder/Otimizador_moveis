@@ -202,6 +202,13 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
                          veio=tem_veio(cor, respeitar_veio))
             blocos.append({
                 'n': i,
+                # A geometria vai junto: sem as coordenadas o plano salvo não
+                # tem o que editar depois, e o desenho seria a única fonte —
+                # imagem não dá pra validar nem recalcular.
+                'itens': [{'cod': it.cod, 'desc': it.desc, 'piece_key': it.piece_key,
+                            'x': round(it.x, 1), 'y': round(it.y, 1),
+                            'w': round(it.w, 1), 'h': round(it.h, 1),
+                            'rotated': bool(it.rotated)} for it in pat.items],
                 'arquivo': f'{url_prefixo}/{img_name}',
                 'repeticoes': pat.repeticoes,
                 'aproveitamento': pat.aproveitamento,
