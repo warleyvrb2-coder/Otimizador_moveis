@@ -1,14 +1,15 @@
 {% extends "base.html" %}
 {% block titulo %}Planos gerados{% endblock %}
 {% block cabecalho %}Planos gerados{% endblock %}
-{% block subcabecalho %}Cálculos desta sessão do servidor{% endblock %}
+{% block subcabecalho %}Histórico de cálculos, gravado no banco{% endblock %}
 {% block acoes %}<a href="/" class="btn">Novo plano</a>{% endblock %}
 
 {% block conteudo %}
 <div class="recado info">
   <span class="ic">ℹ️</span>
-  <div>Esta lista vive na memória do servidor e é reiniciada a cada atualização do
-    sistema. Plano que você precisa guardar, imprima ou salve em PDF pelo navegador.</div>
+  <div>Os planos ficam gravados no banco e sobrevivem às atualizações do sistema.
+    Plano <strong>aprovado</strong> é o que vale para a produção — não precisa ser
+    recalculado.</div>
 </div>
 
 <div class="cartao" style="padding:0;">
@@ -16,7 +17,7 @@
   <table class="dados">
     <thead>
       <tr><th>Quando</th><th>Situação</th><th>Arquivos</th>
-          <th class="num">Chapas</th><th></th></tr>
+          <th class="num">Chapas</th><th>PCP</th><th></th></tr>
     </thead>
     <tbody>
       {% for p in planos %}
@@ -29,6 +30,9 @@
         </td>
         <td style="color:var(--tinta-2);">{{ p.arquivos or '—' }}</td>
         <td class="num">{{ p.chapas if p.chapas is not none else '—' }}</td>
+        <td>{% if p.aprovado %}<span class="etiqueta ok">aprovado</span>
+            {% elif p.estado == 'pronto' %}<span class="etiqueta atencao">a conferir</span>
+            {% endif %}</td>
         <td class="num">
           {% if p.estado == 'pronto' %}<a href="/resultado/{{ p.id }}">abrir →</a>
           {% elif p.estado != 'erro' %}<a href="/calculando/{{ p.id }}">acompanhar →</a>{% endif %}

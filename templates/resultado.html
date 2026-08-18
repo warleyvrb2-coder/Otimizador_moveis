@@ -7,6 +7,9 @@
   {{ 'veio respeitado' if respeitar_veio else 'veio ignorado' }}
 {% endblock %}
 {% block acoes %}
+  {% if plano and plano.aprovado %}
+  <span class="etiqueta ok">✓ aprovado por {{ plano.aprovado_por }}</span>
+  {% endif %}
   <button class="btn secundario" onclick="window.print()">Imprimir</button>
   <a href="/" class="btn">Novo plano</a>
 {% endblock %}
@@ -28,7 +31,20 @@
   .cabeca-grupo { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
   .cabeca-grupo h2 { margin:0; font-size:17px; font-weight:680; }
   @media (max-width:900px) { .padrao-corpo { grid-template-columns:1fr; } }
-  @media print { .padrao { break-inside:avoid; } .recado { display:none; } }
+  @media print { .padrao { break-inside:avoid; } .recado { display:none; }
+                 .aprovacao form { display:none; } }
+  .aprovacao { border-left:4px solid var(--ambar); }
+  .aprovacao.ok { border-left-color:var(--verde); background:var(--verde-claro);
+                  border-color:#cfe3d7; }
+  .aprovacao .ap-tit { font-weight:680; font-size:14.5px; }
+  .aprovacao .ap-sub { color:var(--tinta-2); font-size:12.5px; margin-top:4px; line-height:1.55; }
+  .aprovacao .ap-obs { margin-top:10px; padding:9px 12px; background:#fff; border-radius:7px;
+                       font-size:13px; font-style:italic; color:var(--tinta-2); }
+  .ap-form { display:flex; gap:9px; margin-top:13px; flex-wrap:wrap; }
+  .ap-form input { padding:9px 12px; border:1px solid var(--linha); border-radius:8px;
+                   font-size:13.5px; }
+  .ap-form input[name=por] { width:180px; }
+  .ap-form input[name=observacao] { flex:1; min-width:220px; }
 </style>
 {% endblock %}
 
@@ -45,6 +61,34 @@
     atravessado em parte delas. Serve para comparação —
     <strong>não mande para a máquina</strong> sem confirmar que todas as cores
     deste lote são lisas.</div>
+</div>
+{% endif %}
+
+{% if plano %}
+<div class="cartao aprovacao {{ 'ok' if plano.aprovado }}">
+  {% if plano.aprovado %}
+    <div class="ap-tit">✓ Plano aprovado pelo PCP</div>
+    <div class="ap-sub">Por <strong>{{ plano.aprovado_por }}</strong> em
+      {{ plano.aprovado_em[:16]|replace('T',' ') }}. Este é o plano que vale —
+      não precisa recalcular.</div>
+    {% if plano.observacao %}
+    <div class="ap-obs">“{{ plano.observacao }}”</div>
+    {% endif %}
+    <form method="post" action="/resultado/{{ plano.id }}/aprovar" style="margin-top:12px;">
+      <input type="hidden" name="desfazer" value="1">
+      <button class="btn secundario" type="submit">Retirar aprovação</button>
+    </form>
+  {% else %}
+    <div class="ap-tit">Aguardando conferência do PCP</div>
+    <div class="ap-sub">Aprovar congela este plano como o válido. Recalcular depois daria
+      outro resultado — o otimizador tem tempo limitado e o cadastro muda — e aí o papel
+      na máquina não bateria mais com a tela.</div>
+    <form method="post" action="/resultado/{{ plano.id }}/aprovar" class="ap-form">
+      <input type="text" name="por" placeholder="Seu nome" required maxlength="60">
+      <input type="text" name="observacao" placeholder="Observação (opcional)" maxlength="400">
+      <button class="btn" type="submit">Aprovar plano</button>
+    </form>
+  {% endif %}
 </div>
 {% endif %}
 

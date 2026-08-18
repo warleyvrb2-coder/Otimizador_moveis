@@ -48,8 +48,14 @@ _lock = threading.Lock()
 MAX_HISTORICO = 20
 
 
-def criar(func, *args, **kwargs) -> Job:
-    """Enfileira func(*args, progresso=..., **kwargs) numa thread."""
+def criar(func, *args, ao_terminar=None, **kwargs) -> Job:
+    """
+    Enfileira func(*args, progresso=..., **kwargs) numa thread.
+
+    ao_terminar(job) roda depois do sucesso, dentro da mesma thread. É o
+    gancho que grava o resultado no banco - sem ele o plano viveria só aqui
+    na memória e sumiria no próximo reinício.
+    """
     job = Job(id=uuid.uuid4().hex[:10])
     with _lock:
         _jobs[job.id] = job
@@ -63,6 +69,11 @@ def criar(func, *args, **kwargs) -> Job:
         try:
             job.resultado = func(*args, progresso=progresso, **kwargs)
             job.feito = job.total
+            if ao_terminar:
+                try:
+                    ao_terminar(job)
+                except Exception:            # gravar falhou, mas o cálculo é válido
+                    traceback.print_exc()
             job.estado = 'pronto'
             job.texto = 'Pronto'
         except Exception as e:                     # noqa: BLE001 - queremos mostrar qualquer falha

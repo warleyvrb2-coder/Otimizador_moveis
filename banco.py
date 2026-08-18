@@ -18,6 +18,7 @@ SQLite de propósito: um arquivo, zero servidor, mesmo comportamento na sua
 máquina e publicado. O caminho vem de DATA_DIR — publicado, precisa apontar
 pra um volume, senão o cadastro some no próximo deploy.
 """
+import json
 import os
 import re
 import sqlite3
@@ -124,8 +125,23 @@ def criar_tabelas() -> None:
                 cor           TEXT NOT NULL,
                 PRIMARY KEY (acabamento, cor)
             );
+            -- Planos calculados. Antes viviam só na memória do servidor e
+            -- sumiam a cada reinício, o que impede tanto aprovar quanto
+            -- editar: não se aprova um documento que evapora.
+            CREATE TABLE IF NOT EXISTS plano (
+                id            TEXT PRIMARY KEY,
+                criado_em     TEXT NOT NULL,
+                arquivos      TEXT,
+                total_chapas  INTEGER,
+                resultado     TEXT NOT NULL,   -- JSON do plano inteiro
+                aprovado      INTEGER NOT NULL DEFAULT 0,
+                aprovado_em   TEXT,
+                aprovado_por  TEXT,
+                observacao    TEXT
+            );
             CREATE INDEX IF NOT EXISTS ix_mp_modelo ON modelo_peca(modelo_cod);
             CREATE INDEX IF NOT EXISTS ix_mp_peca   ON modelo_peca(peca_cod);
+            CREATE INDEX IF NOT EXISTS ix_plano_data ON plano(criado_em DESC);
         """)
 
 
@@ -605,6 +621,62 @@ def definir_peca(cod: str, aparente: bool) -> None:
 def definir_cor(nome: str, amadeirada: bool) -> None:
     with conectar() as con:
         con.execute('UPDATE cor SET amadeirada=?, confirmado=1 WHERE nome=?', (int(amadeirada), nome))
+
+
+def salvar_plano(plano_id: str, resultado: dict) -> None:
+    """
+    Guarda o plano inteiro como JSON.
+
+    Serializado em bloco de propósito: o plano é um documento fechado, que
+    vale exatamente como foi calculado — se ele fosse remontado depois a
+    partir do cadastro atual, mudar o veio de uma peça reescreveria um plano
+    já aprovado, e o desenho no chão de fábrica deixaria de bater.
+    """
+    criar_tabelas()
+    arquivos = ', '.join(k['arquivo'] for k in resultado.get('kambans_info') or [])
+    with conectar() as con:
+        con.execute(
+            'INSERT INTO plano (id, criado_em, arquivos, total_chapas, resultado) '
+            'VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET resultado=excluded.resultado',
+            (plano_id, datetime.now(timezone.utc).isoformat(timespec='seconds'),
+             arquivos, resultado.get('total_chapas'), json.dumps(resultado, ensure_ascii=False)))
+
+
+def obter_plano(plano_id: str) -> dict | None:
+    criar_tabelas()
+    with conectar() as con:
+        r = con.execute('SELECT * FROM plano WHERE id=?', (plano_id,)).fetchone()
+    if not r:
+        return None
+    return {'id': r['id'], 'criado_em': r['criado_em'], 'aprovado': bool(r['aprovado']),
+            'aprovado_em': r['aprovado_em'], 'aprovado_por': r['aprovado_por'],
+            'observacao': r['observacao'], 'resultado': json.loads(r['resultado'])}
+
+
+def listar_planos(limite: int = 60) -> list[dict]:
+    criar_tabelas()
+    with conectar() as con:
+        linhas = con.execute(
+            'SELECT id, criado_em, arquivos, total_chapas, aprovado, aprovado_em, aprovado_por '
+            'FROM plano ORDER BY criado_em DESC LIMIT ?', (limite,)).fetchall()
+    return [dict(r) for r in linhas]
+
+
+def aprovar_plano(plano_id: str, por: str, observacao: str = '', aprovar: bool = True) -> None:
+    """
+    Marca o plano como conferido pelo PCP.
+
+    O que aprovação resolve na prática: o plano aprovado é o que vale, e não
+    precisa ser recalculado. Recalcular daria outro resultado — o otimizador
+    tem tempo limitado e o cadastro muda — e aí o papel na máquina não bateria
+    mais com a tela.
+    """
+    criar_tabelas()
+    agora = datetime.now(timezone.utc).isoformat(timespec='seconds') if aprovar else None
+    with conectar() as con:
+        con.execute('UPDATE plano SET aprovado=?, aprovado_em=?, aprovado_por=?, observacao=? '
+                    'WHERE id=?',
+                    (int(aprovar), agora, por if aprovar else None, observacao or None, plano_id))
 
 
 def resumo() -> dict:

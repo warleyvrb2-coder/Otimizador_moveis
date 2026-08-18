@@ -103,17 +103,28 @@ def index():
                             res=banco.resumo(), par=banco.obter_parametros())
 
 
+def _quando(iso: str) -> str:
+    from datetime import datetime as _dt
+    try:
+        return _dt.fromisoformat(iso).astimezone().strftime('%d/%m %H:%M')
+    except (ValueError, TypeError):
+        return iso or ''
+
+
 @app.route('/planos')
 def planos():
+    """Os que ainda estão calculando vêm da memória; o resto, do banco."""
     lista = []
     for j in sorted(jobs.todos(), key=lambda j: j.criado_em, reverse=True):
-        r = j.resultado or {}
-        lista.append({
-            'id': j.id, 'estado': j.estado, 'pct': j.pct,
-            'quando': j.criado_em.astimezone().strftime('%d/%m %H:%M'),
-            'arquivos': ', '.join(k['arquivo'] for k in r.get('kambans_info') or []) or None,
-            'chapas': r.get('total_chapas'),
-        })
+        if j.estado in ('na_fila', 'rodando', 'erro'):
+            lista.append({'id': j.id, 'estado': j.estado, 'pct': j.pct,
+                           'quando': j.criado_em.astimezone().strftime('%d/%m %H:%M'),
+                           'arquivos': None, 'chapas': None, 'aprovado': False})
+    for p in banco.listar_planos():
+        lista.append({'id': p['id'], 'estado': 'pronto', 'pct': 100,
+                       'quando': _quando(p['criado_em']), 'arquivos': p['arquivos'],
+                       'chapas': p['total_chapas'], 'aprovado': bool(p['aprovado']),
+                       'aprovado_por': p['aprovado_por']})
     return render_template('planos.html', pagina='planos', planos=lista)
 
 
@@ -201,6 +212,8 @@ def otimizar():
     job = jobs.criar(
         pipeline.rodar, salvos, run_dir, f'/plano/{job_id}',
         respeitar_veio=respeitar_veio, max_depth=max_depth,
+        ao_terminar=lambda j: (banco.salvar_plano(j.id, j.resultado)
+                                if j.resultado and not j.resultado.get('erro') else None),
     )
     return redirect(url_for('acompanhar', job_id=job.id))
 
@@ -431,12 +444,28 @@ def cadastro_marcar():
 
 @app.route('/resultado/<job_id>')
 def resultado(job_id):
+    # o plano gravado é a fonte da verdade; a memória só cobre o que ainda
+    # está calculando nesta execução do servidor
+    salvo = banco.obter_plano(job_id)
+    if salvo:
+        return render_template('resultado.html', plano=salvo, **salvo['resultado'])
     job = jobs.obter(job_id) or abort(404)
     if job.estado == 'erro':
         return render_template('resultado.html', erro=job.erro, kambans_info=None), 500
     if job.estado != 'pronto':
         return redirect(url_for('acompanhar', job_id=job_id))
     return render_template('resultado.html', **job.resultado)
+
+
+@app.route('/resultado/<job_id>/aprovar', methods=['POST'])
+def aprovar(job_id):
+    if not banco.obter_plano(job_id):
+        abort(404)
+    desfazer = request.form.get('desfazer') == '1'
+    banco.aprovar_plano(job_id, por=(request.form.get('por') or APP_USUARIO).strip()[:60],
+                         observacao=(request.form.get('observacao') or '').strip()[:400],
+                         aprovar=not desfazer)
+    return redirect(url_for('resultado', job_id=job_id))
 
 
 if __name__ == '__main__':
