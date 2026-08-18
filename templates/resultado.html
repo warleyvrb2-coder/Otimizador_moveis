@@ -10,6 +10,7 @@
   {% if plano and plano.aprovado %}
   <span class="etiqueta ok">✓ aprovado por {{ plano.aprovado_por }}</span>
   {% endif %}
+  {% if plano %}<a class="btn secundario" href="/resultado/{{ plano.id }}/pdf">Baixar PDF</a>{% endif %}
   <button class="btn secundario" onclick="window.print()">Imprimir</button>
   <a href="/" class="btn">Novo plano</a>
 {% endblock %}

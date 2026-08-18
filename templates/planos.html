@@ -34,7 +34,8 @@
             {% elif p.estado == 'pronto' %}<span class="etiqueta atencao">a conferir</span>
             {% endif %}</td>
         <td class="num">
-          {% if p.estado == 'pronto' %}<a href="/resultado/{{ p.id }}">abrir →</a>
+          {% if p.estado == 'pronto' %}<a href="/resultado/{{ p.id }}/pdf">PDF</a>
+            &nbsp;<a href="/resultado/{{ p.id }}">abrir →</a>
           {% elif p.estado != 'erro' %}<a href="/calculando/{{ p.id }}">acompanhar →</a>{% endif %}
         </td>
       </tr>

@@ -104,16 +104,28 @@
     Isso importa porque a regra do veio depende de qual medida é o comprimento:
     é nele que corre o desenho da madeira. Se as duas fontes discordam, uma está
     errada, e cortar com o veio trocado inutiliza a peça. Vale conferir no Agrosys
-    qual das duas está certa.</div>
+    qual das duas está certa. Ao adotar a do catálogo, ela passa a valer também
+    no <strong>cálculo do corte</strong> — não só na tela — e deixa de ser
+    sobrescrita por Kambans futuros.</div>
 </div>
 
 <div class="cartao" style="padding:0;">
   <table class="dados">
-    <thead><tr><th>Código</th><th>Peça</th><th>No Kambam</th><th>No catálogo</th></tr></thead>
+    <thead><tr><th>Código</th><th>Peça</th><th>No Kambam</th><th>No catálogo</th><th></th></tr></thead>
     <tbody>
       {% for c in resultado.conflitos %}
-      <tr><td><strong>{{ c.cod }}</strong></td><td>{{ c.desc[:52] }}</td>
-          <td>{{ c.kambam }}</td><td>{{ c.catalogo }}</td></tr>
+      <tr><td><strong>{{ c.cod }}</strong></td><td>{{ c.desc[:46] }}</td>
+          <td>{{ c.kambam }}</td><td>{{ c.catalogo }}</td>
+          <td class="num">
+            <form method="post" action="/cadastro/resolver-medida">
+              <input type="hidden" name="cod" value="{{ c.cod }}">
+              <input type="hidden" name="comp" value="{{ c.catalogo.split('x')[0] }}">
+              <input type="hidden" name="larg" value="{{ c.catalogo.split('x')[1] }}">
+              <input type="hidden" name="voltar" value="/cadastro/pecas">
+              <button class="btn secundario" style="padding:5px 11px; font-size:12px;"
+                      type="submit">usar a do catálogo</button>
+            </form>
+          </td></tr>
       {% endfor %}
     </tbody>
   </table>

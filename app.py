@@ -19,7 +19,7 @@ import os
 import secrets
 
 from flask import (Flask, request, render_template, redirect, url_for,
-                   jsonify, abort, Response, send_from_directory)
+                   jsonify, abort, Response, send_from_directory, send_file)
 from werkzeug.utils import secure_filename
 
 import banco
@@ -27,6 +27,7 @@ import edicao
 import jobs
 import pipeline
 import planilha
+import relatorio
 from visualize import render_sheet
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -670,6 +671,21 @@ def aplicar_edicao(plano_id, gi, pi):
     return volta(ok='1')
 
 
+@app.route('/cadastro/resolver-medida', methods=['POST'])
+def resolver_medida():
+    """Adota a medida do catálogo para uma peça em conflito."""
+    cod = (request.form.get('cod') or '').strip()
+    try:
+        comp = int(float(request.form.get('comp')))
+        larg = int(float(request.form.get('larg')))
+    except (TypeError, ValueError):
+        abort(400)
+    if not cod:
+        abort(400)
+    banco.resolver_conflito(cod, comp, larg)
+    return redirect(request.form.get('voltar') or url_for('cadastro', aba='pecas'))
+
+
 @app.route('/aprendizado')
 def aprendizado():
     """O que o sistema aprendeu com as edicoes manuais."""
@@ -677,6 +693,16 @@ def aprendizado():
                             regras=banco.regras_aprendidas(minimo=1),
                             historico=banco.historico_edicoes(60),
                             auto=banco.obter_parametros().get('auto_sugerir', 1))
+
+
+@app.route('/resultado/<plano_id>/pdf')
+def plano_pdf(plano_id):
+    """O plano em PDF, uma página por padrão, para levar até a máquina."""
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    caminho = relatorio.gerar(salvo['resultado'], salvo)
+    nome = f"plano-corte-{plano_id}.pdf"
+    return send_file(caminho, mimetype='application/pdf',
+                      as_attachment=True, download_name=nome)
 
 
 @app.route('/resultado/<job_id>/aprovar', methods=['POST'])

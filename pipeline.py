@@ -124,9 +124,17 @@ def agrupar(todas_pecas: list, respeitar_veio: bool) -> dict:
     proibido. Prateleira em chapa amadeirada gira; porta em chapa lisa gira.
     """
     regras_pecas, regras_cores = banco.regras()
+    # Medida que você conferiu vale mais que a do Kambam. É o caso da 10313,
+    # que vinha 442x450 no relatório e 450x442 no catálogo do Agrosys: como a
+    # regra do veio depende de qual número é o comprimento, cortar pela fonte
+    # errada inutiliza a peça.
+    conferidas = banco.medidas_confirmadas()
     grupos = defaultdict(dict)
     for p in todas_pecas:
         cor, esp = p['cor'], p['esp_mm']
+        if p['cod'] in conferidas:
+            p = dict(p)
+            p['comp_mm'], p['larg_mm'] = conferidas[p['cod']]
         chave = f"{p['cod']}_{int(p['comp_mm'])}x{int(p['larg_mm'])}"
         qtd = int(round(p['qtd']))
         gira = True if not respeitar_veio else \

@@ -90,6 +90,10 @@ def criar_tabelas() -> None:
                 larg_mm       INTEGER,
                 visto_em      TEXT
             );
+            -- medida_confirmada: você conferiu qual das fontes está certa.
+            -- Quando marcada, a medida do cadastro PREVALECE sobre a do
+            -- Kambam no cálculo do corte — senão corrigir aqui não adiantaria
+            -- nada, porque as dimensões usadas na serra vêm do relatório.
             CREATE TABLE IF NOT EXISTS cor (
                 nome          TEXT PRIMARY KEY,
                 amadeirada    INTEGER NOT NULL,
@@ -252,6 +256,42 @@ def salvar_parametros(valores: dict) -> dict:
     return erros
 
 
+def _garantir_coluna(con, tabela: str, coluna: str, definicao: str) -> None:
+    """Acrescenta coluna que não existia, para bancos já em uso não quebrarem."""
+    existentes = {r['name'] for r in con.execute(f'PRAGMA table_info({tabela})')}
+    if coluna not in existentes:
+        con.execute(f'ALTER TABLE {tabela} ADD COLUMN {coluna} {definicao}')
+
+
+def migrar() -> None:
+    with conectar() as con:
+        _garantir_coluna(con, 'peca', 'medida_confirmada', 'INTEGER NOT NULL DEFAULT 0')
+
+
+def resolver_conflito(cod: str, comp_mm: int, larg_mm: int) -> None:
+    """
+    Adota a medida do catálogo para esta peça e marca como conferida.
+
+    A marca importa: a partir dela o cálculo do corte passa a usar esta medida
+    em vez da que vier no Kambam. Sem isso, a correção ficaria só bonita na
+    tela enquanto a serra continuaria cortando errado.
+    """
+    criar_tabelas()
+    migrar()
+    with conectar() as con:
+        con.execute('UPDATE peca SET comp_mm=?, larg_mm=?, medida_confirmada=1 WHERE cod=?',
+                    (int(comp_mm), int(larg_mm), str(cod)))
+
+
+def medidas_confirmadas() -> dict:
+    """{cod: (comp, larg)} das peças cuja medida você conferiu."""
+    criar_tabelas()
+    migrar()
+    with conectar() as con:
+        return {r['cod']: (r['comp_mm'], r['larg_mm']) for r in con.execute(
+            'SELECT cod, comp_mm, larg_mm FROM peca WHERE medida_confirmada = 1')}
+
+
 def importar(pecas: list[dict]) -> dict:
     """
     Traz do Kamban tudo que ainda não está cadastrado, com o palpite inicial.
@@ -261,6 +301,7 @@ def importar(pecas: list[dict]) -> dict:
     pra você reconhecer a peça na tela.
     """
     criar_tabelas()
+    migrar()
     agora = datetime.now(timezone.utc).isoformat(timespec='seconds')
     novas_pecas = novas_cores = 0
     with conectar() as con:
@@ -268,8 +309,11 @@ def importar(pecas: list[dict]) -> dict:
             cod = str(p['cod'])
             existe = con.execute('SELECT 1 FROM peca WHERE cod=?', (cod,)).fetchone()
             if existe:
-                con.execute('UPDATE peca SET comp_mm=?, larg_mm=?, visto_em=? WHERE cod=?',
+                # medida que você já conferiu não é sobrescrita pelo Kambam
+                con.execute('UPDATE peca SET comp_mm=?, larg_mm=?, visto_em=? WHERE cod=? '
+                            'AND medida_confirmada = 0',
                             (int(p['comp_mm']), int(p['larg_mm']), agora, cod))
+                con.execute('UPDATE peca SET visto_em=? WHERE cod=?', (agora, cod))
             else:
                 con.execute(
                     'INSERT INTO peca (cod, descricao, aparente, confirmado, comp_mm, larg_mm, visto_em)'
@@ -591,6 +635,7 @@ def importar_catalogo(itens: list[dict], espessuras: set[float]) -> dict:
     a oficial, então ela atualiza a que veio do Kambam.
     """
     criar_tabelas()
+    migrar()
     agora = datetime.now(timezone.utc).isoformat(timespec='seconds')
     novas = atualizadas = divergentes = 0
     conflitos = []
