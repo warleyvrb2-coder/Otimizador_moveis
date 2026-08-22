@@ -316,6 +316,73 @@ def encaixar(retalho: Retalho, comp: float, larg: float, kerf: float,
     return None
 
 
+def diagnosticar(retalho: Retalho, comp: float, larg: float, kerf: float,
+                 pode_girar: bool, itens: list[dict], w: float, h: float,
+                 max_estagios: int) -> dict:
+    """
+    Diz se a peça entra nesta sobra e, quando não entra, POR QUÊ — com número.
+
+    "Não coube" não ajuda ninguém: o operador está olhando o espaço e vendo
+    que a peça caberia. Ou ele está certo e tem um motivo que não é tamanho
+    (veio, guilhotina), ou está errado por poucos milímetros e precisa saber
+    quantos. As duas respostas mudam o que ele faz em seguida.
+    """
+    def encaixe(pw, ph):
+        return pw + kerf <= retalho.w + TOL and ph + kerf <= retalho.h + TOL
+
+    direto = encaixe(comp, larg)
+    girado = encaixe(larg, comp)
+
+    if not direto and not girado:
+        falta_c = max(0.0, (comp + kerf) - retalho.w)
+        falta_l = max(0.0, (larg + kerf) - retalho.h)
+        partes = []
+        if falta_c > 0:
+            partes.append(f'{falta_c:.0f}mm no comprimento')
+        if falta_l > 0:
+            partes.append(f'{falta_l:.0f}mm na largura')
+        return {'ok': False, 'curto': 'não cabe',
+                'motivo': f'Faltam {" e ".join(partes)}. A peça mede {comp:.0f}×{larg:.0f} e '
+                          f'a sobra tem {retalho.w:.0f}×{retalho.h:.0f}, menos {kerf:.1f}mm '
+                          f'que o corte consome.'}
+
+    if not direto and girado and not pode_girar:
+        return {'ok': False, 'curto': 'o veio impede',
+                'motivo': f'A peça caberia deitada ({larg:.0f}×{comp:.0f}), mas ela é '
+                          f'aparente e a chapa é amadeirada — girar deixaria o desenho da '
+                          f'madeira atravessado. Se esta peça na verdade fica escondida no '
+                          f'móvel, marque isso no cadastro e ela passa a poder girar.'}
+
+    pw, ph, rodou = ((comp, larg, False) if direto else (larg, comp, True))
+    novo = {'cod': '__novo__', 'desc': '', 'x': retalho.x, 'y': retalho.y,
+            'w': pw, 'h': ph, 'rotated': rodou}
+    teste = itens + [novo]
+
+    par = sobrepoe(teste)
+    if par:
+        outro = par[0] if par[1] is novo else par[1]
+        return {'ok': False, 'curto': 'invade outra peça',
+                'motivo': f'Nesta posição a peça encostaria em {outro.get("cod")}.'}
+
+    est = estagios(teste, w, h)
+    if est >= 99:
+        return {'ok': False, 'curto': 'quebra a guilhotina',
+                'motivo': 'Com esta peça aqui, deixa de existir corte que atravesse a chapa '
+                          'de ponta a ponta — a serra não faz corte parcial, então o layout '
+                          'ficaria impossível de executar.'}
+    if est > max_estagios:
+        return {'ok': False, 'curto': f'exigiria {est} estágios',
+                'motivo': f'A peça cabe, mas o layout passaria a exigir {est} estágios de '
+                          f'corte e a máquina está configurada para {max_estagios}. Dá para '
+                          f'aumentar esse limite no cadastro da máquina.'}
+
+    return {'ok': True, 'curto': 'cabe',
+            'motivo': (f'Entra {"deitada" if rodou else "em pé"} em '
+                        f'{pw:.0f}×{ph:.0f}mm. O padrão continua com {est} estágios.'),
+            'x': retalho.x, 'y': retalho.y, 'w': pw, 'h': ph, 'rotated': rodou,
+            'estagios': est}
+
+
 def validar_padrao(itens: list[dict], w: float, h: float, max_estagios: int) -> list[str]:
     """Devolve a lista de problemas. Vazia significa que pode ir pra máquina."""
     problemas = []

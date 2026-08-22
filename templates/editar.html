@@ -2,183 +2,284 @@
 {% block titulo %}Editar padrão {{ padrao.n }}{% endblock %}
 {% block cabecalho %}Padrão {{ padrao.n }} · {{ grupo.cor }}{% endblock %}
 {% block subcabecalho %}
-  {{ padrao.repeticoes }} chapas · {{ '%.1f'|format(padrao.aproveitamento) }}% de aproveitamento ·
-  {{ estagios_atuais if estagios_atuais < 99 else '—' }} estágios de corte
+  <span id="cab-info">{{ padrao.repeticoes }} chapas ·
+  {{ '%.1f'|format(padrao.aproveitamento) }}% de aproveitamento ·
+  {{ estagios_atuais if estagios_atuais < 99 else '—' }} estágios</span>
 {% endblock %}
 {% block acoes %}<a href="/resultado/{{ plano.id }}" class="btn secundario">← Voltar ao plano</a>{% endblock %}
 
 {% block estilo %}
 <style>
-  .duas { display:grid; grid-template-columns: 1.1fr 1fr; gap:18px; align-items:start; }
-  @media (max-width:980px) { .duas { grid-template-columns:1fr; } }
-  .chapa-img { width:100%; border-radius:8px; border:1px solid var(--linha); display:block; }
-  .sobra { display:flex; gap:11px; align-items:center; padding:10px 13px;
-           border:1px solid var(--linha); border-radius:8px; margin-bottom:7px;
-           text-decoration:none; color:inherit; }
-  .sobra:hover { border-color:var(--verde); }
-  .sobra.sel { border-color:var(--verde); background:var(--verde-claro); }
-  .sobra .med { font-weight:650; font-variant-numeric:tabular-nums; }
-  .sobra .area { color:var(--tinta-2); font-size:12.5px; margin-left:auto; }
-  .cand { display:flex; gap:10px; align-items:center; padding:8px 11px;
-          border-bottom:1px solid var(--linha); font-size:13px; }
-  .cand:last-child { border-bottom:none; }
-  .cand .cod { font-weight:650; min-width:56px; font-variant-numeric:tabular-nums; }
-  .cand .ds { flex:1; color:var(--tinta-2); }
-  .cand .md { color:var(--tinta-3); font-size:12px; white-space:nowrap; }
-  .lista-cand { max-height:330px; overflow-y:auto; border:1px solid var(--linha);
-                border-radius:8px; }
-  .busca-linha { display:flex; gap:8px; margin-bottom:12px; }
+  .duas { display:grid; grid-template-columns: 1.25fr 1fr; gap:18px; align-items:start; }
+  @media (max-width:1020px) { .duas { grid-template-columns:1fr; } }
+
+  #chapa { width:100%; height:auto; display:block; border-radius:8px;
+           border:1px solid var(--linha); background:#f4f1ea; touch-action:manipulation; }
+  #chapa .peca { cursor:pointer; }
+  #chapa .peca:hover rect { stroke:var(--vermelho); stroke-width:9; }
+  #chapa .vazio { fill:#e9ecee; stroke:#c3cace; stroke-width:3;
+                  stroke-dasharray:22 14; cursor:pointer; }
+  #chapa .vazio:hover { fill:#dfe6ea; }
+  #chapa .vazio.sel { fill:var(--verde-claro); stroke:var(--verde); stroke-dasharray:none; }
+  #chapa .fantasma { fill:var(--verde); fill-opacity:.55; stroke:var(--verde-escuro);
+                     stroke-width:8; pointer-events:none; }
+  #chapa .fantasma.nao { fill:var(--vermelho); fill-opacity:.35;
+                          stroke:var(--vermelho); stroke-dasharray:26 16; }
+  #chapa text { pointer-events:none; font-family:inherit; }
+
+  .veredito { border-radius:var(--raio); padding:12px 15px; font-size:13px; line-height:1.5;
+              border:1px solid; margin-bottom:12px; display:flex; gap:10px; }
+  .veredito.sim { background:var(--verde-claro); border-color:#cfe3d7; color:var(--verde-escuro); }
+  .veredito.nao { background:var(--vermelho-claro); border-color:#f2d5cf; color:#7d2718; }
+  .veredito.neutro { background:var(--fundo); border-color:var(--linha); color:var(--tinta-2); }
+  .veredito b { display:block; margin-bottom:2px; }
+
+  .busca-linha { display:flex; gap:8px; margin-bottom:10px; }
   .busca-linha input { flex:1; padding:9px 12px; border:1px solid var(--linha);
                        border-radius:8px; font-size:13.5px; }
-  .btn-mini { border:1px solid var(--verde); background:var(--verde); color:#fff;
-              padding:5px 11px; border-radius:6px; font-size:12px; cursor:pointer; }
-  .btn-tirar { background:none; border:none; color:var(--tinta-3); font-size:11.5px;
-               cursor:pointer; text-decoration:underline; }
-  .btn-tirar:hover { color:var(--vermelho); }
+  .lista { max-height:300px; overflow-y:auto; border:1px solid var(--linha); border-radius:8px; }
+  .item-p { display:flex; gap:9px; align-items:center; padding:8px 11px;
+            border-bottom:1px solid var(--linha); font-size:12.5px; cursor:pointer; }
+  .item-p:last-child { border-bottom:none; }
+  .item-p:hover { background:var(--verde-claro); }
+  .item-p.recusada { cursor:default; opacity:.75; }
+  .item-p.recusada:hover { background:var(--vermelho-claro); }
+  .item-p .cod { font-weight:680; min-width:52px; font-variant-numeric:tabular-nums; }
+  .item-p .ds { flex:1; color:var(--tinta-2); overflow:hidden; text-overflow:ellipsis;
+                white-space:nowrap; }
+  .item-p .md { color:var(--tinta-3); white-space:nowrap; font-size:11.5px; }
+  .item-p .porque { color:var(--vermelho); font-size:11px; white-space:nowrap; }
+  .titulo-lista { font-size:11px; font-weight:700; text-transform:uppercase;
+                  letter-spacing:.05em; color:var(--tinta-2); margin:14px 0 7px; }
+  .carregando { color:var(--tinta-3); font-size:13px; padding:10px 0; }
 </style>
 {% endblock %}
 
 {% block conteudo %}
 {% if erro %}<div class="recado perigo"><span class="ic">✕</span><div>{{ erro }}</div></div>{% endif %}
 {% if ok %}<div class="recado info"><span class="ic">✓</span>
-  <div>Padrão atualizado. A aprovação do PCP foi retirada — o desenho mudou e precisa
-    de nova conferência.</div></div>{% endif %}
+  <div>Padrão atualizado. A aprovação do PCP foi retirada — o desenho mudou e precisa de
+    nova conferência.</div></div>{% endif %}
 
 <div class="recado atencao">
   <span class="ic">⚠️</span>
-  <div>Este padrão é cortado <strong>{{ padrao.repeticoes }} vezes</strong>. Tirar ou
-    acrescentar uma peça aqui muda {{ padrao.repeticoes }} peças na produção —
-    a conferência abaixo mostra o efeito. O material é
-    <strong>{{ grupo.cor }} · {{ '%.0f'|format(grupo.esp) }}mm</strong>; confira antes de
-    chamar uma peça de outra cor.</div>
+  <div>Este padrão é cortado <strong>{{ padrao.repeticoes }} vezes</strong>, então tirar ou
+    acrescentar uma peça aqui muda {{ padrao.repeticoes }} peças na produção. Material:
+    <strong>{{ grupo.cor }} · {{ '%.0f'|format(grupo.esp) }}mm</strong>.</div>
 </div>
 
 {% if grupo.diferencas %}
 <div class="recado perigo">
   <span class="ic">⚠️</span>
   <div><strong>O plano deixou de bater com o pedido:</strong>
-    {% for d in grupo.diferencas %}
-      {{ d.cod }} {{ '+' if d.dif > 0 }}{{ d.dif }}{{ ', ' if not loop.last }}
-    {% endfor %}
-    <br>Número negativo é peça faltando para fechar os Kambans; positivo é excedente.</div>
+    {% for d in grupo.diferencas %}{{ d.cod }} {{ '+' if d.dif > 0 }}{{ d.dif }}{{ ', ' if not loop.last }}{% endfor %}
+    <br>Negativo é peça faltando para fechar os Kambans; positivo é excedente.</div>
 </div>
 {% endif %}
 
 <div class="duas">
   <div>
     <div class="cartao">
-      <h2>Desenho atual</h2>
-      <img class="chapa-img" src="{{ padrao.arquivo }}?v={{ padrao.itens|length }}"
-           alt="Padrão {{ padrao.n }}">
-    </div>
-
-    <div class="cartao" style="padding:0;">
-      <table class="dados">
-        <thead><tr><th>Peça</th><th>Medida</th><th>Posição</th><th></th></tr></thead>
-        <tbody>
-        {% for it in padrao.itens %}
-          <tr>
-            <td><strong>{{ it.cod }}</strong>
-                {% if it.rotated %}<span class="etiqueta" style="margin-left:6px;">girada</span>{% endif %}
-                <br><span style="color:var(--tinta-2); font-size:12px;">{{ it.desc[:34] }}</span></td>
-            <td style="white-space:nowrap;">{{ it.w|round|int }} × {{ it.h|round|int }}</td>
-            <td style="white-space:nowrap; color:var(--tinta-3);">
-              x {{ it.x|round|int }} · y {{ it.y|round|int }}</td>
-            <td class="num">
-              <form method="post" action="/resultado/{{ plano.id }}/padrao/{{ gi }}/{{ pi }}/aplicar">
-                <input type="hidden" name="acao" value="remover">
-                <input type="hidden" name="indice" value="{{ loop.index0 }}">
-                <button class="btn-tirar" type="submit"
-                        onclick="return confirm('Tirar {{ it.cod }} deste padrão? Isso remove {{ padrao.repeticoes }} peças da produção.')">
-                  tirar</button>
-              </form>
-            </td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
+      <h2>Chapa</h2>
+      <p class="ajuda">Clique num <strong>espaço vazio</strong> para escolher onde a peça
+        entra. Clique numa <strong>peça</strong> para tirá-la.</p>
+      <svg id="chapa" xmlns="http://www.w3.org/2000/svg"></svg>
     </div>
   </div>
 
   <div>
     <div class="cartao">
-      <h2>Sobras da chapa</h2>
-      <p class="ajuda">Espaços vazios que o otimizador deixou. Escolha um para ver o que
-        cabe nele.</p>
-      {% for s in livres %}
-      <a class="sobra {{ 'sel' if escolhido == loop.index0 }}"
-         href="?retalho={{ loop.index0 }}{{ '&busca=' ~ busca if busca }}">
-        <span class="med">{{ s.w|round|int }} × {{ s.h|round|int }} mm</span>
-        <span class="area">{{ '%.2f'|format(s.area_m2) }} m²</span>
-      </a>
-      {% else %}
-      <p style="color:var(--tinta-2); font-size:13px;">
-        Nenhuma sobra aproveitável — a chapa está bem preenchida.</p>
-      {% endfor %}
-    </div>
-
-    {% if cortes %}
-    <div class="cartao" style="padding:0;">
-      <div style="padding:16px 16px 6px;">
-        <h2 style="margin:0 0 4px;">Sequência de corte na máquina</h2>
-        <p class="ajuda" style="margin:0;">Os mesmos campos que a seccionadora pede.
-          Confira os nomes dos cortes com quem opera — cada fabricante usa o seu.</p>
+      <h2 id="tit-lado">Escolha um espaço na chapa</h2>
+      <div id="veredito" class="veredito neutro">
+        <span>👆</span>
+        <div>Clique num dos espaços tracejados. Vou listar tudo que existe no cadastro e
+          dizer, peça por peça, se entra ali — e quando não entrar, por quê.</div>
       </div>
-      <table class="dados">
-        <thead><tr><th>#</th><th>Est.</th><th>Código do corte</th>
-                   <th class="num">Dimensão</th><th class="num">Qtd</th></tr></thead>
-        <tbody>
-        {% for c in cortes %}
-          <tr>
-            <td style="color:var(--tinta-3);">{{ c.ordem }}</td>
-            <td>{{ c.estagio }}</td>
-            <td><strong>{{ c.tipo }}</strong></td>
-            <td class="num">{{ c.medida }} mm</td>
-            <td class="num">{{ c.quantidade }}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% endif %}
 
-    {% if escolhido is not none %}
-    <div class="cartao">
-      <h2>O que cabe nesta sobra</h2>
-      <p class="ajuda">Peças do cadastro que entram no espaço escolhido, já descontando a
-        folga da serra.</p>
-      <form method="get" class="busca-linha">
-        <input type="hidden" name="retalho" value="{{ escolhido }}">
-        <input type="search" name="busca" value="{{ busca }}"
-               placeholder="filtrar por código ou nome...">
-        <button class="btn secundario" type="submit">Filtrar</button>
-      </form>
-
-      {% if candidatas %}
-      <div class="lista-cand">
-        {% for c in candidatas %}
-        <div class="cand">
-          <span class="cod">{{ c.cod }}</span>
-          <span class="ds">{{ c.desc[:38] }}</span>
-          <span class="md">{{ c.comp }}×{{ c.larg }}{{ ' ⟲' if c.girada }}</span>
-          <form method="post" action="/resultado/{{ plano.id }}/padrao/{{ gi }}/{{ pi }}/aplicar">
-            <input type="hidden" name="acao" value="adicionar">
-            <input type="hidden" name="retalho" value="{{ escolhido }}">
-            <input type="hidden" name="cod" value="{{ c.cod }}">
-            <button class="btn-mini" type="submit">colocar</button>
-          </form>
-        </div>
-        {% endfor %}
+      <div id="painel" style="display:none;">
+        <form class="busca-linha" onsubmit="return buscar(event)">
+          <input type="search" id="busca" placeholder="filtrar por código ou nome...">
+          <button class="btn secundario" type="submit">Filtrar</button>
+        </form>
+        <div id="resultado"></div>
       </div>
-      <p style="color:var(--tinta-2); font-size:12px; margin:10px 0 0;">
-        {{ candidatas|length }} peça(s) cabem aqui. Toda inclusão é conferida contra a
-        serra, a sobreposição e os estágios de corte antes de valer.</p>
-      {% else %}
-      <p style="color:var(--tinta-2); font-size:13px;">
-        Nenhuma peça do cadastro cabe nesta sobra{{ ' com esse filtro' if busca }}.</p>
-      {% endif %}
     </div>
-    {% endif %}
   </div>
 </div>
+
+<form id="frm-aplicar" method="post"
+      action="/resultado/{{ plano.id }}/padrao/{{ gi }}/{{ pi }}/aplicar" style="display:none;">
+  <input type="hidden" name="acao" id="f-acao">
+  <input type="hidden" name="retalho" id="f-retalho">
+  <input type="hidden" name="cod" id="f-cod">
+  <input type="hidden" name="indice" id="f-indice">
+</form>
+{% endblock %}
+
+{% block script %}
+<script>
+const BASE = '/resultado/{{ plano.id }}/padrao/{{ gi }}/{{ pi }}';
+const SVG_NS = 'http://www.w3.org/2000/svg';
+let dados = null, sobraSel = null;
+
+const cor = cod => {
+  let h = 0;
+  for (const c of String(cod)) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `hsl(${h} 45% 78%)`;
+};
+const el = (tag, attrs) => {
+  const n = document.createElementNS(SVG_NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+};
+
+async function carregar() {
+  dados = await (await fetch(BASE + '/dados')).json();
+  desenhar();
+  document.getElementById('cab-info').textContent =
+    `${dados.repeticoes} chapas · ${dados.aproveitamento.toFixed(1)}% de aproveitamento · ` +
+    `${dados.estagios_atuais < 99 ? dados.estagios_atuais : '—'} estágios`;
+}
+
+function desenhar(fantasma) {
+  const {w, h, veio} = dados.chapa;
+  const svg = document.getElementById('chapa');
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.innerHTML = '';
+
+  if (veio) for (let y = 0; y < h; y += 60)
+    svg.appendChild(el('line', {x1:0, y1:y, x2:w, y2:y, stroke:'#c9b99a',
+                                'stroke-width':1.2, opacity:.6}));
+
+  // espaços vazios primeiro, pra ficarem atrás das peças
+  dados.livres.forEach((s, i) => {
+    const g = el('g', {class:'vazio' + (sobraSel === i ? ' sel' : '')});
+    g.appendChild(el('rect', {x:s.x, y:s.y, width:s.w, height:s.h, rx:6}));
+    const t = el('text', {x:s.x + s.w/2, y:s.y + s.h/2, 'text-anchor':'middle',
+                          'dominant-baseline':'middle',
+                          'font-size':Math.max(34, Math.min(s.w, s.h)/7),
+                          fill:'#5c686f', 'font-weight':600});
+    t.textContent = `${Math.round(s.w)} × ${Math.round(s.h)}`;
+    g.appendChild(t);
+    g.onclick = () => selecionarSobra(i);
+    svg.appendChild(g);
+  });
+
+  dados.itens.forEach((it, i) => {
+    const g = el('g', {class:'peca'});
+    g.appendChild(el('rect', {x:it.x, y:it.y, width:it.w, height:it.h,
+                              fill:cor(it.cod), stroke:'#222', 'stroke-width':3}));
+    const tam = Math.max(30, Math.min(Math.min(it.w, it.h)/3.2, 110));
+    if (it.w > 150 && it.h > 90) {
+      const t = el('text', {x:it.x + it.w/2, y:it.y + it.h/2, 'text-anchor':'middle',
+                            'dominant-baseline':'middle', 'font-size':tam,
+                            'font-weight':700, fill:'#111'});
+      t.textContent = it.cod;
+      g.appendChild(t);
+    }
+    g.onclick = () => tirar(i, it);
+    const tt = el('title');
+    tt.textContent = `${it.cod} — ${it.desc}\n${Math.round(it.w)} × ${Math.round(it.h)} mm` +
+                     `\nclique para tirar`;
+    g.appendChild(tt);
+    svg.appendChild(g);
+  });
+
+  if (fantasma) {
+    svg.appendChild(el('rect', {x:fantasma.x, y:fantasma.y, width:fantasma.w,
+                                height:fantasma.h, rx:4,
+                                class:'fantasma' + (fantasma.ok ? '' : ' nao')}));
+  }
+}
+
+function veredito(classe, titulo, texto) {
+  const v = document.getElementById('veredito');
+  v.className = 'veredito ' + classe;
+  v.innerHTML = `<span>${classe === 'sim' ? '✓' : classe === 'nao' ? '✕' : '👆'}</span>` +
+                `<div><b>${titulo}</b>${texto}</div>`;
+}
+
+async function selecionarSobra(i) {
+  sobraSel = i;
+  const s = dados.livres[i];
+  desenhar();
+  document.getElementById('tit-lado') .textContent =
+    `Espaço de ${Math.round(s.w)} × ${Math.round(s.h)} mm`;
+  document.getElementById('painel').style.display = '';
+  veredito('neutro', 'Escolha uma peça',
+           'Passe o mouse na lista para ver o encaixe desenhado na chapa.');
+  await listar();
+}
+
+async function listar() {
+  const busca = document.getElementById('busca').value;
+  const alvo = document.getElementById('resultado');
+  alvo.innerHTML = '<div class="carregando">Conferindo o cadastro...</div>';
+  const r = await fetch(`${BASE}/candidatas?retalho=${sobraSel}&busca=${encodeURIComponent(busca)}`);
+  const {cabem, nao_cabem} = await r.json();
+
+  let html = '';
+  if (cabem.length) {
+    html += `<div class="titulo-lista">Cabem aqui (${cabem.length})</div><div class="lista">`;
+    cabem.forEach((c, i) => {
+      html += `<div class="item-p" data-cabe="${i}">
+        <span class="cod">${c.cod}</span><span class="ds">${c.desc}</span>
+        <span class="md">${c.comp}×${c.larg}${c.rotated ? ' ⟲' : ''}</span></div>`;
+    });
+    html += '</div>';
+  } else {
+    html += '<div class="titulo-lista">Nenhuma peça cabe neste espaço</div>';
+  }
+  if (nao_cabem.length) {
+    html += `<div class="titulo-lista">Não cabem, e por quê (${nao_cabem.length})</div>
+             <div class="lista">`;
+    nao_cabem.forEach((c, i) => {
+      html += `<div class="item-p recusada" data-nao="${i}">
+        <span class="cod">${c.cod}</span><span class="ds">${c.desc}</span>
+        <span class="md">${c.comp}×${c.larg}</span>
+        <span class="porque">${c.curto}</span></div>`;
+    });
+    html += '</div>';
+  }
+  alvo.innerHTML = html;
+
+  alvo.querySelectorAll('[data-cabe]').forEach(n => {
+    const c = cabem[+n.dataset.cabe];
+    n.onmouseenter = () => {
+      desenhar({x:c.x, y:c.y, w:c.w, h:c.h, ok:true});
+      veredito('sim', `${c.cod} cabe`, c.motivo);
+    };
+    n.onclick = () => colocar(c.cod);
+  });
+  alvo.querySelectorAll('[data-nao]').forEach(n => {
+    const c = nao_cabem[+n.dataset.nao];
+    n.onmouseenter = () => {
+      const s = dados.livres[sobraSel];
+      desenhar({x:s.x, y:s.y, w:Math.min(c.comp, s.w * 1.6),
+                h:Math.min(c.larg, s.h * 1.6), ok:false});
+      veredito('nao', `${c.cod} não entra — ${c.curto}`, c.motivo);
+    };
+  });
+  document.getElementById('chapa').onmouseleave = () => desenhar();
+}
+
+function buscar(e) { e.preventDefault(); listar(); return false; }
+
+function colocar(cod) {
+  document.getElementById('f-acao').value = 'adicionar';
+  document.getElementById('f-retalho').value = sobraSel;
+  document.getElementById('f-cod').value = cod;
+  document.getElementById('frm-aplicar').submit();
+}
+
+function tirar(i, it) {
+  if (!confirm(`Tirar ${it.cod} deste padrão?\n` +
+               `Isso remove ${dados.repeticoes} peças da produção.`)) return;
+  document.getElementById('f-acao').value = 'remover';
+  document.getElementById('f-indice').value = i;
+  document.getElementById('frm-aplicar').submit();
+}
+
+carregar();
+</script>
 {% endblock %}

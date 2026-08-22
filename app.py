@@ -604,6 +604,97 @@ def editar_padrao(plano_id, gi, pi):
                                                             r['sheet_h'], r['kerf']))
 
 
+@app.route('/resultado/<plano_id>/padrao/<int:gi>/<int:pi>/dados')
+def dados_padrao(plano_id, gi, pi):
+    """Geometria do padrao pro navegador desenhar e simular na hora."""
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+    grupo, padrao = _localizar_padrao(r, gi, pi)
+    if padrao is None or 'itens' not in padrao:
+        abort(404)
+    livres = edicao.retalhos_livres(padrao['itens'], r['sheet_w'], r['sheet_h'])
+    return jsonify({
+        'chapa': {'w': r['sheet_w'], 'h': r['sheet_h'], 'kerf': r['kerf'],
+                   'estagios': r['estagios'], 'veio': bool(grupo.get('tem_veio')),
+                   'cor': grupo.get('cor')},
+        'itens': padrao['itens'],
+        'livres': [{'x': s.x, 'y': s.y, 'w': s.w, 'h': s.h, 'area': round(s.area_m2, 2)}
+                    for s in livres],
+        'repeticoes': padrao['repeticoes'],
+        'aproveitamento': padrao['aproveitamento'],
+        'estagios_atuais': edicao.estagios(padrao['itens'], r['sheet_w'], r['sheet_h']),
+    })
+
+
+@app.route('/resultado/<plano_id>/padrao/<int:gi>/<int:pi>/simular', methods=['POST'])
+def simular_encaixe(plano_id, gi, pi):
+    """
+    Responde se a peca entra naquela sobra e, quando nao entra, por que.
+
+    Nao grava nada: existe pra tela poder mostrar o encaixe (ou o motivo da
+    recusa) enquanto o operador escolhe, em vez de so depois de confirmar.
+    """
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+    grupo, padrao = _localizar_padrao(r, gi, pi)
+    if padrao is None:
+        abort(404)
+    d = request.get_json(silent=True) or {}
+    cod = str(d.get('cod') or '').strip()
+    i_ret = d.get('retalho')
+
+    peca = next((p for p in banco.listar_pecas(cod, limite=80) if p['cod'] == cod), None)
+    if peca is None:
+        return jsonify({'ok': False, 'curto': 'peca desconhecida',
+                         'motivo': 'O codigo ' + cod + ' nao existe no cadastro de pecas.'})
+    livres = edicao.retalhos_livres(padrao['itens'], r['sheet_w'], r['sheet_h'])
+    if not isinstance(i_ret, int) or not (0 <= i_ret < len(livres)):
+        return jsonify({'ok': False, 'curto': 'sem sobra',
+                         'motivo': 'Escolha primeiro em qual espaco da chapa a peca entra.'})
+
+    return jsonify(edicao.diagnosticar(
+        livres[i_ret], peca['comp_mm'], peca['larg_mm'], r['kerf'],
+        _pode_girar_aqui(peca, grupo), padrao['itens'],
+        r['sheet_w'], r['sheet_h'], r['estagios']))
+
+
+@app.route('/resultado/<plano_id>/padrao/<int:gi>/<int:pi>/candidatas')
+def candidatas_sobra(plano_id, gi, pi):
+    """
+    Todas as pecas avaliadas para uma sobra: as que cabem E as que nao cabem,
+    estas com o motivo. Ver a peca recusada e o porque vale mais que uma lista
+    curta so com as aprovadas.
+    """
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+    grupo, padrao = _localizar_padrao(r, gi, pi)
+    if padrao is None:
+        abort(404)
+    i_ret = request.args.get('retalho', type=int)
+    busca = request.args.get('busca', '').strip()
+    livres = edicao.retalhos_livres(padrao['itens'], r['sheet_w'], r['sheet_h'])
+    if i_ret is None or not (0 <= i_ret < len(livres)):
+        return jsonify({'cabem': [], 'nao_cabem': []})
+
+    ret = livres[i_ret]
+    cabem, nao = [], []
+    for p in banco.listar_pecas(busca, limite=400):
+        d = edicao.diagnosticar(ret, p['comp_mm'], p['larg_mm'], r['kerf'],
+                                 _pode_girar_aqui(p, grupo), padrao['itens'],
+                                 r['sheet_w'], r['sheet_h'], r['estagios'])
+        linha = {'cod': p['cod'], 'desc': p['descricao'],
+                  'comp': p['comp_mm'], 'larg': p['larg_mm'],
+                  'curto': d['curto'], 'motivo': d['motivo']}
+        if d['ok']:
+            linha.update({'x': d['x'], 'y': d['y'], 'w': d['w'], 'h': d['h'],
+                           'rotated': d['rotated']})
+            cabem.append(linha)
+        elif d['curto'] != 'nao cabe' or len(nao) < 40:
+            nao.append(linha)
+    cabem.sort(key=lambda c: -(c['w'] * c['h']))
+    return jsonify({'cabem': cabem[:60], 'nao_cabem': nao[:40]})
+
+
 @app.route('/resultado/<plano_id>/padrao/<int:gi>/<int:pi>/aplicar', methods=['POST'])
 def aplicar_edicao(plano_id, gi, pi):
     salvo = banco.obter_plano(plano_id) or abort(404)
