@@ -212,8 +212,22 @@ def optimize_group_cg(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
     # Os padrões (não as chapas) são a unidade que interessa pro operador:
     # ele prepara a máquina UMA vez e corta N chapas iguais. Um lote de 600
     # chapas costuma ser umas poucas dezenas de padrões repetidos.
-    usados = []
+    # Trava de sanidade: peça que passa da borda não existe no mundo físico, e
+    # já escapou uma vez — o CP-SAT arredondava o kerf para baixo e a última
+    # faixa saía 2,8mm fora da chapa. Um padrão inválido aqui viraria refugo
+    # na serra, então ele é descartado em vez de seguir para o plano.
+    validos = []
     for pat, n in zip(patterns, usage):
+        estoura = [i for i in pat.items
+                   if i.x + i.w > sheet_w_mm + 0.5 or i.y + i.h > sheet_h_mm + 0.5]
+        if estoura:
+            print(f'[corte] padrao descartado: {len(estoura)} peca(s) fora da chapa '
+                  f'({estoura[0].cod})')
+            continue
+        validos.append((pat, n))
+
+    usados = []
+    for pat, n in validos:
         if n <= 0:
             continue
         pat.repeticoes = n

@@ -17,6 +17,7 @@ combinado), resolvemos chapa a chapa, sempre a partir do MESMO pool restante
 (cor+espessura), até esgotar as peças ou atingir um limite de segurança.
 """
 import copy
+import math
 from dataclasses import dataclass, field
 from ortools.sat.python import cp_model
 
@@ -243,7 +244,13 @@ def _refine_last_sheet_cpsat(pool, sheet_w: int, sheet_h: int, max_shelves: int,
     if not usable:
         return [], {}
 
-    K = int(round(kerf))
+    # O CP-SAT só aceita coeficiente inteiro, mas o posicionamento usa o kerf
+    # real (4,4mm). Arredondar para BAIXO faz a restrição reservar menos do que
+    # o desenho consome, e a diferença acumula faixa a faixa até a última peça
+    # ficar pendurada para fora da chapa — foi o que aconteceu: 0,4mm por corte
+    # viraram 2,8mm de estouro em seis faixas. Arredondando para CIMA o modelo
+    # fica conservador, e o que ele aprova sempre cabe.
+    K = math.ceil(kerf)
     shelves = range(max_shelves)
     x = {}
     dim = {}  # (key, s, o) -> (largura, altura) já com a rotação aplicada

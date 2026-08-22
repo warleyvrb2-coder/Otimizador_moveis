@@ -567,7 +567,14 @@ def resultado(job_id):
     # está calculando nesta execução do servidor
     salvo = banco.obter_plano(job_id)
     if salvo:
-        return render_template('resultado.html', plano=salvo, **salvo['resultado'])
+        # a conferencia e calculada na hora de mostrar: assim vale tambem pro
+        # plano recem-calculado, onde o arredondamento do inteiro ja produz
+        # um pouco a mais do que o Kambam pediu
+        _conferir_demanda(salvo['resultado'])
+        return render_template('resultado.html', plano=salvo,
+                                reeq=request.args.get('reeq'),
+                                motivo_reeq=request.args.get('motivo'),
+                                **salvo['resultado'])
     job = jobs.obter(job_id) or abort(404)
     if job.estado == 'erro':
         return render_template('resultado.html', erro=job.erro, kambans_info=None), 500
@@ -602,24 +609,108 @@ def _recalcular(resultado):
     resultado['total_chapas'] = sum(g['n_chapas'] for g in resultado['grupos'])
 
 
+def _demanda_do_grupo(g: dict) -> dict:
+    """
+    O que este grupo precisa produzir, por codigo de peca.
+
+    Comeca no que os Kambans pediram, congelado no momento do calculo, e
+    aplica os ajustes que voce aceitou depois. E por isso que a demanda muda
+    nos DOIS sentidos: aceitar um acrescimo sobe o alvo, aceitar uma retirada
+    desce - em vez de o plano ficar eternamente "errado" contra um numero que
+    nao vale mais.
+    """
+    pedido = {}
+    for pad in g.get('padroes', []):
+        for pc in pad.get('pecas', []):
+            pedido[pc['cod']] = pedido.get(pc['cod'], 0) + sum((pc.get('lotes') or {}).values())
+    for cod, delta in (g.get('ajustes') or {}).items():
+        pedido[cod] = max(0, pedido.get(cod, 0) + delta)
+    return pedido
+
+
+def _producao_do_grupo(g: dict) -> dict:
+    """Quantas pecas de cada codigo o plano produz hoje, com a geometria atual."""
+    produzido = {}
+    for pad in g.get('padroes', []):
+        for it in pad.get('itens', []):
+            produzido[it['cod']] = produzido.get(it['cod'], 0) + pad['repeticoes']
+    return produzido
+
+
 def _conferir_demanda(resultado):
     """
-    Compara o que o plano produz com o que os Kambans pediram.
+    Compara o que o plano produz com o que precisa produzir.
 
-    Mexer num padrao repetido 42 vezes mexe em 42 pecas de uma vez: tirar uma
-    peca deixa o lote incompleto, acrescentar gera excedente. Sem esta conta a
-    edicao pareceria inofensiva e o operador so descobriria na montagem.
+    O sistema NAO equaliza sozinho: nao tira peca para fechar a conta nem
+    reescreve o pedido. Ele mostra a diferenca e deixa a decisao com voce,
+    porque as duas saidas sao legitimas e so quem conhece o lote sabe qual
+    vale - aceitar a mudanca, ou reequilibrar o plano para voltar ao alvo.
+
+    Sobra pequena e normal mesmo sem edicao: chapa se corta inteira, entao o
+    ultimo padrao quase sempre produz um pouco a mais.
     """
     for g in resultado['grupos']:
-        pedido, produzido = {}, {}
-        for pad in g['padroes']:
-            for pc in pad.get('pecas', []):
-                pedido[pc['cod']] = pedido.get(pc['cod'], 0) + sum(pc.get('lotes', {}).values())
-            for it in pad.get('itens', []):
-                produzido[it['cod']] = produzido.get(it['cod'], 0) + pad['repeticoes']
-        g['diferencas'] = [{'cod': c, 'dif': produzido.get(c, 0) - pedido.get(c, 0)}
-                            for c in sorted(set(pedido) | set(produzido))
-                            if produzido.get(c, 0) != pedido.get(c, 0)]
+        pedido = _demanda_do_grupo(g)
+        produzido = _producao_do_grupo(g)
+        # FALTA e EXCEDENTE não são a mesma gravidade e não podem aparecer
+        # misturados: falta significa que o lote não fecha e alguém vai
+        # descobrir na montagem; excedente é inerente a cortar chapa inteira e
+        # acontece em quase todo plano, mesmo sem ninguém editar nada. Juntar
+        # os dois faz o normal parecer erro e o erro passar despercebido.
+        g['conferencia'] = []
+        g['faltas'] = []
+        g['excedentes'] = []
+        for cod in sorted(set(pedido) | set(produzido)):
+            p, q = pedido.get(cod, 0), produzido.get(cod, 0)
+            if p == q:
+                continue
+            linha = {'cod': cod, 'pedido': p, 'produz': q, 'dif': q - p}
+            g['conferencia'].append(linha)
+            (g['faltas'] if q < p else g['excedentes']).append(linha)
+        # nome antigo, ainda usado pela tela de edicao
+        g['diferencas'] = [{'cod': c['cod'], 'dif': c['dif']} for c in g['conferencia']]
+
+
+def _rebalancear_grupo(g: dict) -> dict:
+    """
+    Recalcula QUANTAS chapas de cada padrao, para bater com a demanda atual.
+
+    Os padroes ficam como estao - inclusive o que voce editou a mao. O que
+    muda e a repeticao de cada um. E por isso que editar passa a valer de
+    verdade: acrescentar uma peca num padrao pode deixar outro padrao rodar
+    menos vezes, e aI o lote inteiro sai com menos chapa.
+    """
+    from types import SimpleNamespace
+    from collections import Counter
+    from column_generation import _solve_master_ip
+
+    padroes = [p for p in g.get('padroes', []) if p.get('itens')]
+    if not padroes:
+        return {'ok': False, 'motivo': 'Este grupo nao tem geometria gravada para recalcular.'}
+
+    demanda = _demanda_do_grupo(g)
+    demanda = {c: q for c, q in demanda.items() if q > 0}
+    if not demanda:
+        return {'ok': False, 'motivo': 'A demanda deste grupo ficou zerada.'}
+
+    modelo = [SimpleNamespace(counts=Counter(it['cod'] for it in p['itens'])) for p in padroes]
+    # so cabe exigir peca que algum padrao saiba produzir
+    produziveis = {c for m in modelo for c in m.counts}
+    faltantes = [c for c in demanda if c not in produziveis]
+    alvo = {c: q for c, q in demanda.items() if c in produziveis}
+    if not alvo:
+        return {'ok': False, 'motivo': 'Nenhum padrao atual produz as pecas pedidas.'}
+
+    usos = _solve_master_ip(modelo, alvo, list(alvo), time_limit_s=20.0)
+    if usos is None:
+        return {'ok': False, 'motivo': 'Nao consegui fechar uma combinacao no tempo disponivel.'}
+
+    antes = sum(p['repeticoes'] for p in padroes)
+    for p, n in zip(padroes, usos):
+        p['repeticoes'] = int(n)
+    g['padroes'] = [p for p in padroes if p['repeticoes'] > 0]
+    depois = sum(p['repeticoes'] for p in g['padroes'])
+    return {'ok': True, 'antes': antes, 'depois': depois, 'faltantes': faltantes}
 
 
 def _pode_girar_aqui(peca, grupo):
@@ -863,6 +954,65 @@ def plano_pdf(plano_id):
     nome = f"plano-corte-{plano_id}.pdf"
     return send_file(caminho, mimetype='application/pdf',
                       as_attachment=True, download_name=nome)
+
+
+@app.route('/resultado/<plano_id>/grupo/<int:gi>/aceitar', methods=['POST'])
+def aceitar_diferenca(plano_id, gi):
+    """
+    Assume a alteracao como o novo pedido, para mais ou para menos.
+
+    Sem isto o plano editado ficaria permanentemente marcado como divergente
+    de um numero que voce ja decidiu mudar.
+    """
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+    try:
+        g = r['grupos'][gi]
+    except (IndexError, KeyError):
+        abort(404)
+
+    cod = (request.form.get('cod') or '').strip()
+    pedido, produzido = _demanda_do_grupo(g), _producao_do_grupo(g)
+    ajustes = g.get('ajustes') or {}
+
+    if request.form.get('todas') == '1':
+        for c in set(pedido) | set(produzido):
+            d = produzido.get(c, 0) - pedido.get(c, 0)
+            if d:
+                ajustes[c] = ajustes.get(c, 0) + d
+    elif cod:
+        d = produzido.get(cod, 0) - pedido.get(cod, 0)
+        if d:
+            ajustes[cod] = ajustes.get(cod, 0) + d
+    else:
+        abort(400)
+
+    g['ajustes'] = ajustes
+    _conferir_demanda(r)
+    banco.atualizar_resultado(plano_id, r)
+    return redirect(url_for('resultado', job_id=plano_id) + '#g' + str(gi))
+
+
+@app.route('/resultado/<plano_id>/grupo/<int:gi>/reequilibrar', methods=['POST'])
+def reequilibrar(plano_id, gi):
+    """Recalcula quantas chapas de cada padrao para bater com a demanda atual."""
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+    try:
+        g = r['grupos'][gi]
+    except (IndexError, KeyError):
+        abort(404)
+
+    res = _rebalancear_grupo(g)
+    if res['ok']:
+        _recalcular(r)
+        _conferir_demanda(r)
+        banco.atualizar_resultado(plano_id, r)
+        for pad in g['padroes']:
+            _redesenhar(plano_id, r, g, pad)
+    return redirect(url_for('resultado', job_id=plano_id,
+                             reeq=('%d:%d' % (res['antes'], res['depois'])) if res['ok']
+                                   else 'erro', motivo=res.get('motivo')) + '#g' + str(gi))
 
 
 @app.route('/resultado/<job_id>/aprovar', methods=['POST'])

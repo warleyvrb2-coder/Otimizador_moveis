@@ -149,9 +149,21 @@
 </div>
 {% endif %}
 
+{% if reeq %}
+  {% if reeq == 'erro' %}
+  <div class="recado perigo"><span class="ic">✕</span>
+    <div>Não consegui reequilibrar: {{ motivo_reeq }}</div></div>
+  {% else %}
+  <div class="recado info"><span class="ic">✓</span>
+    <div>Plano reequilibrado: <strong>{{ reeq.split(':')[0] }} → {{ reeq.split(':')[1] }} chapas</strong>
+      neste grupo. Os padrões continuam os mesmos; o que mudou foi quantas
+      vezes cada um é cortado.</div></div>
+  {% endif %}
+{% endif %}
+
 {% for g in grupos %}
 {% set gi = loop.index0 %}
-<div class="cartao">
+<div class="cartao" id="g{{ gi }}">
   <div class="cabeca-grupo">
     <h2>{{ g.cor }} · {{ '%.0f'|format(g.esp) }}mm</h2>
     <span class="etiqueta ok">{{ g.n_chapas }} chapas</span>
@@ -162,6 +174,99 @@
     <span class="etiqueta">{{ g.qtd_total_pecas }} peças · {{ g.n_tipos_peca }} tipos</span>
     <span class="etiqueta">{{ 'veio travado' if g.tem_veio else 'liso, pode girar' }}</span>
   </div>
+
+  {% if g.faltas %}
+  <div class="cg-page-card" style="margin-bottom:16px; border-color:#FECACA;">
+    <div class="cg-page-header" style="background:var(--vermelho-bg);">
+      <h1 class="cg-title" style="color:var(--vermelho);">O lote não fecha</h1>
+      <span class="cg-counter">{{ g.faltas|length }} peças faltando</span>
+      <div class="cg-header-acoes">
+        <form method="post" action="/resultado/{{ plano.id }}/grupo/{{ gi }}/reequilibrar"
+              onsubmit="carregando('Reequilibrando o plano...')">
+          <button class="btn" type="submit">Reequilibrar plano</button>
+        </form>
+        <form method="post" action="/resultado/{{ plano.id }}/grupo/{{ gi }}/aceitar">
+          <input type="hidden" name="todas" value="1">
+          <button class="btn secundario" type="submit">Aceitar produzir a menos</button>
+        </form>
+      </div>
+    </div>
+    <div class="cg-legenda">
+      <div><span class="cg-ponto" style="background:var(--laranja)"></span>
+        <span><b>Reequilibrar</b> mantém os padrões e recalcula quantas chapas de cada um
+          até o pedido fechar. Pode aumentar o número de chapas — é o preço de ter tirado
+          peça que o lote precisava.</span></div>
+      <div><span class="cg-ponto" style="background:var(--azul-medio)"></span>
+        <span><b>Aceitar</b> assume o número menor como o novo pedido. Use quando a
+          redução foi intencional; o lote passa a fechar com menos peças.</span></div>
+    </div>
+    <div class="cg-table-wrap">
+      <table class="cg-table">
+        <thead><tr>
+          <th style="width:90px;"><div class="cg-col-header">Peça</div></th>
+          <th><div class="cg-col-header">Pedido</div></th>
+          <th><div class="cg-col-header">O plano produz</div></th>
+          <th><div class="cg-col-header">Falta</div></th>
+          <th class="cg-acoes-col"></th>
+        </tr></thead>
+        <tbody>
+        {% for c in g.faltas %}
+          <tr>
+            <td class="cg-cod">{{ c.cod }}</td>
+            <td class="cg-num">{{ c.pedido }}</td>
+            <td class="cg-num">{{ c.produz }}</td>
+            <td class="cg-num"><span class="etiqueta perigo">{{ c.dif }}</span></td>
+            <td class="cg-acoes-col">
+              <form method="post" action="/resultado/{{ plano.id }}/grupo/{{ gi }}/aceitar">
+                <input type="hidden" name="cod" value="{{ c.cod }}">
+                <button class="btn secundario btn-sm" type="submit">aceitar</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if g.excedentes %}
+  <details style="margin-bottom:16px;">
+    <summary style="cursor:pointer; font-size:11px; color:#5B6572; padding:6px 0;">
+      {{ g.excedentes|length }} peças produzidas a mais que o pedido —
+      <strong>normal</strong>, chapa se corta inteira
+    </summary>
+    <div class="cg-page-card" style="margin-top:8px;">
+      <div class="cg-table-wrap">
+        <table class="cg-table">
+          <thead><tr>
+            <th style="width:90px;"><div class="cg-col-header">Peça</div></th>
+            <th><div class="cg-col-header">Pedido</div></th>
+            <th><div class="cg-col-header">O plano produz</div></th>
+            <th><div class="cg-col-header">A mais</div></th>
+            <th class="cg-acoes-col"></th>
+          </tr></thead>
+          <tbody>
+          {% for c in g.excedentes %}
+            <tr>
+              <td class="cg-cod">{{ c.cod }}</td>
+              <td class="cg-num">{{ c.pedido }}</td>
+              <td class="cg-num">{{ c.produz }}</td>
+              <td class="cg-num"><span class="etiqueta atencao">+{{ c.dif }}</span></td>
+              <td class="cg-acoes-col">
+                <form method="post" action="/resultado/{{ plano.id }}/grupo/{{ gi }}/aceitar">
+                  <input type="hidden" name="cod" value="{{ c.cod }}">
+                  <button class="btn secundario btn-sm" type="submit">aceitar</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+  {% endif %}
 
   {% for p in g.padroes %}
   <div class="padrao">
