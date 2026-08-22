@@ -606,6 +606,11 @@ def _recalcular(resultado):
         g['aproveitamento_medio'] = (100 * area_usada / (chapas * area_chapa)
                                       if chapas and area_chapa else 0)
         g['n_padroes'] = len(g['padroes'])
+        # Pedido e produção lado a lado, sempre recalculados. Antes a etiqueta
+        # mostrava só a demanda do momento do cálculo e ficava obsoleta depois
+        # de qualquer edição — número velho na tela é pior que número nenhum.
+        g['total_pedido'] = sum(_demanda_do_grupo(g).values())
+        g['total_produz'] = sum(_producao_do_grupo(g).values())
     resultado['total_chapas'] = sum(g['n_chapas'] for g in resultado['grupos'])
 
 
@@ -667,6 +672,8 @@ def _conferir_demanda(resultado):
             linha = {'cod': cod, 'pedido': p, 'produz': q, 'dif': q - p}
             g['conferencia'].append(linha)
             (g['faltas'] if q < p else g['excedentes']).append(linha)
+        g['total_pedido'] = sum(pedido.values())
+        g['total_produz'] = sum(produzido.values())
         # nome antigo, ainda usado pela tela de edicao
         g['diferencas'] = [{'cod': c['cod'], 'dif': c['dif']} for c in g['conferencia']]
 

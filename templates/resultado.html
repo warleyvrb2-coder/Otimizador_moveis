@@ -171,7 +171,12 @@
       {{ '%.1f'|format(g.aproveitamento_medio) }}% aproveitamento</span>
     <span class="etiqueta">{{ g.n_padroes }} padrões</span>
     <span class="etiqueta">{{ g.ciclos_total }} ciclos</span>
-    <span class="etiqueta">{{ g.qtd_total_pecas }} peças · {{ g.n_tipos_peca }} tipos</span>
+    <span class="etiqueta" title="O que os Kambans pediram neste material">
+      pedido {{ g.total_pedido if g.total_pedido is defined else g.qtd_total_pecas }}</span>
+    <span class="etiqueta {{ 'ok' if g.total_produz is defined and not g.faltas }}"
+          title="O que este plano realmente produz">
+      produz {{ g.total_produz if g.total_produz is defined else '—' }}</span>
+    <span class="etiqueta">{{ g.n_tipos_peca }} tipos</span>
     <span class="etiqueta">{{ 'veio travado' if g.tem_veio else 'liso, pode girar' }}</span>
   </div>
 
