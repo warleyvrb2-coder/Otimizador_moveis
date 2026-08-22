@@ -2,7 +2,7 @@
 {% block titulo %}Planos gerados{% endblock %}
 {% block cabecalho %}Planos gerados{% endblock %}
 {% block subcabecalho %}Histórico de cálculos, gravado no banco{% endblock %}
-{% block acoes %}<a href="/" class="btn">Novo plano</a>{% endblock %}
+{% block acoes %}<a href="/novo" class="btn">Novo plano</a>{% endblock %}
 
 {% block conteudo %}
 <div class="recado info">
@@ -46,7 +46,7 @@
   <div class="vazio">
     <div class="ic">📐</div>
     <p>Nenhum plano calculado ainda nesta sessão.</p>
-    <a href="/" class="btn">Calcular o primeiro</a>
+    <a href="/novo" class="btn">Calcular o primeiro</a>
   </div>
   {% endif %}
 </div>

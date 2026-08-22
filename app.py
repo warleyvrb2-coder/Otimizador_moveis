@@ -90,17 +90,40 @@ def contexto_lateral():
     try:
         res = banco.resumo()
         par = banco.obter_parametros()
+        maqs = banco.listar_maquinas(so_ativas=True)
+        principal = maqs[0] if maqs else None
         return {'nav': {
-            'pecas_pendentes': res['pecas'] - res['pecas_confirmadas'],
-            'cores_pendentes': res['cores'] - res['cores_confirmadas'],
-            'chapa': f"{par['chapa_larg']}×{par['chapa_alt']}",
-            'kerf': str(par['kerf']).replace('.', ','),
+            'pendencias': ((res['pecas'] - res['pecas_confirmadas'])
+                            + (res['cores'] - res['cores_confirmadas'])),
+            'chapa': (f"{principal['chapa_larg']}×{principal['chapa_alt']}"
+                       if principal else f"{par['chapa_larg']}×{par['chapa_alt']}"),
+            'kerf': str(principal['kerf'] if principal else par['kerf']).replace('.', ','),
         }}
     except Exception:                    # banco ainda não existe no primeiro acesso
         return {'nav': None}
 
 
 @app.route('/')
+def inicio():
+    """
+    Painel de bater o olho.
+
+    Existe porque a primeira tela era o formulario de upload, e quem abria o
+    sistema nao tinha como saber em que pe as coisas estavam - o que faltava
+    conferir, se havia plano esperando o PCP, quantas maquinas ativas.
+    """
+    res = banco.resumo()
+    planos = banco.listar_planos(limite=6)
+    return render_template('inicio.html', pagina='inicio', res=res,
+                            maquinas=banco.listar_maquinas(so_ativas=True),
+                            planos=planos,
+                            a_conferir=sum(1 for p in planos if not p['aprovado']),
+                            modelos=banco.listar_modelos(),
+                            sem_modelo=banco.contar_sem_modelo(),
+                            acabamentos=banco.listar_acabamentos())
+
+
+@app.route('/novo')
 def index():
     return render_template('index.html', pagina='novo', res=banco.resumo(),
                             maquinas=banco.listar_maquinas(so_ativas=True))
@@ -174,16 +197,16 @@ def diagnostico_armazenamento() -> dict:
     return info
 
 
-@app.route('/parametros', methods=['GET', 'POST'])
+@app.route('/parametros')
 def parametros():
-    erros, salvou = {}, False
-    if request.method == 'POST':
-        erros = banco.salvar_parametros(request.form.to_dict())
-        salvou = not erros
-    return render_template('parametros.html', pagina='parametros',
-                            campos=banco.PARAMETROS, valores=banco.obter_parametros(),
-                            erros=erros, salvou=salvou,
-                            disco=diagnostico_armazenamento())
+    """
+    Vestígio: chapa, serra e empilhamento passaram a ser de cada MÁQUINA.
+
+    Manter as duas telas era a maior fonte de confusão do sistema — pareciam
+    editar a mesma coisa e não editavam. Fica só o redirecionamento, para
+    quem tiver o endereço salvo.
+    """
+    return redirect(url_for('maquinas'))
 
 
 @app.route('/saude')
@@ -237,7 +260,8 @@ def otimizar():
 @app.route('/maquinas')
 def maquinas():
     return render_template('maquinas.html', pagina='maquinas',
-                            maquinas=banco.listar_maquinas())
+                            maquinas=banco.listar_maquinas(),
+                            disco=diagnostico_armazenamento())
 
 
 @app.route('/maquinas/nova', methods=['GET', 'POST'])
@@ -293,6 +317,13 @@ def progresso(job_id):
 @app.route('/cadastro/')
 @app.route('/cadastro/<aba>')
 def cadastro(aba='pecas'):
+    # endereços antigos: as telas viraram abas dentro de /cadastros
+    if aba in ('pecas', 'cores'):
+        return redirect(url_for('cadastros', aba='pecas' if aba == 'pecas' else 'chapas'))
+    return _cadastro_antigo(aba)
+
+
+def _cadastro_antigo(aba):
     if aba not in ('pecas', 'cores'):
         abort(404)
     banco.criar_tabelas()
@@ -311,11 +342,49 @@ def cadastro(aba='pecas'):
                                           else res['cores_confirmadas']))
 
 
+@app.route('/cadastros/')
+@app.route('/cadastros/<aba>')
+def cadastros(aba='moveis'):
+    """
+    Uma area so para os quatro cadastros, trocando por ABAS.
+
+    Antes eram quatro itens soltos no menu e a peca podia ser editada em tres
+    telas diferentes - o "vai e vem" de que reclamaram. Como sao assuntos
+    irmaos, abas deixam claro que fazem parte do mesmo lugar e qual esta
+    aberta.
+    """
+    res = banco.resumo()
+    contas = {'moveis': len(banco.listar_modelos()), 'pecas': res['pecas'],
+               'chapas': res['cores'], 'acabamentos': len(banco.listar_acabamentos())}
+    comum = {'pagina': 'cadastros', 'aba': aba, 'contas': contas, 'res': res}
+
+    if aba == 'moveis':
+        return render_template('cad_moveis.html', modelos=banco.listar_modelos(),
+                                sem_modelo=banco.contar_sem_modelo(), **comum)
+    if aba == 'pecas':
+        busca = request.args.get('busca', '').strip()
+        pendentes = request.args.get('pendentes') == '1'
+        return render_template('cad_pecas.html', busca=busca, pendentes=pendentes,
+                                itens=banco.listar_pecas(busca, so_pendentes=pendentes,
+                                                          limite=300),
+                                efemero=_disco_efemero(), **comum)
+    if aba == 'chapas':
+        return render_template('cad_chapas.html', itens=banco.listar_cores(), **comum)
+    if aba == 'acabamentos':
+        return render_template('cad_acabamentos.html',
+                                acabamentos=banco.listar_acabamentos(),
+                                cores=[c['nome'] for c in banco.listar_cores()], **comum)
+    abort(404)
+
+
+def _disco_efemero() -> bool:
+    d = diagnostico_armazenamento()
+    return bool(d['em_nuvem'] and not d['permanente'])
+
+
 @app.route('/modelos')
 def modelos():
-    return render_template('modelos.html', pagina='modelos',
-                            modelos=banco.listar_modelos(),
-                            sem_modelo=banco.contar_sem_modelo())
+    return redirect(url_for('cadastros', aba='moveis'))
 
 
 @app.route('/modelos/sem-modelo')
@@ -354,9 +423,7 @@ def modelo_detalhe(cod):
 
 @app.route('/acabamentos')
 def acabamentos():
-    return render_template('acabamentos.html', pagina='acabamentos',
-                            acabamentos=banco.listar_acabamentos(),
-                            cores=[c['nome'] for c in banco.listar_cores()])
+    return redirect(url_for('cadastros', aba='acabamentos'))
 
 
 @app.route('/acabamentos/marcar', methods=['POST'])

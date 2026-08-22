@@ -2,7 +2,7 @@
 {% block titulo %}Importar catálogo{% endblock %}
 {% block cabecalho %}Importar catálogo de peças{% endblock %}
 {% block subcabecalho %}Traz todas as peças do Agrosys de uma vez, sem depender de Kambam{% endblock %}
-{% block acoes %}<a href="/modelos" class="btn secundario">← Modelos</a>{% endblock %}
+{% block acoes %}<a href="/cadastros/moveis" class="btn secundario">← Modelos</a>{% endblock %}
 
 {% block estilo %}
 <style>
@@ -121,7 +121,7 @@
               <input type="hidden" name="cod" value="{{ c.cod }}">
               <input type="hidden" name="comp" value="{{ c.catalogo.split('x')[0] }}">
               <input type="hidden" name="larg" value="{{ c.catalogo.split('x')[1] }}">
-              <input type="hidden" name="voltar" value="/cadastro/pecas">
+              <input type="hidden" name="voltar" value="/cadastros/pecas">
               <button class="btn secundario" style="padding:5px 11px; font-size:12px;"
                       type="submit">usar a do catálogo</button>
             </form>
@@ -132,6 +132,6 @@
 </div>
 {% endif %}
 
-<a href="/modelos" class="btn">Ver os modelos e peças →</a>
+<a href="/cadastros/moveis" class="btn">Ver os modelos e peças →</a>
 {% endif %}
 {% endblock %}

@@ -1,0 +1,11 @@
+{# Abas dos cadastros — telas irmãs, um lugar só. #}
+<div class="abas">
+  <a class="aba {{ 'ativa' if aba == 'moveis' }}" href="/cadastros/moveis">
+    Móveis <span class="conta">{{ contas.moveis }}</span></a>
+  <a class="aba {{ 'ativa' if aba == 'pecas' }}" href="/cadastros/pecas">
+    Peças <span class="conta">{{ contas.pecas }}</span></a>
+  <a class="aba {{ 'ativa' if aba == 'chapas' }}" href="/cadastros/chapas">
+    Chapas <span class="conta">{{ contas.chapas }}</span></a>
+  <a class="aba {{ 'ativa' if aba == 'acabamentos' }}" href="/cadastros/acabamentos">
+    Acabamentos <span class="conta">{{ contas.acabamentos }}</span></a>
+</div>

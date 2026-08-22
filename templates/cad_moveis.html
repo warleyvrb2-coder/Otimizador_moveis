@@ -1,8 +1,7 @@
 {% extends "base.html" %}
-{% block titulo %}Modelos de móveis{% endblock %}
-{% block cabecalho %}Modelos de móveis{% endblock %}
-{% block subcabecalho %}A lista técnica de cada móvel, derivada dos Kambans{% endblock %}
-
+{% block titulo %}Móveis · Cadastros{% endblock %}
+{% block cabecalho %}Cadastros{% endblock %}
+{% block subcabecalho %}O que a fábrica monta, e as peças de cada um{% endblock %}
 {% block estilo %}
 <style>
   .grade { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:14px; }
@@ -19,8 +18,9 @@
   .card-modelo.sem .nums { color:var(--ambar); }
 </style>
 {% endblock %}
-
 {% block conteudo %}
+{% include "_abas.html" %}
+
 <div class="recado info">
   <span class="ic">ℹ️</span>
   <div>A lista técnica sai de uma conta simples: se o lote produziu 100 roupeiros e pediu
@@ -104,3 +104,4 @@
 </div></div>
 {% endif %}
 {% endblock %}
+

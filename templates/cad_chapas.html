@@ -1,17 +1,7 @@
 {% extends "base.html" %}
-{% block titulo %}{{ 'Peças' if aba == 'pecas' else 'Cores e chapas' }} · Cadastro{% endblock %}
-{% block cabecalho %}{{ 'Cadastro de peças' if aba == 'pecas' else 'Cadastro de cores' }}{% endblock %}
-{% block subcabecalho %}
-  {{ 'Quais peças ficam à vista no móvel montado' if aba == 'pecas'
-     else 'Quais chapas têm desenho de madeira' }}
-{% endblock %}
-
-{% block acoes %}
-<span class="etiqueta {{ 'ok' if total and confirmados == total }}">
-  {{ confirmados }} de {{ total }} conferidos
-</span>
-{% endblock %}
-
+{% block titulo %}Chapas · Cadastros{% endblock %}
+{% block cabecalho %}Cadastros{% endblock %}
+{% block subcabecalho %}Quais chapas têm desenho de madeira{% endblock %}
 {% block estilo %}
 <style>
   .explicacao { display:grid; grid-template-columns:1fr 1fr; gap:0; overflow:hidden; padding:0; }
@@ -56,8 +46,9 @@
   }
 </style>
 {% endblock %}
-
 {% block conteudo %}
+{% include "_abas.html" %}
+
 {% if efemero %}
 <div class="recado perigo">
   <span class="ic">⚠️</span>
@@ -69,7 +60,7 @@
 {% endif %}
 
 <div class="cartao explicacao">
-  {% if aba == 'pecas' %}
+  {% if False %}
   <div>
     <div class="tit cor-v"><span class="ponto" style="background:var(--verde)"></span>Fica à vista</div>
     <p>Porta, lateral, tampo, frente de gaveta. Precisa ser cortada com o desenho da
@@ -94,7 +85,7 @@
   {% endif %}
 </div>
 
-{% if aba == 'pecas' %}
+{% if False %}
 <div class="filtros">
   <input type="search" id="busca" placeholder="Buscar por código ou nome da peça..."
          value="{{ busca }}" onkeydown="if(event.key==='Enter')buscar()">
@@ -106,7 +97,7 @@
 {% endif %}
 
 <div class="cartao lista">
-  {% if aba == 'pecas' %}
+  {% if False %}
     {% for p in itens %}
     <div class="item {{ 'pendente' if not p.confirmado }}">
       <div class="id">
@@ -147,7 +138,6 @@
   {% endif %}
 </div>
 {% endblock %}
-
 {% block script %}
 <script>
   function buscar() {

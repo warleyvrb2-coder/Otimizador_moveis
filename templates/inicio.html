@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block titulo %}Início{% endblock %}
+{% block cabecalho %}Início{% endblock %}
+{% block subcabecalho %}Como está o sistema hoje{% endblock %}
+{% block acoes %}<a href="/novo" class="btn">+ Novo plano de corte</a>{% endblock %}
+
+{% block estilo %}
+<style>
+  .colunas { display:grid; grid-template-columns:1.3fr 1fr; gap:18px; align-items:start; }
+  @media (max-width:980px) { .colunas { grid-template-columns:1fr; } }
+  .atalhos { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; }
+  .atalho { background:var(--branco); border:1px solid var(--linha); border-radius:8px;
+            padding:16px; text-decoration:none; color:inherit; display:block; }
+  .atalho:hover { border-color:var(--verde); }
+  .atalho .ic { font-size:20px; }
+  .atalho .tt { font-family:'Syne',sans-serif; font-weight:700; font-size:12.5px; margin-top:6px; }
+  .atalho .ds { color:var(--cinza); font-size:10.5px; margin-top:3px; line-height:1.5; }
+  .linha-plano { display:flex; gap:10px; align-items:center; padding:10px 0;
+                 border-bottom:1px solid var(--linha); font-size:11.5px; }
+  .linha-plano:last-child { border-bottom:none; }
+  .linha-plano .qd { color:var(--cinza); white-space:nowrap; }
+  .linha-plano .ar { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+</style>
+{% endblock %}
+
+{% block conteudo %}
+<div class="metricas" style="margin-bottom:20px;">
+  <div class="metrica destaque">
+    <div class="rot">Máquinas ativas</div><div class="val">{{ maquinas|length }}</div>
+  </div>
+  <div class="metrica">
+    <div class="rot">Móveis cadastrados</div><div class="val">{{ modelos|length }}</div>
+  </div>
+  <div class="metrica {{ 'alerta' if res.pecas and res.pecas_confirmadas < res.pecas }}">
+    <div class="rot">Peças conferidas</div>
+    <div class="val">{{ res.pecas_confirmadas }}<small>/{{ res.pecas }}</small></div>
+  </div>
+  <div class="metrica {{ 'alerta' if res.cores and res.cores_confirmadas < res.cores }}">
+    <div class="rot">Chapas conferidas</div>
+    <div class="val">{{ res.cores_confirmadas }}<small>/{{ res.cores }}</small></div>
+  </div>
+  <div class="metrica {{ 'alerta' if a_conferir }}">
+    <div class="rot">Planos p/ o PCP</div><div class="val">{{ a_conferir }}</div>
+  </div>
+</div>
+
+{% if not maquinas %}
+<div class="recado perigo"><span class="ic">⚠️</span>
+  <div><strong>Nenhuma máquina cadastrada.</strong> O plano precisa saber onde vai ser
+    cortado. <a href="/maquinas/nova">Cadastrar a primeira →</a></div></div>
+{% elif res.pecas and res.pecas_confirmadas < res.pecas %}
+<div class="recado atencao"><span class="ic">⚠️</span>
+  <div><strong>{{ res.pecas - res.pecas_confirmadas }} peças ainda no palpite automático.</strong>
+    Peça não conferida é tratada como aparente, e isso gasta chapa a mais.
+    <a href="/cadastros/pecas?pendentes=1">Conferir →</a></div></div>
+{% endif %}
+
+<div class="colunas">
+  <div>
+    <div class="cartao">
+      <h2>Últimos planos</h2>
+      <p class="ajuda">O que foi calculado, e o que ainda espera a conferência do PCP.</p>
+      {% for p in planos %}
+      <div class="linha-plano">
+        <span class="qd">{{ p.criado_em[:16]|replace('T',' ') }}</span>
+        <span class="ar">{{ p.arquivos or '—' }}</span>
+        <span>{{ p.total_chapas }} chapas</span>
+        {% if p.aprovado %}<span class="etiqueta ok">aprovado</span>
+        {% else %}<span class="etiqueta atencao">a conferir</span>{% endif %}
+        <a href="/resultado/{{ p.id }}">abrir →</a>
+      </div>
+      {% else %}
+      <div class="vazio">
+        <div class="ic">📐</div>
+        <p>Nenhum plano ainda.</p>
+        <a href="/novo" class="btn">Calcular o primeiro</a>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="cartao">
+      <h2>O que fazer agora</h2>
+      <p class="ajuda">Na ordem de retorno: conferir chapa rende mais que conferir peça,
+        porque uma chapa lisa libera todas as peças dela de uma vez.</p>
+      <div class="atalhos">
+        <a class="atalho" href="/cadastros/chapas">
+          <div class="ic">🎨</div><div class="tt">Chapas</div>
+          <div class="ds">{{ res.cores - res.cores_confirmadas }} a conferir · maior alavanca</div>
+        </a>
+        <a class="atalho" href="/cadastros/acabamentos">
+          <div class="ic">🏷️</div><div class="tt">Acabamentos</div>
+          <div class="ds">
+            {{ acabamentos | rejectattr('cores') | list | length }} sem chapa ligada</div>
+        </a>
+        <a class="atalho" href="/cadastros/moveis">
+          <div class="ic">🗄️</div><div class="tt">Móveis</div>
+          <div class="ds">{{ sem_modelo }} peças fora de qualquer móvel</div>
+        </a>
+        <a class="atalho" href="/cadastros/pecas?pendentes=1">
+          <div class="ic">📦</div><div class="tt">Peças</div>
+          <div class="ds">{{ res.pecas - res.pecas_confirmadas }} no palpite automático</div>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="cartao">
+      <h2>Máquinas</h2>
+      <p class="ajuda">Cada uma corta com a sua chapa e a sua serra.</p>
+      <table class="dados">
+        {% for m in maquinas %}
+        <tr>
+          <td><strong>{{ m.nome }}</strong></td>
+          <td class="num">{{ m.chapa_larg }}×{{ m.chapa_alt }}<br>
+            <span style="color:var(--cinza);">serra {{ m.kerf }}mm</span></td>
+        </tr>
+        {% endfor %}
+      </table>
+      <p style="margin:14px 0 0;"><a href="/maquinas">Gerenciar máquinas →</a></p>
+    </div>
+
+    <div class="cartao">
+      <h2>Como o sistema decide girar a peça</h2>
+      <p class="ajuda" style="margin:0;">
+        A peça só é <strong>obrigada</strong> a manter a posição quando as duas coisas são
+        verdade: a <strong>chapa</strong> tem desenho de madeira <em>e</em> a
+        <strong>peça</strong> fica à vista no móvel.<br><br>
+        Prateleira em chapa amadeirada pode girar, porque ninguém vê.
+        Porta em chapa branca também pode, porque não há desenho para sair torto.<br><br>
+        É por isso que os dois cadastros existem, e por isso conferir os dois rende
+        material.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

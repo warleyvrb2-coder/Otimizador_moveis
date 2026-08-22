@@ -4,191 +4,114 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block titulo %}Otimizador de Corte{% endblock %}</title>
-<style>
-  :root {
-    --tinta:#1b2027; --tinta-2:#4a5560; --tinta-3:#8a949e;
-    --verde:#2a6f4d; --verde-claro:#e8f2ec; --verde-escuro:#1e5439;
-    --azul:#3d6b99; --azul-claro:#eaf1f8;
-    --ambar:#a97a1e; --ambar-claro:#fdf6e6;
-    --vermelho:#b03a2b; --vermelho-claro:#fdeeeb;
-    --fundo:#f4f5f6; --papel:#fff; --linha:#e4e7ea;
-    --lateral:#1b2027; --lateral-2:#262d36;
-    --raio:10px; --sombra:0 1px 2px rgba(16,24,32,.06), 0 4px 12px rgba(16,24,32,.04);
-  }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--fundo); color:var(--tinta);
-         font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-         font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased; }
-  a { color:var(--verde); }
-
-  /* ---------- barra lateral ---------- */
-  .app { display:flex; min-height:100vh; }
-  .lateral { width:236px; flex:none; background:var(--lateral); color:#c9d1d9;
-             display:flex; flex-direction:column; position:sticky; top:0; height:100vh; }
-  .marca { padding:20px 18px 16px; border-bottom:1px solid rgba(255,255,255,.07); }
-  .marca .nome { color:#fff; font-weight:650; font-size:15px; letter-spacing:-.01em; }
-  .marca .sub { color:#7d8794; font-size:11.5px; margin-top:2px; }
-  .nav { flex:1; overflow-y:auto; padding:14px 10px; }
-  .nav .grupo { color:#69737f; font-size:10.5px; font-weight:700; letter-spacing:.09em;
-                text-transform:uppercase; padding:14px 10px 6px; }
-  .nav a { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:7px;
-           color:#c9d1d9; text-decoration:none; font-size:13.5px; margin-bottom:1px; }
-  .nav a:hover { background:var(--lateral-2); color:#fff; }
-  .nav a.ativo { background:var(--verde); color:#fff; font-weight:600; }
-  .nav a svg { width:16px; height:16px; flex:none; opacity:.85; }
-  .nav a .selo { margin-left:auto; background:var(--ambar); color:#231a06; font-size:10.5px;
-                 font-weight:700; padding:1px 7px; border-radius:99px; }
-  .nav a.ativo .selo { background:rgba(255,255,255,.9); color:var(--verde-escuro); }
-  .rodape-lateral { padding:14px 18px; border-top:1px solid rgba(255,255,255,.07);
-                    font-size:11px; color:#69737f; }
-  .rodape-lateral b { color:#9aa4af; font-weight:600; }
-
-  /* ---------- área principal ---------- */
-  .principal { flex:1; min-width:0; display:flex; flex-direction:column; }
-  .topo { background:var(--papel); border-bottom:1px solid var(--linha); padding:16px 28px;
-          display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
-  .topo h1 { margin:0; font-size:18px; font-weight:650; letter-spacing:-.01em; }
-  .topo .desc { color:var(--tinta-2); font-size:13px; margin-top:1px; }
-  .topo .acoes { margin-left:auto; display:flex; gap:8px; align-items:center; }
-  .conteudo { padding:24px 28px 60px; max-width:1180px; width:100%; }
-  .abrir-menu { display:none; background:none; border:1px solid var(--linha);
-                border-radius:7px; padding:7px 10px; cursor:pointer; font-size:16px; }
-
-  /* ---------- componentes ---------- */
-  .cartao { background:var(--papel); border:1px solid var(--linha); border-radius:var(--raio);
-            box-shadow:var(--sombra); padding:20px 22px; margin-bottom:18px; }
-  .cartao > h2 { margin:0 0 4px; font-size:15px; font-weight:650; }
-  .cartao > .ajuda { color:var(--tinta-2); font-size:13px; margin:0 0 16px; }
-
-  .btn { display:inline-flex; align-items:center; gap:7px; background:var(--verde); color:#fff;
-         border:1px solid var(--verde); padding:9px 16px; border-radius:8px; font-size:13.5px;
-         font-weight:600; cursor:pointer; text-decoration:none; }
-  .btn:hover { background:var(--verde-escuro); }
-  .btn.secundario { background:var(--papel); color:var(--tinta); border-color:var(--linha); }
-  .btn.secundario:hover { background:var(--fundo); }
-  .btn:disabled { opacity:.5; cursor:not-allowed; }
-
-  .metricas { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:12px; }
-  .metrica { background:var(--papel); border:1px solid var(--linha); border-radius:var(--raio); padding:14px 16px; }
-  .metrica .rot { color:var(--tinta-2); font-size:11.5px; text-transform:uppercase;
-                  letter-spacing:.05em; font-weight:600; }
-  .metrica .val { font-size:24px; font-weight:680; letter-spacing:-.02em; margin-top:3px;
-                  font-variant-numeric:tabular-nums; }
-  .metrica .val small { font-size:13px; font-weight:500; color:var(--tinta-2); }
-  .metrica.destaque { background:var(--verde-claro); border-color:#cfe3d7; }
-  .metrica.destaque .val { color:var(--verde-escuro); }
-  .metrica.alerta { background:var(--vermelho-claro); border-color:#f2d5cf; }
-  .metrica.alerta .val { color:var(--vermelho); }
-
-  .etiqueta { display:inline-flex; align-items:center; gap:5px; background:var(--fundo);
-              border:1px solid var(--linha); border-radius:99px; padding:3px 11px; font-size:12px;
-              color:var(--tinta-2); }
-  .etiqueta.ok { background:var(--verde-claro); border-color:#cfe3d7; color:var(--verde-escuro); }
-  .etiqueta.atencao { background:var(--ambar-claro); border-color:#eedcb4; color:var(--ambar); }
-  .etiqueta.perigo { background:var(--vermelho-claro); border-color:#f2d5cf; color:var(--vermelho); }
-
-  .recado { border-radius:var(--raio); padding:14px 16px; font-size:13px; line-height:1.55;
-            margin-bottom:18px; border:1px solid; display:flex; gap:11px; align-items:flex-start; }
-  .recado .ic { font-size:15px; line-height:1.3; flex:none; }
-  .recado.info { background:var(--azul-claro); border-color:#cfe0ef; color:#1f4667; }
-  .recado.atencao { background:var(--ambar-claro); border-color:#eedcb4; color:#6b4d12; }
-  .recado.perigo { background:var(--vermelho-claro); border-color:#f2d5cf; color:#7d2718; }
-
-  table.dados { width:100%; border-collapse:collapse; font-size:13px; }
-  table.dados th { text-align:left; padding:8px 10px; color:var(--tinta-2); font-size:11px;
-                   font-weight:700; text-transform:uppercase; letter-spacing:.05em;
-                   border-bottom:1px solid var(--linha); }
-  table.dados td { padding:8px 10px; border-bottom:1px solid var(--linha); vertical-align:top; }
-  table.dados tr:last-child td { border-bottom:none; }
-  table.dados .num { text-align:right; font-variant-numeric:tabular-nums; }
-
-  .vazio { text-align:center; padding:48px 20px; color:var(--tinta-2); }
-  .vazio .ic { font-size:34px; opacity:.35; }
-  .vazio p { margin:10px 0 18px; }
-
-  @media (max-width:900px) {
-    .lateral { position:fixed; z-index:60; left:-236px; transition:left .22s ease; }
-    .lateral.aberta { left:0; box-shadow:0 0 0 100vmax rgba(0,0,0,.4); }
-    .abrir-menu { display:block; }
-    .conteudo, .topo { padding-left:16px; padding-right:16px; }
-  }
-  @media print {
-    .lateral, .topo .acoes, .abrir-menu { display:none !important; }
-    .app { display:block; } .conteudo { padding:0; max-width:none; }
-    .cartao { box-shadow:none; break-inside:avoid; }
-  }
-</style>
+<link rel="stylesheet" href="/static/css/base.css">
 {% block estilo %}{% endblock %}
 </head>
 <body>
-<div class="app">
-  <aside class="lateral" id="lateral">
-    <div class="marca">
-      <div class="nome">🪚 Otimizador de Corte</div>
-      <div class="sub">Benetil Móveis · Setor 46</div>
+
+<div class="vc-loading-overlay" id="vc-loading">
+  <div class="vc-loading-spinner"></div>
+  <div class="vc-loading-texto" id="vc-loading-texto">Processando...</div>
+</div>
+
+{#
+  A navegação é agrupada por TRABALHO, não por tipo de dado: quem vai cortar
+  entra em "Corte", quem alimenta o sistema entra em "Cadastros". Dentro de
+  Cadastros as telas são irmãs e aparecem como ABAS, não como itens soltos
+  no menu — assim não vira um vai e vem entre lugares que parecem diferentes
+  e são o mesmo assunto.
+#}
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <a href="/" class="logo-mark">🪚</a>
+    <div class="logo-nome">Otimizador de Corte</div>
+    <div class="logo-sub">Benetil Móveis</div>
+    <button class="btn-toggle" onclick="recolher()" title="Recolher menu">‹</button>
+  </div>
+
+  <div class="sidebar-nav">
+    <div class="nav-group">
+      <a href="/" class="nav-item {{ 'active' if pagina == 'inicio' }}">
+        <span class="nav-icon">🏠</span><span class="nav-label">Início</span>
+      </a>
     </div>
-    <nav class="nav">
-      <div class="grupo">Produção</div>
-      <a href="/" class="{{ 'ativo' if pagina == 'novo' }}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-        Novo plano de corte
-      </a>
-      <a href="/planos" class="{{ 'ativo' if pagina == 'planos' }}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-        Planos gerados
-      </a>
 
-      <div class="grupo">Cadastros</div>
-      <a href="/modelos" class="{{ 'ativo' if pagina == 'modelos' }}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg>
-        Modelos e peças
-        {% if nav and nav.pecas_pendentes %}<span class="selo">{{ nav.pecas_pendentes }}</span>{% endif %}
-      </a>
-      <a href="/acabamentos" class="{{ 'ativo' if pagina == 'acabamentos' }}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 4v10l-7 4-7-4V7z"/><path d="M12 3v18"/></svg>
-        Acabamentos
-      </a>
-      <a href="/cadastro/cores" class="{{ 'ativo' if pagina == 'cores' }}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 000 18"/></svg>
-        Cores e chapas
-        {% if nav and nav.cores_pendentes %}<span class="selo">{{ nav.cores_pendentes }}</span>{% endif %}
-      </a>
-
-      <a href="/aprendizado" class="{{ 'ativo' if pagina == 'aprendizado' }}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a4 4 0 00-4 4v1a3 3 0 000 6v3a4 4 0 008 0v-3a3 3 0 000-6V7a4 4 0 00-4-4z"/></svg>
-        Aprendizado
-      </a>
-
-      <div class="grupo">Configuração</div>
-      <a href="/maquinas" class="{{ 'ativo' if pagina == 'maquinas' }}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="12" rx="2"/><path d="M6 7V5a2 2 0 012-2h8a2 2 0 012 2v2M2 13h20"/></svg>
-        Máquinas
-      </a>
-      <a href="/parametros" class="{{ 'ativo' if pagina == 'parametros' }}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 3.6 1.65 1.65 0 0010 2.09V2a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 8v0c.14.63.67 1.1 1.31 1.1H21a2 2 0 110 4h-.09c-.66 0-1.22.39-1.51 1z"/></svg>
-        Parâmetros da máquina
-      </a>
-    </nav>
-    <div class="rodape-lateral">
-      Chapa <b>{{ nav.chapa if nav else '2750×1850' }}</b> ·
-      serra <b>{{ nav.kerf if nav else '4,4' }}mm</b>
-    </div>
-  </aside>
-
-  <div class="principal">
-    <header class="topo">
-      <button class="abrir-menu" onclick="document.getElementById('lateral').classList.toggle('aberta')">☰</button>
-      <div>
-        <h1>{% block cabecalho %}{% endblock %}</h1>
-        <div class="desc">{% block subcabecalho %}{% endblock %}</div>
+    <div class="nav-group">
+      <div class="nav-item {{ 'open' if pagina in ('novo','planos') }}"
+           onclick="abrirSub('sub-corte', this)">
+        <span class="nav-icon">📐</span><span class="nav-label">Corte</span>
+        <span class="nav-arrow">▾</span>
       </div>
-      <div class="acoes">{% block acoes %}{% endblock %}</div>
-    </header>
-    <main class="conteudo">
-      {% block conteudo %}{% endblock %}
-    </main>
+      <div class="nav-sub {{ 'open' if pagina in ('novo','planos') }}" id="sub-corte">
+        <a href="/novo" class="nav-sub-item {{ 'active' if pagina == 'novo' }}">Novo plano</a>
+        <a href="/planos" class="nav-sub-item {{ 'active' if pagina == 'planos' }}">Planos gerados</a>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-item {{ 'open' if pagina == 'cadastros' }}"
+           onclick="abrirSub('sub-cad', this)">
+        <span class="nav-icon">📦</span><span class="nav-label">Cadastros</span>
+        {% if nav and nav.pendencias %}<span class="selo">{{ nav.pendencias }}</span>{% endif %}
+        <span class="nav-arrow">▾</span>
+      </div>
+      <div class="nav-sub {{ 'open' if pagina == 'cadastros' }}" id="sub-cad">
+        <a href="/cadastros/moveis" class="nav-sub-item {{ 'active' if aba == 'moveis' }}">Móveis</a>
+        <a href="/cadastros/pecas" class="nav-sub-item {{ 'active' if aba == 'pecas' }}">Peças</a>
+        <a href="/cadastros/chapas" class="nav-sub-item {{ 'active' if aba == 'chapas' }}">Chapas</a>
+        <a href="/cadastros/acabamentos" class="nav-sub-item {{ 'active' if aba == 'acabamentos' }}">Acabamentos</a>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <a href="/aprendizado" class="nav-item {{ 'active' if pagina == 'aprendizado' }}">
+        <span class="nav-icon">🧠</span><span class="nav-label">Aprendizado</span>
+      </a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-item {{ 'open' if pagina == 'maquinas' }}"
+           onclick="abrirSub('sub-cfg', this)">
+        <span class="nav-icon">🔧</span><span class="nav-label">Configurações</span>
+        <span class="nav-arrow">▾</span>
+      </div>
+      <div class="nav-sub {{ 'open' if pagina == 'maquinas' }}" id="sub-cfg">
+        <a href="/maquinas" class="nav-sub-item {{ 'active' if pagina == 'maquinas' }}">Máquinas</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar-footer">
+    {% if nav %}Chapa <b>{{ nav.chapa }}</b><br>Serra <b>{{ nav.kerf }}mm</b>{% endif %}
+  </div>
+</nav>
+
+<div class="main">
+  <div class="topbar">
+    <button class="abrir-menu" onclick="document.getElementById('sidebar').classList.toggle('aberta')">☰</button>
+    <div>
+      <div class="topbar-title">{% block cabecalho %}{% endblock %}</div>
+      <div class="topbar-sub">{% block subcabecalho %}{% endblock %}</div>
+    </div>
+    <div class="topbar-right">{% block acoes %}{% endblock %}</div>
+  </div>
+
+  <div class="content">
+    {% block conteudo %}{% endblock %}
   </div>
 </div>
+
+<script>
+  function recolher() { document.getElementById('sidebar').classList.toggle('collapsed'); }
+  function abrirSub(id, item) {
+    document.getElementById(id).classList.toggle('open');
+    item.classList.toggle('open');
+  }
+  function carregando(texto) {
+    if (texto) document.getElementById('vc-loading-texto').textContent = texto;
+    document.getElementById('vc-loading').classList.add('ativo');
+  }
+</script>
 {% block script %}{% endblock %}
 </body>
 </html>

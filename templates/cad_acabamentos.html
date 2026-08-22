@@ -1,8 +1,7 @@
 {% extends "base.html" %}
-{% block titulo %}Acabamentos{% endblock %}
-{% block cabecalho %}Acabamentos{% endblock %}
+{% block titulo %}Acabamentos · Cadastros{% endblock %}
+{% block cabecalho %}Cadastros{% endblock %}
 {% block subcabecalho %}Qual chapa cada acabamento comercial usa{% endblock %}
-
 {% block estilo %}
 <style>
   .acab { border-bottom:1px solid var(--linha); padding:16px; }
@@ -17,8 +16,9 @@
   .cores button.on { background:var(--verde); border-color:var(--verde); color:#fff; font-weight:600; }
 </style>
 {% endblock %}
-
 {% block conteudo %}
+{% include "_abas.html" %}
+
 <div class="recado info">
   <span class="ic">ℹ️</span>
   <div><strong>Acabamento não é a cor da chapa.</strong> O acabamento é como o móvel é
@@ -60,7 +60,6 @@
   {% endfor %}
 </div>
 {% endblock %}
-
 {% block script %}
 <script>
   async function alternar(acabamento, cor, botao) {
