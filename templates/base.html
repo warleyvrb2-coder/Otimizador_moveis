@@ -15,74 +15,76 @@
 </div>
 
 {#
-  A navegação é agrupada por TRABALHO, não por tipo de dado: quem vai cortar
-  entra em "Corte", quem alimenta o sistema entra em "Cadastros". Dentro de
-  Cadastros as telas são irmãs e aparecem como ABAS, não como itens soltos
-  no menu — assim não vira um vai e vem entre lugares que parecem diferentes
-  e são o mesmo assunto.
+  Casco no padrão do Optimus: sidebar azul escura de 64px que abre no hover,
+  chip colorido por módulo, topbar branca, laranja nos destaques.
+
+  Recolhida por padrão porque a tela principal daqui é um DESENHO de chapa —
+  cada pixel de largura conta.
+
+  A ORGANIZAÇÃO do menu vem do Viçosa: grupos por trabalho (quem corta entra
+  em Corte, quem alimenta entra em Cadastros) e telas irmãs como ABAS, não
+  como itens soltos.
 #}
 <nav class="sidebar" id="sidebar">
-  <div class="sidebar-header">
-    <a href="/" class="logo-mark">🪚</a>
-    <div class="logo-nome">Otimizador de Corte</div>
-    <div class="logo-sub">Benetil Móveis</div>
-    <button class="btn-toggle" onclick="recolher()" title="Recolher menu">‹</button>
+  <div class="sidebar-logo">
+    <span class="logo-icon">🪚</span>
+    <a href="/" class="logo-text">
+      <span class="logo-title">Otimizador de Corte</span>
+      <span class="logo-sub">Benetil Móveis</span>
+    </a>
   </div>
 
-  <div class="sidebar-nav">
-    <div class="nav-group">
-      <a href="/" class="nav-item {{ 'active' if pagina == 'inicio' }}">
-        <span class="nav-icon">🏠</span><span class="nav-label">Início</span>
-      </a>
+  <div class="sidebar-menu">
+    <a href="/" class="mod-header {{ 'ativo' if pagina == 'inicio' }}">
+      <span class="mi c-blue">🏠</span><span class="mod-label">Início</span>
+    </a>
+
+    <div class="mod-header {{ 'ativo aberto' if pagina in ('novo','planos') }}"
+         onclick="abrir('m-corte', this)">
+      <span class="mi c-orange">📐</span><span class="mod-label">Corte</span>
+      <span class="mod-arrow">▾</span>
+    </div>
+    <div class="mod-children {{ 'aberto' if pagina in ('novo','planos') }}" id="m-corte">
+      <a href="/novo" class="leaf-item {{ 'ativo' if pagina == 'novo' }}">
+        <span class="sub-dot"></span>Novo plano</a>
+      <a href="/planos" class="leaf-item {{ 'ativo' if pagina == 'planos' }}">
+        <span class="sub-dot"></span>Planos gerados</a>
     </div>
 
-    <div class="nav-group">
-      <div class="nav-item {{ 'open' if pagina in ('novo','planos') }}"
-           onclick="abrirSub('sub-corte', this)">
-        <span class="nav-icon">📐</span><span class="nav-label">Corte</span>
-        <span class="nav-arrow">▾</span>
-      </div>
-      <div class="nav-sub {{ 'open' if pagina in ('novo','planos') }}" id="sub-corte">
-        <a href="/novo" class="nav-sub-item {{ 'active' if pagina == 'novo' }}">Novo plano</a>
-        <a href="/planos" class="nav-sub-item {{ 'active' if pagina == 'planos' }}">Planos gerados</a>
-      </div>
+    <div class="mod-header {{ 'ativo aberto' if pagina == 'cadastros' }}"
+         onclick="abrir('m-cad', this)">
+      <span class="mi c-green">📦</span><span class="mod-label">Cadastros</span>
+      {% if nav and nav.pendencias %}<span class="selo">{{ nav.pendencias }}</span>{% endif %}
+      <span class="mod-arrow">▾</span>
+    </div>
+    <div class="mod-children {{ 'aberto' if pagina == 'cadastros' }}" id="m-cad">
+      <a href="/cadastros/moveis" class="leaf-item {{ 'ativo' if aba == 'moveis' }}">
+        <span class="sub-dot"></span>Móveis</a>
+      <a href="/cadastros/pecas" class="leaf-item {{ 'ativo' if aba == 'pecas' }}">
+        <span class="sub-dot"></span>Peças</a>
+      <a href="/cadastros/chapas" class="leaf-item {{ 'ativo' if aba == 'chapas' }}">
+        <span class="sub-dot"></span>Chapas</a>
+      <a href="/cadastros/acabamentos" class="leaf-item {{ 'ativo' if aba == 'acabamentos' }}">
+        <span class="sub-dot"></span>Acabamentos</a>
     </div>
 
-    <div class="nav-group">
-      <div class="nav-item {{ 'open' if pagina == 'cadastros' }}"
-           onclick="abrirSub('sub-cad', this)">
-        <span class="nav-icon">📦</span><span class="nav-label">Cadastros</span>
-        {% if nav and nav.pendencias %}<span class="selo">{{ nav.pendencias }}</span>{% endif %}
-        <span class="nav-arrow">▾</span>
-      </div>
-      <div class="nav-sub {{ 'open' if pagina == 'cadastros' }}" id="sub-cad">
-        <a href="/cadastros/moveis" class="nav-sub-item {{ 'active' if aba == 'moveis' }}">Móveis</a>
-        <a href="/cadastros/pecas" class="nav-sub-item {{ 'active' if aba == 'pecas' }}">Peças</a>
-        <a href="/cadastros/chapas" class="nav-sub-item {{ 'active' if aba == 'chapas' }}">Chapas</a>
-        <a href="/cadastros/acabamentos" class="nav-sub-item {{ 'active' if aba == 'acabamentos' }}">Acabamentos</a>
-      </div>
-    </div>
+    <a href="/aprendizado" class="mod-header {{ 'ativo' if pagina == 'aprendizado' }}">
+      <span class="mi c-purple">🧠</span><span class="mod-label">Aprendizado</span>
+    </a>
 
-    <div class="nav-group">
-      <a href="/aprendizado" class="nav-item {{ 'active' if pagina == 'aprendizado' }}">
-        <span class="nav-icon">🧠</span><span class="nav-label">Aprendizado</span>
-      </a>
+    <div class="mod-header {{ 'ativo aberto' if pagina == 'maquinas' }}"
+         onclick="abrir('m-cfg', this)">
+      <span class="mi c-cyan">🔧</span><span class="mod-label">Configurações</span>
+      <span class="mod-arrow">▾</span>
     </div>
-
-    <div class="nav-group">
-      <div class="nav-item {{ 'open' if pagina == 'maquinas' }}"
-           onclick="abrirSub('sub-cfg', this)">
-        <span class="nav-icon">🔧</span><span class="nav-label">Configurações</span>
-        <span class="nav-arrow">▾</span>
-      </div>
-      <div class="nav-sub {{ 'open' if pagina == 'maquinas' }}" id="sub-cfg">
-        <a href="/maquinas" class="nav-sub-item {{ 'active' if pagina == 'maquinas' }}">Máquinas</a>
-      </div>
+    <div class="mod-children {{ 'aberto' if pagina == 'maquinas' }}" id="m-cfg">
+      <a href="/maquinas" class="leaf-item {{ 'ativo' if pagina == 'maquinas' }}">
+        <span class="sub-dot"></span>Máquinas</a>
     </div>
   </div>
 
-  <div class="sidebar-footer">
-    {% if nav %}Chapa <b>{{ nav.chapa }}</b><br>Serra <b>{{ nav.kerf }}mm</b>{% endif %}
+  <div class="sidebar-rodape">
+    {% if nav %}Chapa <b>{{ nav.chapa }}</b> · serra <b>{{ nav.kerf }}mm</b>{% endif %}
   </div>
 </nav>
 
@@ -90,10 +92,14 @@
   <div class="topbar">
     <button class="abrir-menu" onclick="document.getElementById('sidebar').classList.toggle('aberta')">☰</button>
     <div>
+      <div class="breadcrumb">{% block trilha %}{% endblock %}</div>
       <div class="topbar-title">{% block cabecalho %}{% endblock %}</div>
       <div class="topbar-sub">{% block subcabecalho %}{% endblock %}</div>
     </div>
-    <div class="topbar-right">{% block acoes %}{% endblock %}</div>
+    <div class="topbar-right">
+      {% block acoes %}{% endblock %}
+      <span class="status-pill"><span class="sdot"></span>online</span>
+    </div>
   </div>
 
   <div class="content">
@@ -102,10 +108,9 @@
 </div>
 
 <script>
-  function recolher() { document.getElementById('sidebar').classList.toggle('collapsed'); }
-  function abrirSub(id, item) {
-    document.getElementById(id).classList.toggle('open');
-    item.classList.toggle('open');
+  function abrir(id, cab) {
+    document.getElementById(id).classList.toggle('aberto');
+    cab.classList.toggle('aberto');
   }
   function carregando(texto) {
     if (texto) document.getElementById('vc-loading-texto').textContent = texto;
