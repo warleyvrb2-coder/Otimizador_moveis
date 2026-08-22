@@ -1,107 +1,85 @@
 {% extends "base.html" %}
 {% block titulo %}Móveis · Cadastros{% endblock %}
-{% block cabecalho %}Cadastros{% endblock %}
-{% block subcabecalho %}O que a fábrica monta, e as peças de cada um{% endblock %}
-{% block estilo %}
-<style>
-  .grade { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:14px; }
-  .card-modelo { background:var(--papel); border:1px solid var(--linha); border-radius:var(--raio);
-                 padding:16px 18px; text-decoration:none; color:inherit; display:block;
-                 box-shadow:var(--sombra); }
-  .card-modelo:hover { border-color:var(--verde); }
-  .card-modelo .cod { color:var(--tinta-3); font-size:11.5px; font-variant-numeric:tabular-nums; }
-  .card-modelo .nome { font-weight:650; font-size:14px; margin:2px 0 10px; line-height:1.35; }
-  .card-modelo .nums { display:flex; gap:16px; align-items:baseline; }
-  .card-modelo .n { font-size:20px; font-weight:680; font-variant-numeric:tabular-nums; }
-  .card-modelo .r { color:var(--tinta-2); font-size:11.5px; }
-  .card-modelo.sem { border-style:dashed; }
-  .card-modelo.sem .nums { color:var(--ambar); }
-</style>
+{% block trilha %}Cadastros{% endblock %}
+{% block cabecalho %}Móveis{% endblock %}
+{% block subcabecalho %}O que a fábrica monta, e quantas peças cada um leva{% endblock %}
+{% block acoes %}
+  <a href="/cadastro/importar" class="btn secundario">Importar catálogo</a>
 {% endblock %}
+
 {% block conteudo %}
 {% include "_abas.html" %}
 
-<div class="recado info">
-  <span class="ic">ℹ️</span>
-  <div>A lista técnica sai de uma conta simples: se o lote produziu 100 roupeiros e pediu
-    600 rodapés, o móvel leva 6 rodapés. O sistema só grava quando a divisão dá
+<div class="recado info"><span class="ic">ℹ️</span>
+  <div>A lista técnica sai de uma conta: se o lote produziu 100 roupeiros e pediu 600
+    rodapés, o móvel leva 6 rodapés. O sistema só grava quando a divisão dá
     <strong>inteiro exato</strong> — número quebrado significa vínculo errado, e um valor
-    inventado aqui viraria lote errado lá na frente.</div>
-</div>
+    inventado viraria lote errado.</div></div>
 
-{% set completos = modelos | selectattr('n_pecas') | list %}
-{% set vazios = modelos | rejectattr('n_pecas') | list %}
-
-<p style="font-size:13px; margin:-6px 0 16px;">
-  <a href="/cadastro/importar">Importar catálogo do Agrosys →</a>
-  <span style="color:var(--tinta-2);">&nbsp;·&nbsp;</span>
-  <a href="/cadastros/pecas">Ver a lista completa de peças →</a>
-  <span style="color:var(--tinta-2);">&nbsp;· para procurar uma peça por código sem saber o móvel</span>
-</p>
-
-<div class="metricas" style="margin-bottom:20px;">
-  <div class="metrica destaque"><div class="rot">Modelos</div><div class="val">{{ modelos|length }}</div></div>
-  <div class="metrica"><div class="rot">Com lista técnica</div><div class="val">{{ completos|length }}</div></div>
-  <div class="metrica {{ 'alerta' if vazios }}"><div class="rot">Sem lista</div><div class="val">{{ vazios|length }}</div></div>
-</div>
-
-{% if completos %}
-<h2 style="font-size:14px; margin:0 0 12px;">Com lista técnica</h2>
-<div class="grade" style="margin-bottom:26px;">
-  {% for m in completos %}
-  <a class="card-modelo" href="/modelos/{{ m.cod }}">
-    <div class="cod">{{ m.cod }}</div>
-    <div class="nome">{{ m.descricao }}</div>
-    <div class="nums">
-      <div><div class="n">{{ m.n_pecas }}</div><div class="r">tipos de peça</div></div>
-      <div><div class="n">{{ '%.0f'|format(m.total_pecas) }}</div><div class="r">peças por móvel</div></div>
+<div class="cg-page-card">
+  <div class="cg-page-header">
+    <h1 class="cg-title">Móveis cadastrados</h1>
+    <span class="cg-counter" data-contador="tab-moveis">{{ modelos|length }} registros</span>
+    {% if sem_modelo %}
+    <div class="cg-header-acoes">
+      <a class="btn secundario" href="/modelos/sem-modelo">
+        {{ sem_modelo }} peças fora de qualquer móvel →</a>
     </div>
-  </a>
-  {% endfor %}
-</div>
-{% endif %}
+    {% endif %}
+  </div>
 
-{% if vazios %}
-<h2 style="font-size:14px; margin:0 0 6px;">Sem lista técnica</h2>
-<p style="color:var(--tinta-2); font-size:13px; margin:0 0 12px;">
-  O sistema não conseguiu ligar peça nenhuma a estes móveis — ou a descrição da peça
-  vem cortada no relatório e não cita o modelo, ou o nome do móvel é genérico demais
-  para distinguir (vários "KIT DALLAS" diferentes). Precisam ser preenchidos por você.
+  <div class="cg-table-wrap">
+    <table id="tab-moveis" class="cg-table cg-data-table">
+      <thead>
+        <tr>
+          <th style="width:80px;">
+            <div class="cg-col-header">Código <button class="cg-sort-btn" data-col="0">⇅</button></div>
+            <input class="cg-table-search" data-col="0" placeholder="filtrar..."></th>
+          <th>
+            <div class="cg-col-header">Móvel <button class="cg-sort-btn" data-col="1">⇅</button></div>
+            <input class="cg-table-search" data-col="1" placeholder="filtrar..."></th>
+          <th style="width:100px;">
+            <div class="cg-col-header">Tipos <button class="cg-sort-btn" data-col="2">⇅</button></div>
+            <input class="cg-table-search" data-col="2" placeholder="..."></th>
+          <th style="width:140px;">
+            <div class="cg-col-header">Peças por móvel <button class="cg-sort-btn" data-col="3">⇅</button></div>
+            <input class="cg-table-search" data-col="3" placeholder="..."></th>
+          <th style="width:150px;">
+            <div class="cg-col-header">Lista técnica <button class="cg-sort-btn" data-col="4">⇅</button></div>
+            <input class="cg-table-search" data-col="4" placeholder="completa / falta"></th>
+          <th class="cg-acoes-col"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in modelos %}
+        <tr class="{{ '' if m.n_pecas else 'pendente' }}">
+          <td class="cg-cod">{{ m.cod }}</td>
+          <td>{{ m.descricao }}</td>
+          <td class="cg-num">{{ m.n_pecas }}</td>
+          <td class="cg-num">{{ '%.0f'|format(m.total_pecas) }}</td>
+          <td>
+            {% if m.n_pecas %}<span class="etiqueta ok">completa</span>
+            {% else %}<span class="etiqueta atencao">falta montar</span>{% endif %}
+          </td>
+          <td class="cg-acoes-col">
+            <a class="btn secundario btn-sm" href="/modelos/{{ m.cod }}">abrir</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr class="cg-vazio"><td colspan="6">
+          Nenhum móvel cadastrado. Eles entram sozinhos quando você calcula um plano.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p style="color:#5B6572; font-size:11px;">
+  Móvel marcado como <strong>falta montar</strong> é aquele em que o sistema não conseguiu
+  ligar nenhuma peça — ou a descrição vem cortada no relatório, ou o nome é genérico demais
+  para distinguir de outro parecido. Abra e monte a lista pela busca.
 </p>
-<div class="grade">
-  {% for m in vazios %}
-  <a class="card-modelo sem" href="/modelos/{{ m.cod }}">
-    <div class="cod">{{ m.cod }}</div>
-    <div class="nome">{{ m.descricao }}</div>
-    <div class="nums"><div class="r">nenhuma peça vinculada</div></div>
-  </a>
-  {% endfor %}
-</div>
-{% endif %}
-
-{% if sem_modelo %}
-<h2 style="font-size:14px; margin:26px 0 6px;">Fora dos modelos</h2>
-<p style="color:var(--tinta-2); font-size:13px; margin:0 0 12px;">
-  Peças que o sistema não conseguiu ligar a nenhum móvel. Elas entram no corte
-  normalmente — o que falta é só o vínculo. Vale conferir o veio delas também.
-</p>
-<div class="grade">
-  <a class="card-modelo sem" href="/modelos/sem-modelo">
-    <div class="cod">—</div>
-    <div class="nome">Peças sem modelo</div>
-    <div class="nums">
-      <div><div class="n">{{ sem_modelo }}</div><div class="r">peças a revisar</div></div>
-    </div>
-  </a>
-</div>
-{% endif %}
-
-{% if not modelos %}
-<div class="cartao"><div class="vazio">
-  <div class="ic">🗄️</div>
-  <p>Nenhum modelo cadastrado ainda.<br>Eles entram sozinhos quando você calcula um plano.</p>
-  <a href="/novo" class="btn">Calcular um plano</a>
-</div></div>
-{% endif %}
 {% endblock %}
 
+{% block script %}<script src="/static/js/tabela.js"></script>{% endblock %}

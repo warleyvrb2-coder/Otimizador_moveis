@@ -274,3 +274,73 @@ input:focus, select:focus, textarea:focus { outline:2px solid var(--laranja-cla)
   .cartao { break-inside:avoid; box-shadow:none; }
   table.dados thead th { background:#eee!important; color:#000!important; }
 }
+
+/* ============================================================
+   TABELA DE CADASTRO — padrão cg-table do Optimus
+
+   Cadastro é lista, não painel: uma tabela por assunto, com contador,
+   filtro por coluna, ordenação e ações na linha. O monte de card dizia
+   pouco e ocupava muito.
+   ============================================================ */
+.cg-page-card { background:var(--branco); border:1px solid var(--cinza-borda);
+                border-radius:10px; box-shadow:var(--sombra); overflow:hidden;
+                margin-bottom:16px; }
+.cg-page-header { display:flex; align-items:center; gap:12px; padding:14px 18px;
+                  border-bottom:1px solid var(--cinza-borda); flex-wrap:wrap; }
+.cg-title { font-size:13px; font-weight:700; margin:0; }
+.cg-counter { background:var(--cinza-fundo); border:1px solid var(--cinza-borda);
+              border-radius:20px; padding:3px 11px; font-size:10px; font-weight:700;
+              color:#5B6572; }
+.cg-header-acoes { margin-left:auto; display:flex; gap:8px; align-items:center; }
+.cg-busca { padding:7px 12px; border:1px solid var(--cinza-borda); border-radius:7px;
+            font-size:11px; min-width:200px; }
+
+.cg-table-wrap { overflow-x:auto; max-height:66vh; overflow-y:auto; }
+.cg-table-wrap::-webkit-scrollbar { width:8px; height:8px; }
+.cg-table-wrap::-webkit-scrollbar-thumb { background:var(--cinza-medio); border-radius:4px; }
+
+.cg-table { width:100%; border-collapse:separate; border-spacing:0; font-size:11px; }
+.cg-table thead th { position:sticky; top:0; z-index:5; background:var(--azul-escuro);
+                     color:#fff; text-align:left; padding:8px 10px; font-weight:700;
+                     vertical-align:top; }
+.cg-col-header { display:flex; align-items:center; gap:6px; font-size:9.5px;
+                 text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; }
+.cg-sort-btn { background:none; border:none; color:rgba(255,255,255,.55); cursor:pointer;
+               font-size:10px; padding:0 2px; }
+.cg-sort-btn:hover, .cg-sort-btn.on { color:var(--laranja-cla); }
+.cg-table-search { width:100%; margin-top:6px; padding:3px 7px; border-radius:5px;
+                   border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.10);
+                   color:#fff; font-size:10px; }
+.cg-table-search::placeholder { color:rgba(255,255,255,.45); }
+.cg-table-search:focus { outline:none; border-color:var(--laranja);
+                          background:rgba(255,255,255,.16); }
+
+.cg-table tbody td { padding:9px 10px; border-bottom:1px solid var(--cinza-borda);
+                     vertical-align:middle; }
+.cg-table tbody tr:hover { background:#FAFBFC; }
+.cg-table tbody tr.pendente td:first-child { box-shadow:inset 3px 0 0 var(--laranja); }
+.cg-cod { font-weight:700; font-variant-numeric:tabular-nums; color:var(--azul-medio); }
+.cg-desc { color:#5B6572; }
+.cg-num { text-align:right; font-variant-numeric:tabular-nums; }
+.cg-acoes-col { width:1%; white-space:nowrap; text-align:right; }
+.cg-vazio td { text-align:center; padding:36px; color:var(--cinza-medio); }
+
+/* escolha de duas vias na linha (à vista / escondida, tem desenho / lisa) */
+.cg-escolha { display:inline-flex; border:1px solid var(--cinza-borda); border-radius:7px;
+              overflow:hidden; }
+.cg-escolha button { border:none; background:var(--branco); padding:5px 11px; font-size:10px;
+                     font-weight:600; cursor:pointer; color:#5B6572; white-space:nowrap;
+                     font-family:inherit; }
+.cg-escolha button + button { border-left:1px solid var(--cinza-borda); }
+.cg-escolha button:hover { background:var(--cinza-fundo); }
+.cg-escolha button.on { background:var(--azul-medio); color:#fff; }
+.cg-escolha button.on.alt { background:var(--laranja); }
+.cg-estado { font-size:9.5px; font-weight:700; color:var(--laranja); white-space:nowrap; }
+.cg-estado.ok { color:var(--verde-ok); }
+
+/* explicação curta acima da lista, no lugar dos cards soltos */
+.cg-legenda { display:flex; gap:22px; padding:12px 18px; background:#FAFBFC;
+              border-bottom:1px solid var(--cinza-borda); flex-wrap:wrap; font-size:10.5px; }
+.cg-legenda div { display:flex; gap:7px; align-items:flex-start; max-width:430px; }
+.cg-legenda b { display:block; margin-bottom:1px; }
+.cg-ponto { width:8px; height:8px; border-radius:50%; margin-top:4px; flex:none; }
