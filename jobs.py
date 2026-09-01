@@ -48,15 +48,21 @@ _lock = threading.Lock()
 MAX_HISTORICO = 20
 
 
-def criar(func, *args, ao_terminar=None, **kwargs) -> Job:
+def criar(func, *args, ao_terminar=None, job_id=None, **kwargs) -> Job:
     """
     Enfileira func(*args, progresso=..., **kwargs) numa thread.
 
     ao_terminar(job) roda depois do sucesso, dentro da mesma thread. É o
     gancho que grava o resultado no banco - sem ele o plano viveria só aqui
     na memória e sumiria no próximo reinício.
+
+    job_id: use quando o chamador já gerou esse id pra outra coisa (como o
+    nome da pasta onde as imagens do plano são salvas). Sem isso, o job
+    nasce com um id PRÓPRIO, diferente do que o chamador usou nos arquivos -
+    e a partir da primeira edição, a imagem nova é salva na pasta do id
+    errado, que a tela nunca consulta.
     """
-    job = Job(id=uuid.uuid4().hex[:10])
+    job = Job(id=job_id or uuid.uuid4().hex[:10])
     with _lock:
         _jobs[job.id] = job
         _limpar()

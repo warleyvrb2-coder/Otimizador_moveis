@@ -278,9 +278,16 @@
     <div class="padrao-topo">
       <span class="n">Padrão {{ p.n }}</span>
       <span class="repetir">cortar {{ p.repeticoes }} chapa{{ 's' if p.repeticoes > 1 }}</span>
+      {% set cheios = p.repeticoes // p.pilha %}
+      {% set resto = p.repeticoes % p.pilha %}
       <span style="color:var(--tinta-2); font-size:12.5px;">
-        {{ p.ciclos }} ciclo{{ 's' if p.ciclos > 1 }} de {{ p.pilha }} chapas empilhadas ·
-        {{ '%.1f'|format(p.aproveitamento) }}% de aproveitamento
+        {% if resto == 0 %}
+          {{ cheios }} ciclo{{ 's' if cheios > 1 }} de {{ p.pilha }} chapas empilhadas
+        {% else %}
+          {{ cheios }} ciclo{{ 's' if cheios > 1 }} de {{ p.pilha }} + 1 de {{ resto }}
+          ({{ p.pilha }}×{{ cheios }}+{{ resto }}={{ p.repeticoes }})
+        {% endif %}
+        · {{ '%.1f'|format(p.aproveitamento) }}% de aproveitamento
       </span>
       {% if p.editado %}<span class="etiqueta atencao">editado à mão</span>{% endif %}
       {% if p.sugerido %}<span class="etiqueta atencao">🧠 sugestão automática</span>{% endif %}
@@ -291,23 +298,25 @@
       {% endif %}
     </div>
     <div class="padrao-corpo">
-      <img src="{{ p.arquivo }}" alt="Padrão {{ p.n }}">
+      <img src="{{ p.arquivo }}{{ '?v=' ~ p.imagem_versao if p.imagem_versao else '' }}" alt="Padrão {{ p.n }}">
       <table class="dados">
         <thead>
           <tr><th>Peça</th><th>Medida</th><th class="num">Por chapa</th>
               <th class="num">Total</th><th>Destino</th></tr>
         </thead>
         <tbody>
-        {% for pc in p.pecas %}
+        {% for pc in (p.pecas_exibicao if p.pecas_exibicao is defined else p.pecas) %}
           <tr>
             <td><strong>{{ pc.cod }}</strong><br>
                 <span style="color:var(--tinta-2); font-size:12px;">{{ pc.desc[:34] }}</span></td>
             <td style="white-space:nowrap;">{{ pc.medida }}</td>
             <td class="num">{{ pc.por_chapa }}</td>
             <td class="num"><strong>{{ pc.total }}</strong></td>
-            <td>{% for lote, qtd in pc.lotes.items() %}
+            <td>{% if pc.lotes %}{% for lote, qtd in pc.lotes.items() %}
                   <span class="lote">{{ qtd }}× {{ lote|replace('Kambam - ','')|replace('.pdf','') }}</span>
-                {% endfor %}</td>
+                {% endfor %}{% elif p.editado %}
+                  <span class="lote">editado à mão</span>
+                {% endif %}</td>
           </tr>
         {% endfor %}
         </tbody>

@@ -123,9 +123,14 @@ def _pagina_padrao(pdf, r: dict, g: dict, p: dict, imagem_dir: str) -> None:
     _texto(fig, 1 - MARGEM, 0.945, f"CORTAR {p['repeticoes']} CHAPA"
                                     f"{'S' if p['repeticoes'] > 1 else ''}",
            17, VERDE, 'bold', ha='right')
+    cheios, resto = divmod(p['repeticoes'], p['pilha'])
+    if resto == 0:
+        texto_ciclos = f"{cheios} ciclo{'s' if cheios > 1 else ''} de {p['pilha']} empilhadas"
+    else:
+        texto_ciclos = (f"{cheios} ciclo{'s' if cheios > 1 else ''} de {p['pilha']} + 1 de {resto}"
+                         f"  ({p['pilha']}×{cheios}+{resto}={p['repeticoes']})")
     _texto(fig, 1 - MARGEM, 0.917,
-           f"{p['ciclos']} ciclo{'s' if p['ciclos'] > 1 else ''} de {p['pilha']} empilhadas  ·  "
-           f"{p['aproveitamento']:.1f}% de aproveitamento", 8.5, CINZA, ha='right')
+           f"{texto_ciclos}  ·  {p['aproveitamento']:.1f}% de aproveitamento", 8.5, CINZA, ha='right')
 
     marcas = []
     if p.get('editado'):
@@ -149,7 +154,7 @@ def _pagina_padrao(pdf, r: dict, g: dict, p: dict, imagem_dir: str) -> None:
         _texto(fig, x, y, cab, 8, CINZA, 'bold')
     y -= 0.02
 
-    for pc in p['pecas']:
+    for pc in p.get('pecas_exibicao', p['pecas']):
         if y < 0.05:
             _texto(fig, MARGEM, y, '... continua', 8.5, CINZA)
             break

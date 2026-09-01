@@ -19,7 +19,8 @@ import os
 import secrets
 
 from flask import (Flask, request, render_template, redirect, url_for,
-                   jsonify, abort, Response, send_from_directory, send_file)
+                   jsonify, abort, Response, send_from_directory, send_file,
+                   make_response)
 from werkzeug.utils import secure_filename
 
 import banco
@@ -245,6 +246,7 @@ def otimizar():
         job = jobs.criar(
             pipeline.rodar, salvos, os.path.join(OUTPUT_DIR, job_id), f'/plano/{job_id}',
             respeitar_veio=respeitar_veio, max_depth=max_depth, maquina_id=maq['id'],
+            job_id=job_id,
             ao_terminar=lambda j: (banco.salvar_plano(j.id, j.resultado)
                                     if j.resultado and not j.resultado.get('erro') else None),
         )
@@ -561,6 +563,20 @@ def cadastro_marcar():
     return jsonify({'ok': True})
 
 
+def _sem_cache(resposta):
+    """
+    Impede o navegador de mostrar uma versão velha desta tela.
+
+    Sem isso, trocar de aba e voltar (ou usar o botão Voltar) pode restaurar
+    a página exatamente como estava - inclusive o aviso de "lote não fecha" -
+    de antes da última edição, porque o navegador nunca foi instruído a não
+    guardar essa resposta. O aviso está certo no servidor; o problema é o
+    navegador não perguntar de novo.
+    """
+    resposta.headers['Cache-Control'] = 'no-store, must-revalidate'
+    return resposta
+
+
 @app.route('/resultado/<job_id>')
 def resultado(job_id):
     # o plano gravado é a fonte da verdade; a memória só cobre o que ainda
@@ -571,16 +587,17 @@ def resultado(job_id):
         # plano recem-calculado, onde o arredondamento do inteiro ja produz
         # um pouco a mais do que o Kambam pediu
         _conferir_demanda(salvo['resultado'])
-        return render_template('resultado.html', plano=salvo,
-                                reeq=request.args.get('reeq'),
-                                motivo_reeq=request.args.get('motivo'),
-                                **salvo['resultado'])
+        return _sem_cache(make_response(render_template(
+            'resultado.html', plano=salvo,
+            reeq=request.args.get('reeq'),
+            motivo_reeq=request.args.get('motivo'),
+            **salvo['resultado'])))
     job = jobs.obter(job_id) or abort(404)
     if job.estado == 'erro':
         return render_template('resultado.html', erro=job.erro, kambans_info=None), 500
     if job.estado != 'pronto':
         return redirect(url_for('acompanhar', job_id=job_id))
-    return render_template('resultado.html', **job.resultado)
+    return _sem_cache(make_response(render_template('resultado.html', **job.resultado)))
 
 
 def _localizar_padrao(resultado, gi, pi):
@@ -640,6 +657,30 @@ def _producao_do_grupo(g: dict) -> dict:
         for it in pad.get('itens', []):
             produzido[it['cod']] = produzido.get(it['cod'], 0) + pad['repeticoes']
     return produzido
+
+
+def _pecas_do_padrao(pad: dict) -> list[dict]:
+    """
+    Refaz a tabela PEÇA/MEDIDA/POR CHAPA/TOTAL a partir da geometria atual
+    (pad['itens']), para exibição depois de uma edição manual.
+
+    NÃO mexe em pad['pecas']: aquele campo fica congelado como veio do
+    cálculo original porque é dali que _demanda_do_grupo tira o "pedido"
+    (via pc['lotes']) - sobrescrever apagaria o rateio por Kambam e zeraria
+    a demanda de qualquer padrão editado. Por isso esta é uma tabela NOVA,
+    só para mostrar o que está na chapa agora; o destino por lote não dá
+    para recompor aqui (peça acrescentada à mão não tem lote de origem).
+    """
+    contagem: dict[str, dict] = {}
+    for it in pad.get('itens', []):
+        c = contagem.setdefault(it['cod'], {'desc': it['desc'], 'w': it['w'], 'h': it['h'], 'qtd': 0})
+        c['qtd'] += 1
+    saida = []
+    for cod, info in sorted(contagem.items(), key=lambda kv: -kv[1]['qtd']):
+        saida.append({'cod': cod, 'desc': info['desc'],
+                       'medida': f"{int(round(info['w']))}x{int(round(info['h']))}",
+                       'por_chapa': info['qtd'], 'total': info['qtd'] * pad['repeticoes']})
+    return saida
 
 
 def _conferir_demanda(resultado):
@@ -737,6 +778,11 @@ def _redesenhar(plano_id, r, grupo, padrao):
     render_sheet(chapa, r['sheet_w'], r['sheet_h'], caminho,
                  titulo=(grupo['cor'] + ' - Padrao ' + str(padrao['n']) + ' (editado)'),
                  veio=grupo.get('tem_veio'))
+    # O arquivo é regravado com o MESMO nome, então a URL da imagem não muda -
+    # e o navegador serve a versão em cache em vez de buscar a nova. Sem isso,
+    # a chapa editada só aparecia atualizada depois de um F5 forçado (o PDF
+    # nunca sofria disso porque desenha direto dos dados, sem passar pelo PNG).
+    padrao['imagem_versao'] = padrao.get('imagem_versao', 0) + 1
 
 
 @app.route('/resultado/<plano_id>/padrao/<int:gi>/<int:pi>')
@@ -759,14 +805,15 @@ def editar_padrao(plano_id, gi, pi):
                 candidatas.append({'cod': p['cod'], 'desc': p['descricao'],
                                     'comp': p['comp_mm'], 'larg': p['larg_mm'],
                                     'girada': enc['rotated']})
-    return render_template('editar.html', pagina='planos', plano=salvo, r=r,
-                            grupo=grupo, padrao=padrao, gi=gi, pi=pi, livres=livres,
-                            escolhido=escolhido, busca=busca, candidatas=candidatas[:80],
-                            erro=request.args.get('erro'), ok=request.args.get('ok'),
-                            estagios_atuais=edicao.estagios(padrao['itens'],
-                                                             r['sheet_w'], r['sheet_h']),
-                            cortes=edicao.sequencia_cortes(padrao['itens'], r['sheet_w'],
-                                                            r['sheet_h'], r['kerf']))
+    return _sem_cache(make_response(render_template(
+        'editar.html', pagina='planos', plano=salvo, r=r,
+        grupo=grupo, padrao=padrao, gi=gi, pi=pi, livres=livres,
+        escolhido=escolhido, busca=busca, candidatas=candidatas[:80],
+        erro=request.args.get('erro'), ok=request.args.get('ok'),
+        estagios_atuais=edicao.estagios(padrao['itens'],
+                                         r['sheet_w'], r['sheet_h']),
+        cortes=edicao.sequencia_cortes(padrao['itens'], r['sheet_w'],
+                                        r['sheet_h'], r['kerf']))))
 
 
 @app.route('/resultado/<plano_id>/padrao/<int:gi>/<int:pi>/dados')
@@ -910,10 +957,15 @@ def aplicar_edicao(plano_id, gi, pi):
     aprov_antes = padrao.get('aproveitamento')
     padrao['itens'] = itens
     padrao['editado'] = True
+    padrao['pecas_exibicao'] = _pecas_do_padrao(padrao)
     _recalcular(r)
     _conferir_demanda(r)
-    banco.atualizar_resultado(plano_id, r)
+    # _redesenhar PRECISA rodar antes de salvar: é ela que grava o novo
+    # imagem_versao no padrao, e o que não estiver em `r` neste ponto não
+    # vai pro banco - salvar antes perderia esse número e o navegador
+    # continuaria servindo a imagem antiga em cache.
     _redesenhar(plano_id, r, grupo, padrao)
+    banco.atualizar_resultado(plano_id, r)
 
     # O registro e o que permite o sistema repetir sozinho o que voce faz
     # sempre - e, mais util ainda, mostrar onde o otimizador esta deixando
@@ -1014,9 +1066,9 @@ def reequilibrar(plano_id, gi):
     if res['ok']:
         _recalcular(r)
         _conferir_demanda(r)
-        banco.atualizar_resultado(plano_id, r)
         for pad in g['padroes']:
             _redesenhar(plano_id, r, g, pad)
+        banco.atualizar_resultado(plano_id, r)
     return redirect(url_for('resultado', job_id=plano_id,
                              reeq=('%d:%d' % (res['antes'], res['depois'])) if res['ok']
                                    else 'erro', motivo=res.get('motivo')) + '#g' + str(gi))

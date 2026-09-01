@@ -4,9 +4,16 @@ uploads/*
 !uploads/.gitkeep
 static/resultados/*
 !static/resultados/.gitkeep
+# resultados/ na raiz e onde o app.py realmente grava as imagens hoje
+# (static/resultados/ acima ficou de uma versao anterior do projeto)
+resultados/*
+!resultados/.gitkeep
+catalogo/*
+!catalogo/.gitkeep
 *.log
 .venv/
 venv/
+.claude/
 
 # banco do cadastro (dados locais, nao versionar)
 *.db
