@@ -28,8 +28,8 @@ from dataclasses import dataclass
 from ortools.linear_solver import pywraplp
 from ortools.sat.python import cp_model
 
-from optimizer import (PieceType, PlacedItem, SheetResult, _pack_rect,
-                        _refine_last_sheet_cpsat, KERF_MM)
+from optimizer import (PieceType, PlacedItem, SheetResult, _pack_shelves, _pack_columns,
+                        _pack_split_2_colunas, _refine_last_sheet_cpsat, KERF_MM)
 
 
 @dataclass
@@ -55,15 +55,21 @@ def _generate_pattern(piece_info: dict, demand_cap: dict, sheet_w: int, sheet_h:
                        estagios: int = 3) -> Pattern:
     """
     Gera 1 padrão de corte (1 chapa).
-    - exact=False: empacotamento guilhotinado recursivo (rápido, heurístico).
-                   max_depth limita quantos re-cortes empilhados são
-                   permitidos (2 = faixa + corte dentro da faixa, sem
-                   nenhum nível a mais; None = sem limite).
+    - exact=False: empacotamento guloso em FAIXAS (rápido, heurístico) -
+                   mesmo formato de faixas do modelo exato abaixo, só que
+                   sem resolver um MIP; usado pra semear o Column Generation
+                   com uma solução inicial viável rapidamente.
     - exact=True : CP-SAT (modelo de faixas), sempre 2 estágios por
                    natureza do modelo (faixa horizontal + linha única
                    dentro dela) - resolve o pricing de forma exata dado
                    o value_dict, encontra padrões que a heurística sozinha
                    não acha.
+
+    As duas SEMPRE produzem padrão em faixas (nunca a árvore recursiva geral
+    de _pack_rect, que produzia layout tecnicamente guilhotinável mas com
+    peça pequena encravada ao lado de peça grande em posições que cada uma
+    exige seu próprio corte - impraticável numa pilha real de chapas, mesmo
+    passando na contagem de estágios).
     """
     pool = []
     for key, cap in demand_cap.items():
@@ -79,10 +85,33 @@ def _generate_pattern(piece_info: dict, demand_cap: dict, sheet_w: int, sheet_h:
                                                       value_dict=value_dict, kerf=kerf,
                                                       estagios=estagios)
     else:
-        min_piece_area = min((p.w * p.h for p in pool), default=1)
-        placed, qty_used = [], {}
-        _pack_rect(pool, 0, 0, sheet_w, sheet_h, placed, qty_used, min_piece_area,
-                   strategy=strategy, value_dict=value_dict, max_depth=max_depth, kerf=kerf)
+        # Tenta 3 jeitos de arrumar em faixas/colunas e fica com o de maior
+        # área coberta. Faixa pura ganha quando as peças compartilham
+        # altura; coluna pura, quando compartilham largura; a divisão em 2
+        # colunas ganha quando o pool tem dois grupos de larguras bem
+        # diferentes entre si (peça larga não devia dividir faixa com peça
+        # estreita - desperdiça a diferença de altura entre as duas).
+        candidatos = []
+
+        pool_faixas = [copy.copy(p) for p in pool]
+        placed_f, qty_f = [], {}
+        _pack_shelves(pool_faixas, sheet_w, sheet_h, placed_f, qty_f,
+                      strategy=strategy, kerf=kerf, estagios=estagios)
+        candidatos.append((placed_f, qty_f))
+
+        pool_colunas = [copy.copy(p) for p in pool]
+        placed_c, qty_c = [], {}
+        _pack_columns(pool_colunas, sheet_w, sheet_h, placed_c, qty_c,
+                      strategy=strategy, kerf=kerf, estagios=estagios)
+        candidatos.append((placed_c, qty_c))
+
+        pool_split = [copy.copy(p) for p in pool]
+        resultado_split = _pack_split_2_colunas(pool_split, sheet_w, sheet_h, kerf, estagios, strategy)
+        if resultado_split is not None:
+            placed_s, qty_s, _ = resultado_split
+            candidatos.append((placed_s, qty_s))
+
+        placed, qty_used = max(candidatos, key=lambda c: sum(it.w * it.h for it in c[0]))
     used_area = sum(it.w * it.h for it in placed) / 1_000_000
     return Pattern(counts=qty_used, items=placed, used_area=used_area)
 
@@ -154,12 +183,25 @@ def optimize_group_cg(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
 
     # 1) padrões iniciais: heurística gulosa em 3 variações, pra já começar
     #    com uma solução viável decente (evita o LP começar "no zero")
+    #
+    #    Cada chamada de _generate_pattern aqui tenta faixa/coluna/split (3
+    #    empacotamentos completos) e fica com o melhor - desde que isso virou
+    #    o padrão (pra garantir layout sempre guilhotinável em faixa/coluna),
+    #    esta fase ficou ~14x mais cara por chamada. Sem o relógio abaixo, um
+    #    grupo grande (dezenas de tipos de peça, milhares de unidades) podia
+    #    rodar minutos aqui SOZINHO antes mesmo de chegar no column generation
+    #    de verdade (fase 2) - só o guard<3000 nunca foi limite de tempo, só
+    #    de iteração, e cada iteração ficou bem mais lenta.
     patterns = []
     seen = set()
     for strategy in ('area', 'width', 'height'):
+        if time.time() - t_start > time_budget_s:
+            break
         remaining = {k: v for k, v in demand.items()}
         guard = 0
         while sum(remaining.values()) > 0 and guard < 3000:
+            if time.time() - t_start > time_budget_s:
+                break
             guard += 1
             pat = _generate_pattern(piece_info, remaining, sheet_w_mm, sheet_h_mm, strategy=strategy,
                                      max_depth=max_depth, kerf=kerf, estagios=estagios)

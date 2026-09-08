@@ -1,0 +1,605 @@
+{% extends "base.html" %}
+{% block titulo %}Plano manual{% endblock %}
+{% block cabecalho %}Plano manual · {{ r.maquina }}{% if grupo.cor and grupo.cor != 'Plano manual' %} · {{ grupo.cor }}{% endif %}{% endblock %}
+{% block subcabecalho %}
+  <span id="cab-info">chapa {{ r.sheet_w }}×{{ r.sheet_h }}mm · serra {{ r.kerf }}mm ·
+  {{ padrao.itens|length }} peça(s) posicionada(s)</span>
+  {% if grupo.tem_veio %}
+  <span class="etiqueta perigo" title="Peça aparente nesta cor não gira">🪵 veio respeitado</span>
+  {% else %}
+  <span class="etiqueta" title="Nenhuma peça é impedida de girar">veio ignorado</span>
+  {% endif %}
+{% endblock %}
+{% block acoes %}
+  <a href="/manual/novo" class="btn secundario">Nova chapa</a>
+  <a href="/manual/{{ plano.id }}/quantidades" class="btn" id="btn-quantidades"
+     {{ 'style=pointer-events:none;opacity:.5;' if not padrao.itens }}>
+    Definir quantidades →</a>
+{% endblock %}
+
+{% block estilo %}
+<style>
+  .duas { display:grid; grid-template-columns: 1.25fr 1fr; gap:18px; align-items:start; }
+  @media (max-width:1020px) { .duas { grid-template-columns:1fr; } }
+
+  #chapa { width:100%; height:auto; display:block; border-radius:8px;
+           border:1px solid var(--linha); background:#f4f1ea; touch-action:none; }
+  #chapa .peca .corpo { cursor:grab; }
+  #chapa .peca.arrastando-interno .corpo { cursor:grabbing; }
+  #chapa .peca:hover .corpo { stroke:#2563eb; stroke-width:6; }
+  #chapa .peca .acao { cursor:pointer; }
+  #chapa .peca .acao:hover circle { filter:brightness(0.94); }
+  #chapa .vazio { cursor:pointer; }
+  #chapa .vazio rect { fill:#e9ecee; stroke:#c3cace; stroke-width:3; stroke-dasharray:22 14; }
+  #chapa .vazio.pode rect, #chapa .vazio.sel rect { fill:var(--verde-claro); stroke:var(--verde); stroke-dasharray:none; }
+  #chapa .vazio.nao rect { fill:var(--vermelho-claro); stroke:var(--vermelho); stroke-dasharray:none; }
+  #chapa .fantasma { fill:var(--verde); fill-opacity:.55; stroke:var(--verde-escuro);
+                     stroke-width:8; pointer-events:none; }
+  #chapa .fantasma.nao { fill:var(--vermelho); fill-opacity:.35;
+                          stroke:var(--vermelho); stroke-dasharray:26 16; }
+  #chapa text { pointer-events:none; font-family:inherit; }
+  #chapa .acao text { pointer-events:none; }
+
+  .veredito { border-radius:var(--raio); padding:12px 15px; font-size:13px; line-height:1.5;
+              border:1px solid; margin-bottom:12px; display:flex; gap:10px; }
+  .veredito.sim { background:var(--verde-claro); border-color:#cfe3d7; color:var(--verde-escuro); }
+  .veredito.nao { background:var(--vermelho-claro); border-color:#f2d5cf; color:#7d2718; }
+  .veredito.neutro { background:var(--fundo); border-color:var(--linha); color:var(--tinta-2); }
+  .veredito b { display:block; margin-bottom:2px; }
+  .titulo-lista { font-size:11px; font-weight:700; text-transform:uppercase;
+                  letter-spacing:.05em; color:var(--tinta-2); margin:14px 0 7px; }
+  .titulo-lista:first-child { margin-top:0; }
+
+  .girar-linha { display:flex; align-items:center; gap:10px; padding:11px 13px;
+                margin-bottom:12px; background:var(--fundo); border-radius:8px;
+                border:1px solid var(--linha); }
+  .girar-linha label { display:flex; align-items:center; gap:8px; cursor:pointer;
+                       font-weight:600; font-size:13px; }
+  .girar-linha .aj { color:var(--tinta-2); font-size:11.5px; }
+
+  .busca-linha { display:flex; gap:8px; margin-bottom:10px; }
+  .busca-linha input { flex:1; padding:9px 12px; border:1px solid var(--linha);
+                       border-radius:8px; font-size:13.5px; }
+  .lista { max-height:420px; overflow-y:auto; border:1px solid var(--linha); border-radius:8px; }
+  .item-p { display:flex; gap:7px; align-items:center; padding:9px 11px;
+            border-bottom:1px solid var(--linha); font-size:12.5px;
+            cursor:grab; background:#fff; }
+  .item-p:last-child { border-bottom:none; }
+  .item-p:hover { background:var(--verde-claro); }
+  .item-p.arrastando { opacity:.4; }
+  .item-p.recusada { cursor:default; opacity:.75; }
+  .item-p.recusada:hover { background:var(--vermelho-claro); }
+  .item-p .cod { font-weight:680; min-width:52px; font-variant-numeric:tabular-nums; }
+  .item-p .ds { flex:1; color:var(--tinta-2); overflow:hidden; text-overflow:ellipsis;
+                white-space:nowrap; }
+  .item-p .md { color:var(--tinta-3); white-space:nowrap; font-size:11.5px; }
+  .item-p .porque { color:var(--vermelho); font-size:11px; white-space:nowrap; }
+  .item-p .qtd-incluir { width:48px; padding:5px 6px; border:1px solid var(--linha);
+                         border-radius:6px; font-size:12px; text-align:center; }
+  .item-p .btn-incluir { padding:5px 9px; font-size:11.5px; white-space:nowrap; }
+  .carregando { color:var(--tinta-3); font-size:13px; padding:10px 0; }
+  .ajuda-arrastar { color:var(--tinta-2); font-size:12px; margin:0 0 10px; line-height:1.5; }
+  #banner-live { margin-bottom:14px; }
+</style>
+{% endblock %}
+
+{% block conteudo %}
+{% if erro %}<div class="recado perigo"><span class="ic">✕</span><div>{{ erro }}</div></div>{% endif %}
+<div class="recado" id="banner-live" hidden></div>
+
+<div class="recado info">
+  <span class="ic">ℹ️</span>
+  <div><strong>Clique num espaço tracejado da chapa</strong> pra ver, separado, tudo que cabe
+    ali e tudo que não cabe (e por quê) — passar o mouse numa peça da lista só pinta onde ela
+    cabe, quem separa a lista é o clique. Também dá pra arrastar uma peça da lista pra um
+    espaço, ou digitar a quantidade e clicar <strong>Incluir →</strong> pra deixar o sistema
+    achar sozinho o melhor lugar pra cada uma. Já colocada, dá pra <strong>arrastar dentro da
+    chapa</strong> pra reposicionar e usar o <strong>⟳</strong> pra girar 90° sem precisar
+    tirar e pôr de novo. Quando terminar, clique em <strong>Definir quantidades</strong>.</div>
+</div>
+
+<div class="duas">
+  <div>
+    <div class="cartao">
+      <h2>Chapa</h2>
+      <p class="ajuda">Arraste uma peça já colocada pra mudar de posição. Use ⟳ pra girar e
+        × pra tirar.</p>
+      <svg id="chapa" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+  </div>
+
+  <div>
+    <div class="cartao">
+      <h2 id="tit-lado">Peças do cadastro</h2>
+
+      <div id="painel-lista">
+        <div class="girar-linha">
+          <label>
+            <input type="checkbox" id="girar"> Virar 90° ao soltar
+          </label>
+          <span class="aj">— só vale pro arraste da lista pra chapa; dá pra girar depois também</span>
+        </div>
+        <p class="ajuda-arrastar">Os espaços da chapa ficam <strong style="color:var(--verde)">verdes</strong>
+          quando a peça arrastada cabe ali, e <strong style="color:var(--vermelho)">vermelhos</strong>
+          quando não cabe (considerando a orientação marcada acima). Clique num espaço tracejado
+          pra ver, separado, o que cabe e o que não cabe ali.</p>
+        <form class="busca-linha" onsubmit="return buscar(event)">
+          <input type="search" id="busca" placeholder="filtrar por código ou nome...">
+          <button class="btn secundario" type="submit">Filtrar</button>
+        </form>
+        <div id="lista-pecas"><div class="carregando">Carregando cadastro...</div></div>
+      </div>
+
+      <div id="painel-espaco" style="display:none;">
+        <button type="button" class="btn secundario" style="margin-bottom:12px;"
+                onclick="voltarParaLista()">← Ver todas as peças</button>
+        <div id="veredito" class="veredito neutro">
+          <span>👆</span>
+          <div>Passe o mouse na lista pra ver o encaixe desenhado na chapa.</div>
+        </div>
+        <form class="busca-linha" onsubmit="return buscarEspaco(event)">
+          <input type="search" id="busca-espaco" placeholder="filtrar por código ou nome...">
+          <button class="btn secundario" type="submit">Filtrar</button>
+        </form>
+        <div id="resultado-espaco"><div class="carregando">Conferindo o cadastro...</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+const BASE = '/resultado/{{ plano.id }}/padrao/0/0';
+const SVG_NS = 'http://www.w3.org/2000/svg';
+let dados = null;
+let arrastando = null;   // {cod, comp, larg} - vindo da lista do cadastro
+let interno = null;      // arraste de uma peca ja colocada, dentro da chapa
+let sobraSel = null;     // indice do espaco vazio escolhido por clique, ou null
+
+const cor = cod => {
+  let h = 0;
+  for (const c of String(cod)) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `hsl(${h} 45% 78%)`;
+};
+const el = (tag, attrs) => {
+  const n = document.createElementNS(SVG_NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+};
+const girarLigado = () => document.getElementById('girar').checked;
+
+function _banner(cls, icone, msg) {
+  const b = document.getElementById('banner-live');
+  b.className = 'recado ' + cls;
+  b.hidden = false;
+  b.innerHTML = '';
+  const ic = document.createElement('span'); ic.className = 'ic'; ic.textContent = icone;
+  const d = document.createElement('div'); d.textContent = msg;
+  b.appendChild(ic); b.appendChild(d);
+}
+const mostrarErro = msg => _banner('perigo', '✕', msg);
+const mostrarAviso = msg => _banner('info', 'ℹ️', msg);
+const esconderBanner = () => { document.getElementById('banner-live').hidden = true; };
+
+// Toda mudanca na chapa (mover, girar, incluir, adicionar, remover) passa por
+// aqui - fala com a MESMA rota /aplicar do editor de padrao comum, so que via
+// fetch (formato=json) em vez de form classico, pra nao recarregar a pagina
+// a cada clique.
+async function enviar(params) {
+  const body = new URLSearchParams({ formato: 'json', ...params });
+  let d;
+  try {
+    const resp = await fetch(`${BASE}/aplicar`, { method: 'POST', body });
+    d = await resp.json();
+  } catch (e) {
+    d = { ok: false, erro: 'Nao consegui falar com o servidor. Tente de novo.' };
+  }
+  if (d.erro) mostrarErro(d.erro); else esconderBanner();
+  if (d.aviso) mostrarAviso(d.aviso);
+  return !!d.ok;
+}
+
+async function carregar() {
+  dados = await (await fetch(BASE + '/dados')).json();
+  atualizarCabecalho();
+  desenhar();
+}
+
+function atualizarCabecalho() {
+  document.getElementById('cab-info').textContent =
+    `chapa ${dados.chapa.w}×${dados.chapa.h}mm · serra ${dados.chapa.kerf}mm · ` +
+    `${dados.itens.length} peça(s) posicionada(s)`;
+  const btn = document.getElementById('btn-quantidades');
+  if (btn) {
+    btn.style.pointerEvents = dados.itens.length ? '' : 'none';
+    btn.style.opacity = dados.itens.length ? '' : '.5';
+  }
+}
+
+function escalaMm() {
+  const rect = document.getElementById('chapa').getBoundingClientRect();
+  return dados.chapa.w / Math.max(1, rect.width);
+}
+
+function mmDoEvento(ev) {
+  const svg = document.getElementById('chapa');
+  const pt = svg.createSVGPoint();
+  pt.x = ev.clientX; pt.y = ev.clientY;
+  const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return { x: loc.x, y: loc.y };
+}
+
+function sobrepoeCliente(cand, ignorarIdx) {
+  return dados.itens.some((it, j) => {
+    if (j === ignorarIdx) return false;
+    return cand.x < it.x + it.w - 0.5 && it.x < cand.x + cand.w - 0.5 &&
+           cand.y < it.y + it.h - 0.5 && it.y < cand.y + cand.h - 0.5;
+  });
+}
+
+function desenhar(fantasma) {
+  const { w, h } = dados.chapa;
+  const svg = document.getElementById('chapa');
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.innerHTML = '';
+
+  dados.livres.forEach((s, i) => {
+    const g = el('g', { class: 'vazio' + (sobraSel === i ? ' sel' : ''), 'data-i': i });
+    g.appendChild(el('rect', { x: s.x, y: s.y, width: s.w, height: s.h, rx: 6 }));
+    const tamFonte = Math.max(30, Math.min(s.w, s.h) / 8);
+    const t = el('text', {
+      x: s.x + s.w / 2, y: s.y + s.h / 2 - tamFonte * 0.55, 'text-anchor': 'middle',
+      'dominant-baseline': 'middle', 'font-size': tamFonte,
+      fill: '#5c686f', 'font-weight': 600
+    });
+    t.textContent = `${Math.round(s.w)} × ${Math.round(s.h)}`;
+    g.appendChild(t);
+    // Dica sempre visível — sem ela, passar o mouse numa peça da lista já
+    // pinta o espaço vazio (preverEncaixe) e fica parecendo que clicar não
+    // faz nada de diferente, quando na verdade abre a lista cabe/não cabe.
+    if (Math.min(s.w, s.h) > 90) {
+      const dica = el('text', {
+        x: s.x + s.w / 2, y: s.y + s.h / 2 + tamFonte * 0.7, 'text-anchor': 'middle',
+        'dominant-baseline': 'middle', 'font-size': Math.max(16, tamFonte * 0.36),
+        fill: '#8a95a0'
+      });
+      dica.textContent = '👆 clique pra ver o que cabe aqui';
+      g.appendChild(dica);
+    }
+    g.addEventListener('dragover', ev => sobreEspaco(ev, g, s));
+    g.addEventListener('dragleave', () => g.classList.remove('pode', 'nao'));
+    g.addEventListener('drop', ev => soltar(ev, i, s));
+    g.addEventListener('click', () => selecionarSobra(i));
+    svg.appendChild(g);
+  });
+
+  const raio = 15 * escalaMm();
+  dados.itens.forEach((it, i) => {
+    const g = el('g', { class: 'peca', 'data-i': i });
+    const corpo = el('rect', {
+      class: 'corpo', x: it.x, y: it.y, width: it.w, height: it.h,
+      fill: cor(it.cod), stroke: '#222', 'stroke-width': 3
+    });
+    g.appendChild(corpo);
+    if (it.w > 150 && it.h > 90) {
+      const tam = Math.max(30, Math.min(Math.min(it.w, it.h) / 3.2, 110));
+      const t = el('text', {
+        x: it.x + it.w / 2, y: it.y + it.h / 2, 'text-anchor': 'middle',
+        'dominant-baseline': 'middle', 'font-size': tam, 'font-weight': 700, fill: '#111'
+      });
+      t.textContent = it.cod;
+      g.appendChild(t);
+    }
+    const tt = el('title');
+    tt.textContent = `${it.cod} — ${it.desc}\n${Math.round(it.w)} × ${Math.round(it.h)} mm` +
+                     `\narraste para mover`;
+    g.appendChild(tt);
+
+    const bg = el('g', { class: 'acao acao-girar', transform: `translate(${it.x + it.w - raio - 4},${it.y + raio + 4})` });
+    bg.appendChild(el('circle', { r: raio, fill: '#fff', stroke: '#222', 'stroke-width': 2 }));
+    const tg = el('text', { 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': raio * 1.2 });
+    tg.textContent = '⟳';
+    bg.appendChild(tg);
+    bg.addEventListener('mousedown', ev => ev.stopPropagation());
+    bg.addEventListener('click', ev => { ev.stopPropagation(); girar(i); });
+    g.appendChild(bg);
+
+    const br = el('g', { class: 'acao acao-remover', transform: `translate(${it.x + raio + 4},${it.y + raio + 4})` });
+    br.appendChild(el('circle', { r: raio, fill: '#fff', stroke: 'var(--vermelho)', 'stroke-width': 2 }));
+    const tr = el('text', { 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': raio * 1.1, fill: 'var(--vermelho)' });
+    tr.textContent = '×';
+    br.appendChild(tr);
+    br.addEventListener('mousedown', ev => ev.stopPropagation());
+    br.addEventListener('click', ev => { ev.stopPropagation(); remover(i); });
+    g.appendChild(br);
+
+    corpo.addEventListener('mousedown', ev => iniciarArrasteInterno(ev, i, g));
+    svg.appendChild(g);
+  });
+
+  if (fantasma) {
+    svg.appendChild(el('rect', {
+      x: fantasma.x, y: fantasma.y, width: fantasma.w, height: fantasma.h, rx: 4,
+      class: 'fantasma' + (fantasma.ok ? '' : ' nao')
+    }));
+  }
+}
+
+function sobreEspaco(ev, g, s) {
+  if (!arrastando) return;
+  ev.preventDefault();
+  const kerf = dados.chapa.kerf;
+  // Se pediu pra virar mas essa peca nao pode virar aqui (veio da chapa +
+  // peca aparente), a previa ja mostra vermelho - o servidor recusaria do
+  // mesmo jeito, e a previa mentindo verde so confundiria.
+  const querGirar = girarLigado();
+  const cabe = querGirar
+    ? (arrastando.podeGirar && arrastando.larg + kerf <= s.w + 0.5 && arrastando.comp + kerf <= s.h + 0.5)
+    : (arrastando.comp + kerf <= s.w + 0.5 && arrastando.larg + kerf <= s.h + 0.5);
+  g.classList.toggle('pode', cabe);
+  g.classList.toggle('nao', !cabe);
+}
+
+async function soltar(ev, i, s) {
+  ev.preventDefault();
+  if (!arrastando) return;
+  const ok = await enviar({ acao: 'adicionar', retalho: i, cod: arrastando.cod, girar: girarLigado() ? '1' : '0' });
+  if (ok) await carregar();
+}
+
+// Passar o mouse numa peça da lista mostra, na hora, em quais espaços vazios
+// da chapa ela cabe - sem precisar arrastar pra descobrir. So testa a
+// orientacao virada se a peca puder girar aqui (mesma regra do servidor:
+// so e obrigada a manter o lado se a chapa tem veio E a peca fica aparente),
+// senao a previa mentiria mostrando um encaixe que o servidor vai recusar.
+function podeGirarAqui(p) {
+  return !(dados.chapa.veio && p.aparente);
+}
+
+function cabeEmRetalho(comp, larg, kerf, s, podeGirar) {
+  if (comp + kerf <= s.w + 0.5 && larg + kerf <= s.h + 0.5) return true;
+  if (!podeGirar) return false;
+  return larg + kerf <= s.w + 0.5 && comp + kerf <= s.h + 0.5;
+}
+
+function preverEncaixe(p) {
+  const kerf = dados.chapa.kerf;
+  const podeGirar = podeGirarAqui(p);
+  document.querySelectorAll('#chapa .vazio').forEach((g, i) => {
+    const s = dados.livres[i];
+    const cabe = s && cabeEmRetalho(p.comp, p.larg, kerf, s, podeGirar);
+    g.classList.toggle('pode', cabe);
+    g.classList.toggle('nao', !cabe);
+  });
+}
+
+function limparPreview() {
+  document.querySelectorAll('#chapa .vazio').forEach(g => g.classList.remove('pode', 'nao'));
+}
+
+function veredito(classe, titulo, texto) {
+  const v = document.getElementById('veredito');
+  v.className = 'veredito ' + classe;
+  v.innerHTML = '';
+  const ic = document.createElement('span');
+  ic.textContent = classe === 'sim' ? '✓' : classe === 'nao' ? '✕' : '👆';
+  const corpo = document.createElement('div');
+  const b = document.createElement('b'); b.textContent = titulo;
+  const p = document.createElement('div'); p.textContent = texto;
+  corpo.appendChild(b); corpo.appendChild(p);
+  v.appendChild(ic); v.appendChild(corpo);
+}
+
+// Clicar num espaço vazio troca a lista padrão (com quantidade+Incluir) por
+// uma lista separada de "cabem aqui" / "não cabem, e por quê" SÓ pra aquele
+// espaço - a mesma logica que o editor de padrao comum ja usa, reaproveitada
+// via a rota /candidatas que ele ja chama.
+async function selecionarSobra(i) {
+  sobraSel = i;
+  document.getElementById('painel-lista').style.display = 'none';
+  document.getElementById('painel-espaco').style.display = '';
+  const s = dados.livres[i];
+  document.getElementById('tit-lado').textContent = `Espaço de ${Math.round(s.w)} × ${Math.round(s.h)} mm`;
+  document.getElementById('busca-espaco').value = '';
+  desenhar();
+  veredito('neutro', 'Escolha uma peça', 'Passe o mouse na lista para ver o encaixe desenhado na chapa.');
+  await listarEspaco();
+}
+
+function voltarParaLista() {
+  sobraSel = null;
+  document.getElementById('painel-lista').style.display = '';
+  document.getElementById('painel-espaco').style.display = 'none';
+  document.getElementById('tit-lado').textContent = 'Peças do cadastro';
+  desenhar();
+}
+
+async function listarEspaco() {
+  if (sobraSel === null) return;
+  const busca = document.getElementById('busca-espaco').value;
+  const alvo = document.getElementById('resultado-espaco');
+  alvo.innerHTML = '<div class="carregando">Conferindo o cadastro...</div>';
+  const r = await fetch(`${BASE}/candidatas?retalho=${sobraSel}&busca=${encodeURIComponent(busca)}`);
+  const { cabem } = await r.json();
+
+  let html = '';
+  if (cabem.length) {
+    html += `<div class="titulo-lista">Cabem aqui (${cabem.length})</div>
+             <p class="ajuda-arrastar">Clique na peça pra colocar uma exatamente aqui, ou digite
+               a quantidade e clique <strong>Incluir →</strong> pra colocar várias de uma vez
+               (cada uma no melhor espaço livre da chapa).</p>
+             <div class="lista">`;
+    cabem.forEach((c, i) => {
+      html += `<div class="item-p" data-cabe="${i}">
+        <span class="cod">${c.cod}</span><span class="ds">${c.desc}</span>
+        <span class="md">${c.comp}×${c.larg}${c.rotated ? ' ⟲' : ''}</span>
+        <input type="number" min="1" step="1" value="1" class="qtd-incluir" title="Quantidade">
+        <button type="button" class="btn secundario btn-incluir">Incluir →</button></div>`;
+    });
+    html += '</div>';
+  } else {
+    html += '<div class="titulo-lista">Nenhuma peça cabe neste espaço</div>';
+  }
+  alvo.innerHTML = html;
+
+  alvo.querySelectorAll('[data-cabe]').forEach(n => {
+    const c = cabem[+n.dataset.cabe];
+    n.onmouseenter = () => {
+      desenhar({ x: c.x, y: c.y, w: c.w, h: c.h, ok: true });
+      veredito('sim', `${c.cod} cabe`, c.motivo);
+    };
+    n.onmouseleave = () => desenhar();
+    n.onclick = () => colocarNoEspaco(c.cod);
+    const qtdInput = n.querySelector('.qtd-incluir');
+    qtdInput.addEventListener('mousedown', ev => ev.stopPropagation());
+    qtdInput.addEventListener('click', ev => ev.stopPropagation());
+    const btnIncluir = n.querySelector('.btn-incluir');
+    btnIncluir.addEventListener('mousedown', ev => ev.stopPropagation());
+    btnIncluir.addEventListener('click', ev => {
+      ev.stopPropagation();
+      incluirQuantidade(c.cod, qtdInput);
+    });
+  });
+}
+
+function buscarEspaco(e) { e.preventDefault(); listarEspaco(); return false; }
+
+async function colocarNoEspaco(cod) {
+  const ok = await enviar({ acao: 'adicionar', retalho: sobraSel, cod });
+  if (!ok) return;
+  sobraSel = null;
+  document.getElementById('painel-lista').style.display = '';
+  document.getElementById('painel-espaco').style.display = 'none';
+  document.getElementById('tit-lado').textContent = 'Peças do cadastro';
+  await carregar();
+}
+
+function clampPos(it, x, y) {
+  const { w: cw, h: ch } = dados.chapa;
+  return { x: Math.min(Math.max(0, x), Math.max(0, cw - it.w)), y: Math.min(Math.max(0, y), Math.max(0, ch - it.h)) };
+}
+
+function iniciarArrasteInterno(ev, i, g) {
+  if (ev.button !== 0) return;
+  ev.preventDefault();
+  const it = dados.itens[i];
+  interno = { i, origX: it.x, origY: it.y, p0: mmDoEvento(ev), g, novo: null, invalido: false };
+  g.classList.add('arrastando-interno');
+  document.addEventListener('mousemove', moverArrasteInterno);
+  document.addEventListener('mouseup', soltarArrasteInterno);
+}
+
+function moverArrasteInterno(ev) {
+  if (!interno) return;
+  const it = dados.itens[interno.i];
+  const p = mmDoEvento(ev);
+  const alvo = clampPos(it, interno.origX + (p.x - interno.p0.x), interno.origY + (p.y - interno.p0.y));
+  interno.novo = alvo;
+  interno.g.setAttribute('transform', `translate(${alvo.x - interno.origX},${alvo.y - interno.origY})`);
+  const invalido = sobrepoeCliente({ x: alvo.x, y: alvo.y, w: it.w, h: it.h }, interno.i);
+  interno.invalido = invalido;
+  interno.g.querySelector('.corpo').setAttribute('stroke', invalido ? 'var(--vermelho)' : '#222');
+}
+
+async function soltarArrasteInterno() {
+  document.removeEventListener('mousemove', moverArrasteInterno);
+  document.removeEventListener('mouseup', soltarArrasteInterno);
+  if (!interno) return;
+  const { i, origX, origY, novo, invalido, g } = interno;
+  interno = null;
+  g.classList.remove('arrastando-interno');
+  if (!novo || (Math.abs(novo.x - origX) < 1 && Math.abs(novo.y - origY) < 1)) {
+    desenhar();
+    return;
+  }
+  if (invalido) {
+    mostrarErro('Essa posição sobrepõe outra peça.');
+    desenhar();
+    return;
+  }
+  const ok = await enviar({ acao: 'mover', indice: i, x: novo.x, y: novo.y });
+  if (ok) {
+    if (sobraSel !== null) voltarParaLista();
+    await carregar();
+  } else desenhar();
+}
+
+async function girar(i) {
+  const ok = await enviar({ acao: 'girar', indice: i });
+  if (!ok) return;
+  if (sobraSel !== null) voltarParaLista();  // os espacos livres mudaram, a lista escolhida ficou velha
+  await carregar();
+}
+
+async function remover(i) {
+  const it = dados.itens[i];
+  if (!confirm(`Tirar ${it.cod} deste padrão?`)) return;
+  const ok = await enviar({ acao: 'remover', indice: i });
+  if (!ok) return;
+  if (sobraSel !== null) voltarParaLista();
+  await carregar();
+}
+
+async function incluirQuantidade(cod, inputEl) {
+  const n = Math.max(1, parseInt(inputEl.value, 10) || 1);
+  const ok = await enviar({ acao: 'incluir_melhor', cod, quantidade: n });
+  if (!ok) return;
+  // Chamável tanto da lista padrão quanto da lista "cabem aqui" de um espaço
+  // selecionado - nesse segundo caso os espaços livres mudam, então a
+  // selecao fica velha e e melhor voltar pra lista geral.
+  if (sobraSel !== null) voltarParaLista();
+  await carregar();
+}
+
+async function listarPecas() {
+  const busca = document.getElementById('busca').value;
+  const alvo = document.getElementById('lista-pecas');
+  alvo.innerHTML = '<div class="carregando">Buscando no cadastro...</div>';
+  const itens = await (await fetch(`/manual/{{ plano.id }}/pecas?busca=${encodeURIComponent(busca)}`)).json();
+  if (!itens.length) {
+    alvo.innerHTML = '<div class="carregando">Nenhuma peça encontrada.</div>';
+    return;
+  }
+  alvo.innerHTML = `<div class="lista">${itens.map((p, i) => `
+    <div class="item-p" draggable="true" data-i="${i}">
+      <span class="cod">${p.cod}</span><span class="ds">${p.desc}</span>
+      <span class="md">${p.comp}×${p.larg}${(dados.chapa.veio && p.aparente) ? ' 🪵' : ''}</span>
+      <input type="number" min="1" step="1" value="1" class="qtd-incluir" title="Quantidade">
+      <button type="button" class="btn secundario btn-incluir">Incluir →</button>
+    </div>`).join('')}</div>`;
+  alvo.querySelectorAll('.item-p').forEach(n => {
+    const p = itens[+n.dataset.i];
+    if (dados.chapa.veio && p.aparente) {
+      n.title = 'Peça aparente em chapa com veio - não gira, pra não sair com o desenho atravessado.';
+    }
+    n.addEventListener('dragstart', ev => {
+      arrastando = { cod: p.cod, comp: p.comp, larg: p.larg, podeGirar: podeGirarAqui(p) };
+      n.classList.add('arrastando');
+      ev.dataTransfer.effectAllowed = 'copy';
+      ev.dataTransfer.setData('text/plain', p.cod); // exigido pelo Firefox pra permitir o drop
+    });
+    n.addEventListener('dragend', () => {
+      n.classList.remove('arrastando');
+      arrastando = null;
+      document.querySelectorAll('#chapa .vazio').forEach(g => g.classList.remove('pode', 'nao'));
+    });
+    n.addEventListener('mouseenter', () => { if (!arrastando) preverEncaixe(p); });
+    n.addEventListener('mouseleave', () => { if (!arrastando) limparPreview(); });
+    const qtdInput = n.querySelector('.qtd-incluir');
+    qtdInput.addEventListener('mousedown', ev => ev.stopPropagation());
+    qtdInput.addEventListener('click', ev => ev.stopPropagation());
+    n.querySelector('.btn-incluir').addEventListener('mousedown', ev => ev.stopPropagation());
+    n.querySelector('.btn-incluir').addEventListener('click', ev => {
+      ev.stopPropagation();
+      incluirQuantidade(p.cod, qtdInput);
+    });
+  });
+}
+
+function buscar(e) { e.preventDefault(); listarPecas(); return false; }
+
+carregar();
+listarPecas();
+</script>
+{% endblock %}

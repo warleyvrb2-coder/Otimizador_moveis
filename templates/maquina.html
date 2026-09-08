@@ -49,7 +49,7 @@
       </div>
     </div>
 
-    {% for chave in ['chapa_larg','chapa_alt','kerf','pilha_max','estagios','tempo_grupo'] %}
+    {% for chave in ['chapa_larg','chapa_alt','kerf','pilha_max','estagios','tempo_grupo','pct_extra'] %}
     {% set meta = campos[chave] %}
     <div class="campo {{ 'erro' if erros.get(chave) }}">
       <div class="rot">{{ meta.rotulo }}</div>

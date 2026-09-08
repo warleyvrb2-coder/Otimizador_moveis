@@ -188,6 +188,185 @@ def _pack_rect(pool, x0: float, y0: float, w: float, h: float,
                placed, qty_used, min_piece_area, strategy, depth + 1, value_dict, max_depth, kerf)
 
 
+def _melhor_para_faixa(pool, restantes: dict, largura_livre: float, elegivel, kerf: float, strategy: str):
+    """
+    Entre os tipos com estoque em `restantes`, acha o que melhor preenche o
+    que sobrou de LARGURA da faixa - uma linha só (nx colunas, sem empilhar
+    peça em cima de peça dentro da faixa, que exigiria um terceiro corte).
+    """
+    melhor, melhor_score = None, -1
+    for p in pool:
+        disponivel = restantes.get(p.key, 0)
+        if disponivel <= 0:
+            continue
+        for iw, ih, rot in p.orientacoes():
+            if not elegivel(ih) or iw > largura_livre:
+                continue
+            nx = _cabem(largura_livre, iw, kerf)
+            count = min(disponivel, nx)
+            if count <= 0:
+                continue
+            score = _ocupa(count, iw, kerf) if strategy == 'width' else count * iw * ih
+            if score > melhor_score:
+                melhor_score = score
+                melhor = (p, iw, ih, rot, count)
+    return melhor
+
+
+def _pack_shelves(pool, sheet_w: int, sheet_h: int, placed: list, qty_used: dict,
+                   strategy: str = 'area', kerf: float = KERF_MM, estagios: int = 3) -> None:
+    """
+    Empacotamento em FAIXAS (shelf packing): a chapa vira uma pilha de tiras
+    horizontais, cada uma cheia de peças lado a lado. Sempre 2 estágios - o
+    corte que separa as faixas e o corte que separa as peças dentro de cada
+    faixa - mais um aparo por faixa quando a peça é mais baixa que ela
+    (permitido só se estagios >= 3).
+
+    Existe pra SUBSTITUIR o empacotamento recursivo geral (_pack_rect) como
+    semente do Column Generation. Aquele produz árvores de corte
+    tecnicamente guilhotináveis, mas com peça pequena encravada ao lado de
+    peça grande em posições que cada uma exige seu próprio corte - passa na
+    contagem de estágios, mas é impraticável de acompanhar numa pilha real
+    de chapas empilhadas. Faixa é o único formato que corresponde a como a
+    seccionadora corta de verdade: separar a chapa em tiras primeiro, cada
+    tira depois vira peças com um corte só, sem posição surpresa no meio.
+    """
+    y = 0.0
+    while sheet_h - y > 1:
+        h_livre = sheet_h - y
+        # Candidata por altura de peça, mas só as MAIS PROMISSORAS: com
+        # muitos tipos de peça (um lote grande passa de 100), testar TODAS
+        # as alturas possíveis - cada uma exigindo um preenchimento guloso
+        # completo pra avaliar - faz o cálculo de um padrão só levar minutos.
+        # Prioriza pela maior área que aquela altura sozinha já garante (a
+        # da peça mais valiosa que a atinge), que é o mesmo critério que
+        # decide no fim - só corta as candidatas que nunca ganhariam mesmo.
+        potencial: dict[float, float] = {}
+        for p in pool:
+            if p.qty_total <= 0:
+                continue
+            for iw, ih, _ in p.orientacoes():
+                if ih <= h_livre:
+                    potencial[ih] = max(potencial.get(ih, 0.0), p.qty_total * iw * ih)
+        alturas = sorted(potencial, key=potencial.get, reverse=True)[:15]
+        melhor = None  # (altura_da_faixa, [(peca, iw, ih, rot, count), ...], area_coberta, densidade)
+        for h_faixa in alturas:
+            elegivel = ((lambda ih, hf=h_faixa: abs(ih - hf) < 0.5) if estagios <= 2 else
+                        (lambda ih, hf=h_faixa: ih <= hf + 0.5))
+            restantes = {p.key: p.qty_total for p in pool}
+            x, area, escolhas = 0.0, 0.0, []
+            while sheet_w - x > 1:
+                cand = _melhor_para_faixa(pool, restantes, sheet_w - x, elegivel, kerf, strategy)
+                if cand is None:
+                    break
+                p, iw, ih, rot, count = cand
+                escolhas.append((p, iw, ih, rot, count))
+                restantes[p.key] -= count
+                x += _ocupa(count, iw, kerf) + kerf
+                area += count * iw * ih
+            if not escolhas:
+                continue
+            # Densidade (área / altura da faixa), não área crua: com
+            # estagios>=3 uma peça de 580mm é elegível também numa faixa
+            # "candidata" de 1035mm (por causa do aparo permitido) - se só
+            # ELA coubesse mesmo assim, a área coberta empataria com a da
+            # faixa de 580mm certa, e a comparação por área pura ficava com
+            # a mais alta das duas por ter sido avaliada primeiro,
+            # desperdiçando os 455mm de diferença em vez de reaproveitá-los
+            # numa faixa seguinte.
+            densidade = area / h_faixa
+            if melhor is None or densidade > melhor[3]:
+                melhor = (h_faixa, escolhas, area, densidade)
+        if melhor is None:
+            break  # nada mais coube na altura que sobrou - fica sem uso
+
+        h_faixa, escolhas, _, _ = melhor
+        x = 0.0
+        for p, iw, ih, rot, count in escolhas:
+            for i in range(count):
+                placed.append(PlacedItem(piece_key=p.key, cod=p.cod, desc=p.desc, shelf=0,
+                                          x=x + i * (iw + kerf), y=y, w=iw, h=ih, rotated=rot))
+            x += _ocupa(count, iw, kerf) + kerf
+            p.qty_total -= count
+            qty_used[p.key] = qty_used.get(p.key, 0) + count
+        y += h_faixa + kerf
+
+
+def _pack_columns(pool, sheet_w: int, sheet_h: int, placed: list, qty_used: dict,
+                   strategy: str = 'area', kerf: float = KERF_MM, estagios: int = 3) -> None:
+    """
+    O espelho de _pack_shelves: em vez de FAIXAS horizontais, empacota em
+    COLUNAS verticais lado a lado, cada uma cheia de peças empilhadas de
+    cima a baixo. Pra peças que compartilham a mesma LARGURA (em vez da
+    mesma altura), coluna encaixa melhor que faixa - sem isso, peças de
+    2280mm de largura ficavam cada uma na sua própria faixa com uma sobra de
+    altura desperdiçada ao lado, quando na verdade cabiam empilhadas juntas
+    numa coluna só, sem nenhum desperdício de altura entre elas.
+
+    Implementado chamando _pack_shelves com os eixos trocados e transpondo
+    o resultado de volta - mesma lógica, só que "deitada".
+    """
+    placed_t: list = []
+    _pack_shelves(pool, sheet_h, sheet_w, placed_t, qty_used, strategy=strategy, kerf=kerf, estagios=estagios)
+    for it in placed_t:
+        placed.append(PlacedItem(piece_key=it.piece_key, cod=it.cod, desc=it.desc, shelf=0,
+                                  x=it.y, y=it.x, w=it.h, h=it.w, rotated=not it.rotated))
+
+
+def _pack_split_2_colunas(pool, sheet_w: int, sheet_h: int, kerf: float, estagios: int, strategy: str):
+    """
+    Tenta um corte vertical ÚNICO dividindo a chapa em 2 colunas lado a
+    lado, cada uma depois empacotada em faixas de forma INDEPENDENTE.
+
+    É a diferença entre um padrão a 88% (tudo forçado nas mesmas faixas,
+    peça de 350mm de altura ao lado de peça de 404mm desperdiçando os 54mm
+    de diferença) e um a 96% (peças largas numa coluna só entre si, peças
+    estreitas noutra, cada grupo com sua própria sequência de alturas sem
+    misturar com a do vizinho). Sem isso, a única saída pra peças de
+    larguras muito diferentes era compartilhar faixa e desperdiçar a
+    diferença de altura entre elas.
+
+    Devolve (placed, qty_used, area_coberta) da melhor largura de corte
+    tentada, ou None se nenhuma peça coube.
+    """
+    # Mesmo raciocínio do limite de alturas em _pack_shelves: com muitos
+    # tipos de peça, testar TODA largura possível (2 empacotamentos
+    # completos por tentativa) é caro demais. Prioriza pela peça mais
+    # valiosa que atinge aquela largura.
+    potencial: dict[float, float] = {}
+    for p in pool:
+        if p.qty_total <= 0:
+            continue
+        for iw, ih, _ in p.orientacoes():
+            if iw < sheet_w - 50:
+                potencial[iw] = max(potencial.get(iw, 0.0), p.qty_total * iw * ih)
+    larguras = sorted(potencial, key=potencial.get, reverse=True)[:6]
+    melhor = None
+    for iw in larguras:
+        pool_a = [copy.copy(p) for p in pool]
+        placed_a, qty_a = [], {}
+        _pack_shelves(pool_a, iw, sheet_h, placed_a, qty_a, strategy=strategy, kerf=kerf, estagios=estagios)
+        if not placed_a:
+            continue
+
+        resto = sheet_w - iw - kerf
+        placed_b, qty_b = [], {}
+        if resto > 50:
+            pool_b = [copy.copy(p) for p in pool]
+            _pack_shelves(pool_b, resto, sheet_h, placed_b, qty_b, strategy=strategy, kerf=kerf, estagios=estagios)
+            for it in placed_b:
+                it.x += iw + kerf
+
+        placed = placed_a + placed_b
+        area = sum(it.w * it.h for it in placed)
+        if melhor is None or area > melhor[2]:
+            qty_used = dict(qty_a)
+            for k, v in qty_b.items():
+                qty_used[k] = qty_used.get(k, 0) + v
+            melhor = (placed, qty_used, area)
+    return melhor
+
+
 STRATEGIES = ('area', 'width', 'height')
 
 

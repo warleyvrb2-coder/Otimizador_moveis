@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block titulo %}Peças Extras{% endblock %}
+{% block trilha %}<a href="/resultado/{{ plano.id }}">Plano de corte</a>{% endblock %}
+{% block cabecalho %}Peças Extras{% endblock %}
+{% block subcabecalho %}Peças cortadas além da demanda — sobra inerente de cortar chapa
+  inteira, aprendizado automático ou o preenchimento de vazios.{% endblock %}
+{% block acoes %}
+  <a class="btn secundario" href="/resultado/{{ plano.id }}">← Voltar ao plano</a>
+  <a class="btn secundario" href="/resultado/{{ plano.id }}/relatorio/planejado-produzido">Ver planejado vs. produzido →</a>
+{% endblock %}
+
+{% block conteudo %}
+<div class="metricas" style="margin-bottom:20px;">
+  <div class="metrica destaque">
+    <div class="rot">Peças extras no plano</div><div class="val">{{ total_extras }}</div>
+  </div>
+  <div class="metrica">
+    <div class="rot">Aproveitamento médio</div>
+    <div class="val">{{ '%.1f'|format(aproveitamento_final) }}<small>%</small></div>
+  </div>
+  <div class="metrica">
+    <div class="rot">Chapas no plano</div><div class="val">{{ total_chapas }}</div>
+  </div>
+</div>
+
+<div class="recado info" style="margin-bottom:16px;">
+  <span class="ic">ℹ️</span>
+  <div>Estas peças foram cortadas a mais do que o pedido, para aproveitar espaço vazio que
+    sobraria na chapa. É overprodução deliberada — controle esse estoque antes de repor no
+    próximo pedido do mesmo código.</div>
+</div>
+
+<div class="cg-page-card">
+  <div class="cg-table-wrap">
+    <table id="tab-extras" class="cg-table cg-data-table">
+      <thead>
+        <tr>
+          <th style="width:80px;">
+            <div class="cg-col-header">Código <button class="cg-sort-btn" data-col="0">⇅</button></div>
+            <input class="cg-table-search" data-col="0" placeholder="filtrar..."></th>
+          <th>
+            <div class="cg-col-header">Descrição <button class="cg-sort-btn" data-col="1">⇅</button></div>
+            <input class="cg-table-search" data-col="1" placeholder="filtrar..."></th>
+          <th style="width:150px;">
+            <div class="cg-col-header">Material / cor <button class="cg-sort-btn" data-col="2">⇅</button></div>
+            <input class="cg-table-search" data-col="2" placeholder="filtrar..."></th>
+          <th style="width:90px;">
+            <div class="cg-col-header">Espessura <button class="cg-sort-btn" data-col="3">⇅</button></div></th>
+          <th style="width:120px;">
+            <div class="cg-col-header">Medida <button class="cg-sort-btn" data-col="4">⇅</button></div></th>
+          <th class="cg-acoes-col">
+            <div class="cg-col-header">Pedido <button class="cg-sort-btn" data-col="5">⇅</button></div></th>
+          <th class="cg-acoes-col">
+            <div class="cg-col-header">Extra produzido <button class="cg-sort-btn" data-col="6">⇅</button></div></th>
+          <th class="cg-acoes-col">
+            <div class="cg-col-header">Total cortado <button class="cg-sort-btn" data-col="7">⇅</button></div></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in linhas %}
+        <tr>
+          <td class="cg-cod">{{ l.cod }}</td>
+          <td class="cg-desc">{{ l.desc }}</td>
+          <td>{{ l.cor }}</td>
+          <td class="cg-num">{{ '%.0f'|format(l.esp) }}mm</td>
+          <td class="cg-num">{{ l.medida }}</td>
+          <td class="cg-num">{{ l.pedido }}</td>
+          <td class="cg-num"><span class="etiqueta atencao">+{{ l.dif }}</span></td>
+          <td class="cg-num"><strong>{{ l.produzido }}</strong></td>
+        </tr>
+        {% else %}
+        <tr class="cg-vazio"><td colspan="8">Nenhuma peça extra neste plano.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block script %}<script src="/static/js/tabela.js"></script>{% endblock %}

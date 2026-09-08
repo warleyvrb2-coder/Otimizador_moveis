@@ -53,7 +53,7 @@
     <span class="cod">{{ r.peca_cod }}</span>
     <span class="ds">
       {{ r.cor }} · {{ '%.0f'|format(r.esp or 0) }}mm
-      <small>menor sobra em que coube: {{ r.menor_w }} × {{ r.menor_h }} mm</small>
+      <small>menor sobra em que coube: {{ r.menor_w or '—' }} × {{ r.menor_h or '—' }} mm</small>
     </span>
     <span class="vezes">
       {{ r.vezes }}× {{ 'aplicando' if r.vezes >= 2 else 'observando' }}

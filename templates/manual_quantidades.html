@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block titulo %}Quantidades · Plano manual{% endblock %}
+{% block cabecalho %}Quanto você precisa de cada peça?{% endblock %}
+{% block subcabecalho %}O sistema calcula quantas chapas cortar até a peça mais exigente fechar{% endblock %}
+{% block acoes %}<a href="/manual/{{ plano.id }}" class="btn secundario">← Voltar à chapa</a>{% endblock %}
+
+{% block conteudo %}
+{% if erro %}<div class="recado perigo"><span class="ic">✕</span><div>{{ erro }}</div></div>{% endif %}
+
+<div class="cartao" style="max-width:680px;">
+  <h2>Peças deste padrão</h2>
+  <p class="ajuda">Cada padrão já traz {{ pecas|length }} tipo(s) de peça, {{ padrao.itens|length }}
+    unidade(s) por chapa no total. Diga quantas você precisa de cada uma — o resto pode
+    ficar em branco se não precisar dela nesta rodada.</p>
+
+  <form method="post">
+    <table class="dados">
+      <thead><tr><th>Peça</th><th class="num">Por chapa</th><th style="width:160px;">Quantidade desejada</th></tr></thead>
+      <tbody>
+        {% for p in pecas %}
+        <tr>
+          <td><strong>{{ p.cod }}</strong><br>
+              <span style="color:var(--tinta-2); font-size:12px;">{{ p.desc }}</span></td>
+          <td class="num">{{ p.por_chapa }}</td>
+          <td><input type="number" min="0" step="1" name="qtd_{{ p.cod }}"
+                     placeholder="0" style="width:100%; padding:7px 10px;
+                     border:1px solid var(--linha); border-radius:6px;"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit" class="btn" style="margin-top:16px;">Calcular chapas necessárias →</button>
+  </form>
+</div>
+{% endblock %}

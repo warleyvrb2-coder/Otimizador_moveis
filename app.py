@@ -42,6 +42,13 @@ OUTPUT_DIR = os.path.join(DATA_DIR, 'resultados')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+# Espessura da chapa que passa nas seccionadoras da fábrica na prática. O
+# Plano Manual não tem Kambam pra tirar isso de um PDF (é dali que o fluxo
+# automático pega a espessura de cada lote), então usa este número fixo pra
+# calcular a pilha (quantas chapas cabem empilhadas) a partir do que a
+# máquina já tem cadastrado - sem perguntar de novo pra cada chapa manual.
+ESPESSURA_PADRAO_MM = 15
+
 # Senha única compartilhada. Não é sistema de usuários - é uma tranca pra URL
 # não ficar aberta na internet enquanto o testador usa.
 APP_USUARIO = os.environ.get('APP_USUARIO', 'benetil')
@@ -259,6 +266,162 @@ def otimizar():
     return redirect(url_for('planos'))
 
 
+@app.route('/manual/novo', methods=['GET', 'POST'])
+def manual_novo():
+    """
+    Ponto de partida do plano manual: escolhe a máquina (pra saber o
+    tamanho da chapa, a serra e a pilha) e o sistema cria uma chapa em
+    branco pra montar o padrão à mão - pra um pedido avulso que não veio de
+    Kambam nenhum, ou pra testar uma combinação de peças antes de rodar de
+    verdade.
+
+    Não pergunta espessura: o cadastro da máquina já basta. ESPESSURA_PADRAO_MM
+    é a chapa que passa nessa seccionadora na prática (a mesma conta que o
+    dono do sistema fez de cabeça: 120mm de pilha ÷ 15mm = 8 chapas) - se um
+    dia a fábrica passar a rodar espessura diferente nesse plano, é aqui que
+    se ajusta, não pedindo pra digitar de novo em cada chapa manual.
+    """
+    maquinas = banco.listar_maquinas(so_ativas=True)
+    if request.method == 'GET':
+        return render_template('manual_novo.html', pagina='novo_manual', maquinas=maquinas,
+                                espessura_padrao=ESPESSURA_PADRAO_MM)
+
+    maq = banco.maquina(request.form.get('maquina_id', type=int))
+    if not maq:
+        return render_template('manual_novo.html', pagina='novo_manual', maquinas=maquinas,
+                                espessura_padrao=ESPESSURA_PADRAO_MM,
+                                erro='Escolha uma máquina.')
+
+    # Mesma conta do fluxo automático (pipeline.py): quantas chapas dessa
+    # espessura cabem dentro do limite de empilhamento já cadastrado na
+    # máquina - só que aqui a espessura é a padrão da fábrica, não perguntada.
+    pilha = max(1, int(maq['pilha_max'] // ESPESSURA_PADRAO_MM))
+
+    # Sem cor pra consultar aqui (o plano manual não vem de um Kambam com
+    # material definido) - "respeitar o veio" vira a própria decisão: ligado
+    # trata a chapa como se tivesse veio (o lado conservador, igual cor sem
+    # cadastro no plano automático - pipeline.tem_veio cai em True); desligado
+    # libera girar qualquer peça, só pra comparar quanto o veio custaria.
+    respeitar_veio = request.form.get('respeitar_veio') is not None
+    veio = pipeline.tem_veio('', respeitar_veio, {})
+
+    plano_id = os.urandom(5).hex()
+    grupo = {
+        'cor': 'Plano manual', 'esp': ESPESSURA_PADRAO_MM, 'tem_veio': veio,
+        'n_tipos_peca': 0, 'qtd_total_pecas': 0, 'n_chapas': 0, 'n_padroes': 1,
+        'ciclos_total': 0, 'aproveitamento_medio': 0,
+        'padroes': [{
+            'n': 1, 'itens': [], 'arquivo': f'/plano/{plano_id}/manual_padrao1.png',
+            'repeticoes': 1, 'aproveitamento': 0, 'ciclos': 1, 'pilha': pilha, 'pecas': [],
+        }],
+        'sobras': [],
+    }
+    resultado = {
+        'erro': None, 'manual': True, 'kambans_info': [],
+        'sheet_w': maq['chapa_larg'], 'sheet_h': maq['chapa_alt'], 'kerf': maq['kerf'],
+        'estagios': maq['estagios'], 'respeitar_veio': respeitar_veio,
+        'maquina': maq['nome'], 'maquina_id': maq['id'], 'pilha_max': maq['pilha_max'],
+        'total_chapas': 0, 'sugestoes': [], 'importado': {}, 'cadastro': banco.resumo(),
+        'grupos': [grupo],
+    }
+    _redesenhar(plano_id, resultado, grupo, grupo['padroes'][0])
+    banco.salvar_plano(plano_id, resultado)
+    return redirect(url_for('manual_editor', plano_id=plano_id))
+
+
+@app.route('/manual/<plano_id>/pecas')
+def manual_pecas(plano_id):
+    """
+    Busca de peças pro arrastar-e-soltar: devolve o cadastro puro (código,
+    descrição, medida), sem filtrar por sobra nenhuma - o encaixe em cada
+    espaço é conferido no navegador enquanto arrasta, e de novo no servidor
+    quando solta, então esta lista não precisa saber onde a peça vai cair.
+    """
+    busca = request.args.get('busca', '').strip()
+    itens = [{'cod': p['cod'], 'desc': p['descricao'], 'comp': p['comp_mm'], 'larg': p['larg_mm'],
+              'aparente': bool(p['aparente'])}
+             for p in banco.listar_pecas(busca, limite=200)]
+    return jsonify(itens)
+
+
+@app.route('/manual/<plano_id>')
+def manual_editor(plano_id):
+    """A chapa em branco pra arrastar peça, com o mesmo motor de encaixe/validação
+    de guilhotina da edição normal - só a tela é outra."""
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+    if not r.get('manual'):
+        abort(404)
+    grupo = r['grupos'][0]
+    padrao = grupo['padroes'][0]
+    return _sem_cache(make_response(render_template(
+        'manual.html', pagina='novo_manual', plano=salvo, r=r, grupo=grupo, padrao=padrao,
+        erro=request.args.get('erro'))))
+
+
+@app.route('/manual/<plano_id>/quantidades', methods=['GET', 'POST'])
+def manual_quantidades(plano_id):
+    """
+    Última etapa: você diz quanto precisa de cada peça que colocou na
+    chapa, e o sistema calcula quantas vezes repetir o padrão. É a mesma
+    conta de sempre - quantas chapas até a peça mais exigente do padrão
+    fechar a quantidade pedida - só que partindo de um padrão desenhado à
+    mão em vez de vindo do Kambam.
+    """
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+    if not r.get('manual'):
+        abort(404)
+    grupo = r['grupos'][0]
+    padrao = grupo['padroes'][0]
+
+    from collections import Counter
+    contagem = Counter(it['cod'] for it in padrao['itens'])
+    descricoes = {it['cod']: it['desc'] for it in padrao['itens']}
+    pecas_no_padrao = [{'cod': cod, 'desc': descricoes[cod], 'por_chapa': qtd}
+                        for cod, qtd in sorted(contagem.items())]
+
+    if not pecas_no_padrao:
+        return redirect(url_for('manual_editor', plano_id=plano_id,
+                                 erro='Posicione ao menos uma peça antes de calcular.'))
+
+    if request.method == 'GET':
+        return render_template('manual_quantidades.html', pagina='novo_manual',
+                                plano=salvo, r=r, padrao=padrao, pecas=pecas_no_padrao)
+
+    desejado = {}
+    for p in pecas_no_padrao:
+        try:
+            q = int(request.form.get(f'qtd_{p["cod"]}', '0') or '0')
+        except ValueError:
+            q = 0
+        if q > 0:
+            desejado[p['cod']] = q
+    if not desejado:
+        return render_template('manual_quantidades.html', pagina='novo_manual',
+                                plano=salvo, r=r, padrao=padrao, pecas=pecas_no_padrao,
+                                erro='Informe a quantidade de pelo menos uma peça.')
+
+    # Quantas vezes repetir a chapa até a peça mais exigente do padrao
+    # fechar: se o padrao tem 3 peças X e voce quer 100, precisa de 34
+    # chapas (arredondado pra cima - sobra é normal, chapa se corta inteira).
+    padrao['repeticoes'] = max(-(-desejado[cod] // contagem[cod]) for cod in desejado)
+    padrao['ciclos'] = -(-padrao['repeticoes'] // padrao.get('pilha', 1))
+    padrao['pecas'] = _pecas_do_padrao(padrao)
+    for item in padrao['pecas']:
+        item['lotes'] = {'Plano manual': desejado.get(item['cod'], 0)}
+    padrao['pecas_exibicao'] = padrao['pecas']
+    grupo['n_tipos_peca'] = len(padrao['pecas'])
+    grupo['qtd_total_pecas'] = sum(item['total'] for item in padrao['pecas'])
+    grupo['ciclos_total'] = padrao['ciclos']
+
+    _redesenhar(plano_id, r, grupo, padrao)
+    _recalcular(r)
+    _conferir_demanda(r)
+    banco.atualizar_resultado(plano_id, r)
+    return redirect(url_for('resultado', job_id=plano_id))
+
+
 @app.route('/maquinas')
 def maquinas():
     return render_template('maquinas.html', pagina='maquinas',
@@ -360,22 +523,30 @@ def cadastros(aba='moveis'):
                'chapas': res['cores'], 'acabamentos': len(banco.listar_acabamentos())}
     comum = {'pagina': 'cadastros', 'aba': aba, 'contas': contas, 'res': res}
 
+    # Sem no-store, sair da tela e voltar (trocar de aba, botao Voltar) pode
+    # reaproveitar esta pagina do cache do navegador - e como aqui e ONDE se
+    # edita e exclui cadastro, isso mostra uma contagem e uma lista que ja
+    # nao existem mais no banco, dando a impressao de que a exclusao "nao
+    # pegou" quando na verdade so a TELA que esta desatualizada.
     if aba == 'moveis':
-        return render_template('cad_moveis.html', modelos=banco.listar_modelos(),
+        html = render_template('cad_moveis.html', modelos=banco.listar_modelos(),
                                 sem_modelo=banco.contar_sem_modelo(), **comum)
-    if aba == 'pecas':
+    elif aba == 'pecas':
         busca = request.args.get('busca', '').strip()
         pendentes = request.args.get('pendentes') == '1'
-        return render_template('cad_pecas.html', busca=busca, pendentes=pendentes,
+        html = render_template('cad_pecas.html', busca=busca, pendentes=pendentes,
                                 itens=banco.listar_pecas(busca, so_pendentes=pendentes,
                                                           limite=300),
                                 efemero=_disco_efemero(), **comum)
-    if aba == 'chapas':
-        return render_template('cad_chapas.html', itens=banco.listar_cores(), **comum)
-    if aba == 'acabamentos':
-        return render_template('cad_acabamentos.html',
+    elif aba == 'chapas':
+        html = render_template('cad_chapas.html', itens=banco.listar_cores(), **comum)
+    elif aba == 'acabamentos':
+        html = render_template('cad_acabamentos.html',
                                 acabamentos=banco.listar_acabamentos(),
                                 cores=[c['nome'] for c in banco.listar_cores()], **comum)
+    else:
+        abort(404)
+    return _sem_cache(make_response(html))
     abort(404)
 
 
@@ -563,6 +734,97 @@ def cadastro_marcar():
     return jsonify({'ok': True})
 
 
+def _impacto_exclusao(tipo: str, ident: str):
+    """
+    O que se perde ao excluir este registro, em número e em frase pronta pra
+    mostrar num confirm(). Existe pra quem clica em excluir NUNCA ser
+    surpreendido depois - a pergunta já vem com a consequência.
+    """
+    if tipo == 'peca':
+        imp = banco.impacto_exclusao_peca(ident)
+        n = imp['vinculos_modelo']
+        msg = (f'Esta peça está vinculada a {n} móvel(is). O vínculo será removido '
+               f'(o(s) móvel(is) em si continua(m) cadastrado(s)).' if n else
+               'Esta peça não está vinculada a nenhum móvel.')
+        return imp, msg
+    if tipo == 'cor':
+        imp = banco.impacto_exclusao_cor(ident)
+        n = imp['vinculos_acabamento']
+        msg = (f'Esta cor está vinculada a {n} acabamento(s). O vínculo será removido.' if n
+               else 'Esta cor não está vinculada a nenhum acabamento.')
+        return imp, msg
+    if tipo == 'modelo':
+        imp = banco.impacto_exclusao_modelo(ident)
+        n = imp['vinculos_peca']
+        msg = (f'Este móvel tem {n} peça(s) na lista técnica. O vínculo será removido '
+               f'(as peças em si não são apagadas).' if n else
+               'Este móvel não tem peças vinculadas.')
+        return imp, msg
+    if tipo == 'acabamento':
+        imp = banco.impacto_exclusao_acabamento(ident)
+        n = imp['vinculos_cor']
+        msg = (f'Este acabamento usa {n} cor(es) de chapa. O vínculo será removido.' if n
+               else 'Este acabamento não tem cor vinculada.')
+        return imp, msg
+    return None, None
+
+
+@app.route('/cadastro/impacto', methods=['POST'])
+def cadastro_impacto():
+    """O que vai junto se este registro for excluído - pra montar o aviso ANTES de apagar."""
+    d = request.get_json(silent=True) or {}
+    tipo, ident = d.get('tipo'), d.get('id')
+    if not tipo or not ident:
+        return jsonify({'ok': False}), 400
+    imp, msg = _impacto_exclusao(tipo, str(ident))
+    if imp is None:
+        return jsonify({'ok': False}), 400
+    return jsonify({'ok': True, 'impacto': imp, 'mensagem': msg})
+
+
+@app.route('/cadastro/excluir', methods=['POST'])
+def cadastro_excluir():
+    d = request.get_json(silent=True) or {}
+    tipo, ident = d.get('tipo'), d.get('id')
+    if not tipo or not ident:
+        return jsonify({'ok': False}), 400
+    ident = str(ident)
+    if tipo == 'peca':
+        apagou = banco.excluir_peca(ident)
+    elif tipo == 'cor':
+        apagou = banco.excluir_cor(ident)
+    elif tipo == 'modelo':
+        apagou = banco.excluir_modelo(ident)
+    elif tipo == 'acabamento':
+        apagou = banco.excluir_acabamento(ident)
+    else:
+        return jsonify({'ok': False}), 400
+    # apagou=False significa que o id não existia mais - quem chamou (o
+    # navegador) tira a linha da tela mesmo assim, mas melhor a resposta
+    # dizer a verdade do que fingir sucesso quando não apagou nada.
+    if not apagou:
+        return jsonify({'ok': False, 'erro': 'já não existia'}), 404
+    return jsonify({'ok': True})
+
+
+@app.route('/cadastro/editar', methods=['POST'])
+def cadastro_editar():
+    d = request.get_json(silent=True) or {}
+    tipo, ident = d.get('tipo'), d.get('id')
+    if not tipo or not ident:
+        return jsonify({'ok': False}), 400
+    ident = str(ident)
+    if tipo == 'peca':
+        erros = banco.editar_peca(ident, d.get('descricao'), d.get('comp_mm'), d.get('larg_mm'))
+    elif tipo == 'modelo':
+        erros = banco.editar_modelo(ident, d.get('descricao'))
+    else:
+        return jsonify({'ok': False}), 400
+    if erros:
+        return jsonify({'ok': False, 'erros': erros}), 400
+    return jsonify({'ok': True})
+
+
 def _sem_cache(resposta):
     """
     Impede o navegador de mostrar uma versão velha desta tela.
@@ -587,17 +849,24 @@ def resultado(job_id):
         # plano recem-calculado, onde o arredondamento do inteiro ja produz
         # um pouco a mais do que o Kambam pediu
         _conferir_demanda(salvo['resultado'])
+        maq = banco.maquina(salvo['resultado'].get('maquina_id'))
         return _sem_cache(make_response(render_template(
             'resultado.html', plano=salvo,
             reeq=request.args.get('reeq'),
             motivo_reeq=request.args.get('motivo'),
+            extra_ok=request.args.get('extra_ok', type=int),
+            extra_erro=request.args.get('extra_erro'),
+            pct_extra=float(maq['pct_extra']) if maq and maq['pct_extra'] else 0.0,
             **salvo['resultado'])))
     job = jobs.obter(job_id) or abort(404)
     if job.estado == 'erro':
         return render_template('resultado.html', erro=job.erro, kambans_info=None), 500
     if job.estado != 'pronto':
         return redirect(url_for('acompanhar', job_id=job_id))
-    return _sem_cache(make_response(render_template('resultado.html', **job.resultado)))
+    maq = banco.maquina(job.resultado.get('maquina_id'))
+    return _sem_cache(make_response(render_template(
+        'resultado.html', pct_extra=float(maq['pct_extra']) if maq and maq['pct_extra'] else 0.0,
+        **job.resultado)))
 
 
 def _localizar_padrao(resultado, gi, pi):
@@ -719,6 +988,37 @@ def _conferir_demanda(resultado):
         g['diferencas'] = [{'cod': c['cod'], 'dif': c['dif']} for c in g['conferencia']]
 
 
+def _linhas_planejado_produzido(resultado: dict) -> list[dict]:
+    """
+    Junta a conferencia peca-a-peca de TODOS os grupos do plano numa lista
+    so, com descricao/medida do cadastro anexadas - e, ao contrario de
+    g['conferencia'] (que so guarda DIFERENCA, pra nao poluir a tela de
+    edicao com linha que bate certinho), aqui entram TAMBEM as pecas que
+    fecham em cima do pedido: os relatorios do plano inteiro (Planejado x
+    Produzido, Pecas Extras) precisam do total certo, nao so das excecoes.
+
+    Vale pra plano automatico e manual igual - os dois passam pela mesma
+    _demanda_do_grupo/_producao_do_grupo, entao nao tem nada especifico de
+    um ou outro aqui.
+    """
+    catalogo = {p['cod']: p for p in banco.listar_pecas(limite=5000)}
+    linhas = []
+    for g in resultado.get('grupos', []):
+        pedido = _demanda_do_grupo(g)
+        produzido = _producao_do_grupo(g)
+        for cod in sorted(set(pedido) | set(produzido)):
+            p, q = pedido.get(cod, 0), produzido.get(cod, 0)
+            info = catalogo.get(cod)
+            linhas.append({
+                'cod': cod,
+                'desc': info['descricao'] if info else '(fora do cadastro)',
+                'cor': g.get('cor'), 'esp': g.get('esp'),
+                'medida': f"{info['comp_mm']}×{info['larg_mm']}" if info else '—',
+                'pedido': p, 'produzido': q, 'dif': q - p,
+            })
+    return linhas
+
+
 def _rebalancear_grupo(g: dict) -> dict:
     """
     Recalcula QUANTAS chapas de cada padrao, para bater com a demanda atual.
@@ -766,6 +1066,110 @@ def _pode_girar_aqui(peca, grupo):
     return not (grupo.get('tem_veio') and peca['aparente'])
 
 
+def _melhor_encaixe_valido(base_item, comp, larg, kerf, pode_girar, itens_ocupados,
+                            sheet_w, sheet_h, max_estagios, forcar_giro=None):
+    """
+    Acha, entre os espacos livres, um encaixe pra peca que TAMBEM preserva a
+    guilhotina - nao so o que sobra menos.
+
+    edicao.melhor_encaixe_em_retalhos escolhe so a sobra com menos
+    desperdicio, mas essa pode quebrar o corte em estagios demais enquanto
+    outra sobra, geometricamente pior, continua cortavel. Por isso aqui a
+    busca tenta cada sobra livre em ordem de menos pra mais desperdicio e
+    para na primeira que passa nas duas checagens (cabe E continua
+    guilhotinavel) - sem isso, "não achei onde encaixar" às vezes queria
+    dizer só "o primeiro lugar que tentei não serviu".
+
+    forcar_giro repassa pra edicao.encaixar: None deixa cada sobra escolher
+    a orientacao que couber, True/False so aceita a peca naquela orientacao
+    especifica - e o que o arraste com "virar ao soltar" marcado precisa,
+    pra buscar em toda a chapa sem trocar a orientacao que a pessoa pediu.
+    """
+    livres = edicao.retalhos_livres(itens_ocupados, sheet_w, sheet_h)
+    candidatas = []
+    for retalho in livres:
+        enc = edicao.encaixar(retalho, comp, larg, kerf, pode_girar, forcar_giro=forcar_giro)
+        if enc:
+            sobra = retalho.w * retalho.h - enc['w'] * enc['h']
+            candidatas.append((sobra, enc))
+    candidatas.sort(key=lambda c: c[0])
+    for _, enc in candidatas:
+        candidato = {**base_item, **enc}
+        if not edicao.validar_padrao(itens_ocupados + [candidato], sheet_w, sheet_h, max_estagios):
+            return candidato
+    return None
+
+
+def _preencher_padroes_extra(padroes, catalogo, orcamento_fisico, pode_girar_por_cod,
+                              kerf, sheet_w, sheet_h, max_estagios):
+    """
+    Enche os espacos livres dos padroes com pecas extras dos codigos que
+    ainda tem orcamento - overproducao deliberada pra subir o aproveitamento
+    depois que o pedido ja fecha, nunca no lugar dele.
+
+    O orcamento (fisico, ja multiplicado pelas repeticoes) e COMPARTILHADO
+    entre todos os padroes do grupo e MUTADO conforme cada peca entra: quem
+    processa primeiro consome o credito primeiro, entao a ordem de `padroes`
+    importa (mesma escolha do projeto de referencia que originou essa ideia -
+    tentar redistribuir por "quem esta mais fraco" foi medido e piorou o
+    pior caso, ver o comentario de `preencher_padroes_fracos` no material
+    estudado).
+
+    A cada passo, tenta TODOS os codigos com credito em TODOS os espacos
+    livres do padrao e fica com o encaixe que sobra menos espaco (best-fit
+    global) - repete ate nao caber mais nada ou o credito acabar. Devolve o
+    total fisico de pecas extras adicionadas nesta chamada.
+    """
+    total_fisico = 0
+    for pad in padroes:
+        itens_originais = pad.get('itens') or []
+        if not itens_originais or not any(v > 0 for v in orcamento_fisico.values()):
+            continue
+        reps = max(1, pad.get('repeticoes', 1))
+        itens = list(itens_originais)
+        progresso = True
+        while progresso:
+            progresso = False
+            livres = edicao.retalhos_livres(itens, sheet_w, sheet_h)
+            if not livres:
+                break
+            melhor = None
+            for cod, restante_fisico in orcamento_fisico.items():
+                if restante_fisico < reps:
+                    continue
+                peca = catalogo.get(cod)
+                if peca is None:
+                    continue
+                pode_girar = pode_girar_por_cod.get(cod, True)
+                for retalho in livres:
+                    enc = edicao.encaixar(retalho, peca['comp_mm'], peca['larg_mm'], kerf, pode_girar)
+                    if enc is None:
+                        continue
+                    sobra = retalho.w * retalho.h - enc['w'] * enc['h']
+                    if melhor is None or sobra < melhor[0]:
+                        melhor = (sobra, enc, cod, peca)
+            if melhor is None:
+                break
+            _, enc, cod, peca = melhor
+            candidato = {'cod': cod, 'desc': peca['descricao'], 'piece_key': f'{cod}_extra',
+                         'shelf': 0, 'extra': True, **enc}
+            tentativa = itens + [candidato]
+            if edicao.validar_padrao(tentativa, sheet_w, sheet_h, max_estagios):
+                # esse encaixe especifico quebraria o corte guilhotina - desiste
+                # dessa peca NESTE padrao (evita repetir a mesma tentativa invalida
+                # pra sempre), mas o credito dela continua de pe pros outros padroes.
+                orcamento_fisico[cod] = min(orcamento_fisico[cod], reps - 1)
+                continue
+            itens = tentativa
+            orcamento_fisico[cod] -= reps
+            total_fisico += reps
+            progresso = True
+        if len(itens) != len(itens_originais):
+            pad['itens'] = itens
+            pad['editado'] = True
+    return total_fisico
+
+
 def _redesenhar(plano_id, r, grupo, padrao):
     """Refaz o PNG do padrao editado, senao o desenho mentiria."""
     from types import SimpleNamespace
@@ -809,7 +1213,7 @@ def editar_padrao(plano_id, gi, pi):
         'editar.html', pagina='planos', plano=salvo, r=r,
         grupo=grupo, padrao=padrao, gi=gi, pi=pi, livres=livres,
         escolhido=escolhido, busca=busca, candidatas=candidatas[:80],
-        erro=request.args.get('erro'), ok=request.args.get('ok'),
+        erro=request.args.get('erro'), ok=request.args.get('ok'), aviso=request.args.get('aviso'),
         estagios_atuais=edicao.estagios(padrao['itens'],
                                          r['sheet_w'], r['sheet_h']),
         cortes=edicao.sequencia_cortes(padrao['itens'], r['sheet_w'],
@@ -916,6 +1320,22 @@ def aplicar_edicao(plano_id, gi, pi):
         abort(404)
 
     def volta(**extra):
+        # A tela nova de arrastar dentro da chapa fala com esta rota via
+        # fetch, nao via form classico - ela manda 'formato=json' e espera
+        # {ok, erro/aviso} de volta, sem redirect nenhum, pra poder mostrar
+        # o resultado sem recarregar a pagina inteira.
+        if request.form.get('formato') == 'json':
+            return jsonify({'ok': 'erro' not in extra, **extra})
+        # O plano manual (fluxo antigo, formulario classico) reusa esta
+        # mesma rota, mas quem chama e a tela de arrastar-e-soltar
+        # (/manual/<id>), nao a de editar padrao comum - por isso o destino
+        # do redirect vem do formulario quando presente, em vez de sempre
+        # voltar pra editar_padrao.
+        destino = request.form.get('voltar_para')
+        if destino:
+            from urllib.parse import urlencode
+            sep = '&' if '?' in destino else '?'
+            return redirect(destino + (sep + urlencode(extra) if extra else ''))
         return redirect(url_for('editar_padrao', plano_id=plano_id, gi=gi, pi=pi, **extra))
 
     itens = [dict(i) for i in padrao['itens']]
@@ -924,16 +1344,21 @@ def aplicar_edicao(plano_id, gi, pi):
     removida = None
     livres = []
     i_ret = None
+    peca_cod_registro = None
+    aviso = None
 
     if acao == 'remover':
         idx = request.form.get('indice', type=int)
         if idx is None or not (0 <= idx < len(itens)):
             return volta(erro='Peca nao encontrada neste padrao.')
         removida = itens[idx].get('cod')
+        peca_cod_registro = removida
         itens.pop(idx)
     elif acao == 'adicionar':
         i_ret = request.form.get('retalho', type=int)
         cod = (request.form.get('cod') or '').strip()
+        girar_raw = request.form.get('girar')
+        forcar_giro = None if girar_raw is None else (girar_raw == '1')
         livres = edicao.retalhos_livres(itens, r['sheet_w'], r['sheet_h'])
         peca = next((p for p in banco.listar_pecas(cod, limite=80) if p['cod'] == cod), None)
         if peca is None:
@@ -941,12 +1366,96 @@ def aplicar_edicao(plano_id, gi, pi):
         if i_ret is None or not (0 <= i_ret < len(livres)):
             return volta(erro='Escolha em qual sobra a peca vai entrar.')
         enc = edicao.encaixar(livres[i_ret], peca['comp_mm'], peca['larg_mm'], r['kerf'],
-                               _pode_girar_aqui(peca, grupo))
-        if not enc:
-            return volta(retalho=i_ret,
-                          erro='A peca nao cabe nesta sobra considerando a folga da serra.')
-        itens.append({'cod': peca['cod'], 'desc': peca['descricao'],
-                       'piece_key': peca['cod'] + '_manual', 'shelf': 0, **enc})
+                               _pode_girar_aqui(peca, grupo), forcar_giro=forcar_giro)
+        if enc:
+            itens.append({'cod': peca['cod'], 'desc': peca['descricao'],
+                           'piece_key': peca['cod'] + '_manual', 'shelf': 0, **enc})
+        elif forcar_giro is not None:
+            # A caixa especifica onde a pessoa soltou nao aceita a peca NESSA
+            # orientacao - mas ela pediu pra virar, nao pediu pra cair
+            # exatamente ali. Antes de recusar, procura em toda a chapa por
+            # outro lugar onde a peca entre virada (a mesma logica que o
+            # botao de girar usa numa peca ja colocada).
+            candidato = _melhor_encaixe_valido(
+                {'cod': peca['cod'], 'desc': peca['descricao'], 'piece_key': peca['cod'] + '_manual', 'shelf': 0},
+                peca['comp_mm'], peca['larg_mm'], r['kerf'], _pode_girar_aqui(peca, grupo), itens,
+                r['sheet_w'], r['sheet_h'], r['estagios'], forcar_giro=forcar_giro)
+            if candidato is None:
+                orientacao = 'virada' if forcar_giro else 'sem virar'
+                return volta(retalho=i_ret,
+                             erro=f"A peca {peca['cod']} nao cabe {orientacao} em lugar nenhum desta chapa.")
+            itens.append(candidato)
+            aviso = f"A peca {peca['cod']} nao coube na sobra escolhida nessa orientacao; entrou no melhor espaco livre da chapa."
+        else:
+            return volta(retalho=i_ret, erro='A peca nao cabe nesta sobra considerando a folga da serra.')
+        peca_cod_registro = peca['cod']
+    elif acao == 'mover':
+        # Reposiciona uma peca ja colocada na chapa (arraste dentro do
+        # canvas) - a diferenca pra 'adicionar' e que a peca ja existe no
+        # padrao, so a posicao muda; largura/altura/giro ficam como estao.
+        idx = request.form.get('indice', type=int)
+        x = request.form.get('x', type=float)
+        y = request.form.get('y', type=float)
+        if idx is None or not (0 <= idx < len(itens)) or x is None or y is None:
+            return volta(erro='Peca ou posicao invalida.')
+        itens[idx] = {**itens[idx], 'x': x, 'y': y}
+        peca_cod_registro = itens[idx].get('cod')
+    elif acao == 'girar':
+        # Vira 90 graus uma peca ja colocada - nao precisa mais decidir a
+        # orientacao so no momento de soltar, da pra corrigir depois. Se nao
+        # couber virada NO MESMO lugar, procura sozinho outro espaco livre
+        # da chapa onde ela caiba virada, em vez de so recusar - a pessoa
+        # pediu pra virar, nao pediu pra manter a posicao a qualquer custo.
+        idx = request.form.get('indice', type=int)
+        if idx is None or not (0 <= idx < len(itens)):
+            return volta(erro='Peca nao encontrada neste padrao.')
+        alvo = itens[idx]
+        peca_cad = next((p for p in banco.listar_pecas(alvo['cod'], limite=80)
+                          if p['cod'] == alvo['cod']), None)
+        if peca_cad is not None and not _pode_girar_aqui(peca_cad, grupo):
+            return volta(erro=f"A peca {alvo['cod']} nao pode ser girada (regra de veio da cor/material).")
+        novo_w, novo_h = alvo['h'], alvo['w']
+        rodada = not alvo.get('rotated', False)
+        outros = itens[:idx] + itens[idx + 1:]
+
+        no_lugar = {**alvo, 'w': novo_w, 'h': novo_h, 'rotated': rodada}
+        if not edicao.validar_padrao(outros + [no_lugar], r['sheet_w'], r['sheet_h'], r['estagios']):
+            itens[idx] = no_lugar
+        else:
+            candidato = _melhor_encaixe_valido(
+                {'cod': alvo['cod'], 'desc': alvo.get('desc'), 'piece_key': alvo.get('piece_key'),
+                 'shelf': alvo.get('shelf', 0)},
+                novo_w, novo_h, r['kerf'], False, outros, r['sheet_w'], r['sheet_h'], r['estagios'])
+            if candidato is None:
+                return volta(erro=f"A peca {alvo['cod']} nao cabe virada em lugar nenhum desta chapa.")
+            candidato['rotated'] = rodada
+            itens = outros[:idx] + [candidato] + outros[idx:]
+        peca_cod_registro = alvo.get('cod')
+    elif acao == 'incluir_melhor':
+        # Inclui N unidades de uma peca automaticamente, cada uma no melhor
+        # espaco livre que sobrar depois da anterior - o operador so diz a
+        # peca e a quantidade, sem precisar clicar sobra por sobra.
+        cod = (request.form.get('cod') or '').strip()
+        quantidade = max(1, request.form.get('quantidade', type=int) or 1)
+        peca = next((p for p in banco.listar_pecas(cod, limite=80) if p['cod'] == cod), None)
+        if peca is None:
+            return volta(erro='Codigo ' + cod + ' nao existe no cadastro de pecas.')
+        pode_girar = _pode_girar_aqui(peca, grupo)
+        incluidas, motivo_parada = 0, None
+        for _ in range(quantidade):
+            novo_item = _melhor_encaixe_valido(
+                {'cod': peca['cod'], 'desc': peca['descricao'], 'piece_key': peca['cod'] + '_manual', 'shelf': 0},
+                peca['comp_mm'], peca['larg_mm'], r['kerf'], pode_girar, itens, r['sheet_w'], r['sheet_h'], r['estagios'])
+            if novo_item is None:
+                motivo_parada = 'nao ha mais espaco livre onde esta peca caiba (respeitando o corte em guilhotina)'
+                break
+            itens = itens + [novo_item]
+            incluidas += 1
+        if incluidas == 0:
+            return volta(erro=f'Nao consegui incluir nenhuma peca {cod}: {motivo_parada}')
+        if incluidas < quantidade:
+            aviso = f'Incluidas {incluidas} de {quantidade} pedidas ({motivo_parada}).'
+        peca_cod_registro = peca['cod']
     else:
         return volta(erro='Acao desconhecida.')
 
@@ -972,13 +1481,13 @@ def aplicar_edicao(plano_id, gi, pi):
     # espaco na mesa de forma sistematica.
     banco.registrar_edicao({
         'plano_id': plano_id, 'cor': grupo.get('cor'), 'esp': grupo.get('esp'),
-        'acao': acao, 'peca_cod': (peca['cod'] if acao == 'adicionar' else removida),
+        'acao': acao, 'peca_cod': peca_cod_registro,
         'sobra_w': int(livres[i_ret].w) if acao == 'adicionar' else None,
         'sobra_h': int(livres[i_ret].h) if acao == 'adicionar' else None,
         'repeticoes': padrao.get('repeticoes'),
         'aprov_antes': aprov_antes, 'aprov_depois': padrao.get('aproveitamento'),
     })
-    return volta(ok='1')
+    return volta(ok='1', **({'aviso': aviso} if aviso else {}))
 
 
 @app.route('/cadastro/resolver-medida', methods=['POST'])
@@ -1013,6 +1522,45 @@ def plano_pdf(plano_id):
     nome = f"plano-corte-{plano_id}.pdf"
     return send_file(caminho, mimetype='application/pdf',
                       as_attachment=True, download_name=nome)
+
+
+@app.route('/resultado/<plano_id>/relatorio/planejado-produzido')
+def relatorio_planejado_produzido(plano_id):
+    """Todo o plano, peça a peça: quanto foi pedido e quanto está sendo produzido hoje."""
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+    _conferir_demanda(r)
+    linhas = _linhas_planejado_produzido(r)
+    return _sem_cache(make_response(render_template(
+        'relatorio_planejado_produzido.html', pagina='planos', plano=salvo, r=r,
+        linhas=linhas,
+        n_certinho=sum(1 for l in linhas if l['dif'] == 0),
+        n_falta=sum(1 for l in linhas if l['dif'] < 0),
+        n_excedente=sum(1 for l in linhas if l['dif'] > 0))))
+
+
+@app.route('/resultado/<plano_id>/relatorio/pecas-extras')
+def relatorio_pecas_extras(plano_id):
+    """
+    Só as peças que o plano corta a mais do que o Kambam/quantidade pediu -
+    seja por sobra inerente de cortar chapa inteira, aprendizado automático,
+    ou o botão "Preencher com peças extras".
+    """
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+    _conferir_demanda(r)
+    linhas = sorted((l for l in _linhas_planejado_produzido(r) if l['dif'] > 0),
+                     key=lambda l: -l['dif'])
+    total_chapas = sum(g.get('n_chapas', 0) for g in r.get('grupos', []))
+    # media ponderada por chapa: um grupo com 2000 chapas pesa mais no
+    # aproveitamento do plano inteiro do que um com 5.
+    soma_ponderada = sum(g.get('aproveitamento_medio', 0) * g.get('n_chapas', 0)
+                          for g in r.get('grupos', []))
+    aproveitamento_final = (soma_ponderada / total_chapas) if total_chapas else 0
+    return _sem_cache(make_response(render_template(
+        'relatorio_pecas_extras.html', pagina='planos', plano=salvo, r=r,
+        linhas=linhas, total_extras=sum(l['dif'] for l in linhas),
+        total_chapas=total_chapas, aproveitamento_final=aproveitamento_final)))
 
 
 @app.route('/resultado/<plano_id>/grupo/<int:gi>/aceitar', methods=['POST'])
@@ -1072,6 +1620,101 @@ def reequilibrar(plano_id, gi):
     return redirect(url_for('resultado', job_id=plano_id,
                              reeq=('%d:%d' % (res['antes'], res['depois'])) if res['ok']
                                    else 'erro', motivo=res.get('motivo')) + '#g' + str(gi))
+
+
+@app.route('/resultado/<plano_id>/grupo/<int:gi>/preencher-extra', methods=['POST'])
+def _preencher_extra_no_grupo(plano_id: str, r: dict, g: dict, pct: float, catalogo: dict) -> int:
+    """
+    Enche os espacos livres dos padroes de UM grupo com pecas extras, ate
+    `pct`% da demanda de cada peca. Devolve quantas unidades fisicas
+    entraram (0 se nao tinha pedido ou nao sobrou espaco/orcamento).
+
+    So mexe no grupo (nao salva no banco) - quem chama decide quando gravar,
+    pra dar pra encher varios grupos e salvar uma unica vez no final.
+    """
+    pedido = {c: q for c, q in _demanda_do_grupo(g).items() if q > 0}
+    if not pedido:
+        return 0
+    # ceil(qtd * pct / 100), sempre >=1 pra quem tem pedido>0 e pct>0.
+    orcamento_fisico = {cod: -(-int(qtd * pct) // 100) for cod, qtd in pedido.items()}
+    pode_girar_por_cod = {cod: _pode_girar_aqui(catalogo[cod], g) for cod in orcamento_fisico if cod in catalogo}
+    total = _preencher_padroes_extra(g['padroes'], catalogo, orcamento_fisico, pode_girar_por_cod,
+                                      r['kerf'], r['sheet_w'], r['sheet_h'], r['estagios'])
+    if total:
+        for pad in g['padroes']:
+            pad['pecas_exibicao'] = _pecas_do_padrao(pad)
+            _redesenhar(plano_id, r, g, pad)
+    return total
+
+
+def preencher_extra(plano_id, gi):
+    """
+    Enche os espacos livres dos padroes deste grupo com pecas extras, ate o
+    percentual de "Pecas extras (%)" cadastrado na maquina do plano.
+
+    Sempre overproducao deliberada por cima do pedido - nunca troca uma peca
+    do pedido por outra, so aproveita sobra de chapa que ja ia ser cortada
+    de qualquer jeito. O percentual e por MAQUINA (nao por plano) porque e
+    uma decisao de quanto estoque extra a fabrica aceita gerar, nao do
+    calculo de um lote especifico.
+    """
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+    try:
+        g = r['grupos'][gi]
+    except (IndexError, KeyError):
+        abort(404)
+
+    maq = banco.maquina(r.get('maquina_id'))
+    pct = float(maq['pct_extra']) if maq and maq['pct_extra'] else 0.0
+    if pct <= 0:
+        return redirect(url_for('resultado', job_id=plano_id,
+                                 extra_erro='Esta maquina nao tem "Pecas extras (%)" configurado '
+                                             '(ou esta em 0). Ajuste em Maquinas.') + '#g' + str(gi))
+
+    catalogo = {p['cod']: p for p in banco.listar_pecas(limite=5000)}
+    total = _preencher_extra_no_grupo(plano_id, r, g, pct, catalogo)
+    if total:
+        _recalcular(r)
+        _conferir_demanda(r)
+        banco.atualizar_resultado(plano_id, r)
+        return redirect(url_for('resultado', job_id=plano_id, extra_ok=total) + '#g' + str(gi))
+    return redirect(url_for('resultado', job_id=plano_id,
+                             extra_erro='Nao sobrou espaco livre suficiente pra encaixar peca extra '
+                                        'nenhuma neste grupo.') + '#g' + str(gi))
+
+
+@app.route('/resultado/<plano_id>/preencher-extra-tudo', methods=['POST'])
+def preencher_extra_tudo(plano_id):
+    """
+    A mesma coisa que o botao por grupo, so que pra TODOS os grupos do plano
+    de uma vez - existe porque o botao por grupo, escondido no cabecalho de
+    cada material, e facil de nao encontrar num plano com varios grupos. Um
+    unico botao no topo do plano, sempre visivel, resolve isso.
+    """
+    salvo = banco.obter_plano(plano_id) or abort(404)
+    r = salvo['resultado']
+
+    maq = banco.maquina(r.get('maquina_id'))
+    pct = float(maq['pct_extra']) if maq and maq['pct_extra'] else 0.0
+    if pct <= 0:
+        return redirect(url_for('resultado', job_id=plano_id,
+                                 extra_erro='Esta maquina nao tem "Pecas extras (%)" configurado '
+                                             '(ou esta em 0). Ajuste em Maquinas.'))
+
+    catalogo = {p['cod']: p for p in banco.listar_pecas(limite=5000)}
+    total = 0
+    for g in r.get('grupos', []):
+        total += _preencher_extra_no_grupo(plano_id, r, g, pct, catalogo)
+
+    if total:
+        _recalcular(r)
+        _conferir_demanda(r)
+        banco.atualizar_resultado(plano_id, r)
+        return redirect(url_for('resultado', job_id=plano_id, extra_ok=total))
+    return redirect(url_for('resultado', job_id=plano_id,
+                             extra_erro='Nao sobrou espaco livre suficiente pra encaixar peca extra '
+                                        'nenhuma neste plano.'))
 
 
 @app.route('/resultado/<job_id>/aprovar', methods=['POST'])

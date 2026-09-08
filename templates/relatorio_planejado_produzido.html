@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block titulo %}Planejado vs. Produzido{% endblock %}
+{% block trilha %}<a href="/resultado/{{ plano.id }}">Plano de corte</a>{% endblock %}
+{% block cabecalho %}Planejado vs. Produzido{% endblock %}
+{% block subcabecalho %}Quanto cada peça foi pedida e quanto o plano está produzindo hoje —
+  já considerando edições manuais confirmadas.{% endblock %}
+{% block acoes %}
+  <a class="btn secundario" href="/resultado/{{ plano.id }}">← Voltar ao plano</a>
+  <a class="btn secundario" href="/resultado/{{ plano.id }}/relatorio/pecas-extras">Ver peças extras →</a>
+{% endblock %}
+
+{% block conteudo %}
+<div class="metricas" style="margin-bottom:20px;">
+  <div class="metrica destaque">
+    <div class="rot">Peças no plano</div><div class="val">{{ linhas|length }}</div>
+  </div>
+  <div class="metrica">
+    <div class="rot">Fecham certinho</div><div class="val">{{ n_certinho }}</div>
+  </div>
+  <div class="metrica {{ 'alerta' if n_falta }}">
+    <div class="rot">Com falta</div><div class="val">{{ n_falta }}</div>
+  </div>
+  <div class="metrica">
+    <div class="rot">Com excedente</div><div class="val">{{ n_excedente }}</div>
+  </div>
+</div>
+
+<div class="cg-page-card">
+  <div class="cg-table-wrap">
+    <table id="tab-planprod" class="cg-table cg-data-table">
+      <thead>
+        <tr>
+          <th style="width:80px;">
+            <div class="cg-col-header">Código <button class="cg-sort-btn" data-col="0">⇅</button></div>
+            <input class="cg-table-search" data-col="0" placeholder="filtrar..."></th>
+          <th>
+            <div class="cg-col-header">Descrição <button class="cg-sort-btn" data-col="1">⇅</button></div>
+            <input class="cg-table-search" data-col="1" placeholder="filtrar..."></th>
+          <th style="width:150px;">
+            <div class="cg-col-header">Material / cor <button class="cg-sort-btn" data-col="2">⇅</button></div>
+            <input class="cg-table-search" data-col="2" placeholder="filtrar..."></th>
+          <th style="width:90px;">
+            <div class="cg-col-header">Espessura <button class="cg-sort-btn" data-col="3">⇅</button></div></th>
+          <th class="cg-acoes-col">
+            <div class="cg-col-header">Pedido <button class="cg-sort-btn" data-col="4">⇅</button></div></th>
+          <th class="cg-acoes-col">
+            <div class="cg-col-header">Produzido <button class="cg-sort-btn" data-col="5">⇅</button></div></th>
+          <th class="cg-acoes-col">
+            <div class="cg-col-header">Diferença <button class="cg-sort-btn" data-col="6">⇅</button></div></th>
+          <th style="width:130px;"><div class="cg-col-header">Situação</div></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in linhas %}
+        <tr>
+          <td class="cg-cod">{{ l.cod }}</td>
+          <td class="cg-desc">{{ l.desc }}</td>
+          <td>{{ l.cor }}</td>
+          <td class="cg-num">{{ '%.0f'|format(l.esp) }}mm</td>
+          <td class="cg-num">{{ l.pedido }}</td>
+          <td class="cg-num">{{ l.produzido }}</td>
+          <td class="cg-num">{{ '+' if l.dif > 0 }}{{ l.dif }}</td>
+          <td>
+            {% if l.dif == 0 %}<span class="etiqueta ok">Fecha certinho</span>
+            {% elif l.dif < 0 %}<span class="etiqueta perigo">{{ l.dif }} de falta</span>
+            {% else %}<span class="etiqueta atencao">+{{ l.dif }} de excedente</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr class="cg-vazio"><td colspan="8">Este plano ainda não tem peças posicionadas.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block script %}<script src="/static/js/tabela.js"></script>{% endblock %}

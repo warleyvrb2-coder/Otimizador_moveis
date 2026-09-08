@@ -10,7 +10,11 @@
   {% if plano and plano.aprovado %}
   <span class="etiqueta ok">✓ aprovado por {{ plano.aprovado_por }}</span>
   {% endif %}
-  {% if plano %}<a class="btn secundario" href="/resultado/{{ plano.id }}/pdf">Baixar PDF</a>{% endif %}
+  {% if plano %}
+  <a class="btn secundario" href="/resultado/{{ plano.id }}/relatorio/planejado-produzido">Planejado × Produzido</a>
+  <a class="btn secundario" href="/resultado/{{ plano.id }}/relatorio/pecas-extras">Peças extras</a>
+  <a class="btn secundario" href="/resultado/{{ plano.id }}/pdf">Baixar PDF</a>
+  {% endif %}
   <button class="btn secundario" onclick="window.print()">Imprimir</button>
   <a href="/novo" class="btn">Novo plano</a>
 {% endblock %}
@@ -108,6 +112,23 @@
 </div>
 {% endif %}
 
+{% if plano and pct_extra %}
+<div class="cartao" style="border-left:4px solid var(--laranja); display:flex; align-items:center;
+                            gap:16px; flex-wrap:wrap; margin-bottom:20px;">
+  <div style="flex:1; min-width:260px;">
+    <div style="font-weight:680; font-size:14.5px;">Preencher espaços vazios com peças extras</div>
+    <div style="color:var(--tinta-2); font-size:13px; margin-top:3px;">
+      Esta máquina libera até <strong>{{ pct_extra|int if pct_extra == pct_extra|int else pct_extra }}%</strong>
+      a mais de cada peça pra aproveitar sobra de chapa — um clique aplica em todos os grupos do plano de uma vez.
+      Sempre por cima do pedido, nunca no lugar dele.</div>
+  </div>
+  <form method="post" action="/resultado/{{ plano.id }}/preencher-extra-tudo"
+        onsubmit="carregando('Preenchendo o plano inteiro com peças extras...')">
+    <button class="btn" type="submit" style="white-space:nowrap;">Preencher plano inteiro →</button>
+  </form>
+</div>
+{% endif %}
+
 <div class="metricas" style="margin-bottom:20px;">
   <div class="metrica destaque">
     <div class="rot">Chapas no total</div><div class="val">{{ total_chapas }}</div>
@@ -161,6 +182,15 @@
   {% endif %}
 {% endif %}
 
+{% if extra_ok %}
+<div class="recado info"><span class="ic">✓</span>
+  <div><strong>{{ extra_ok }} peça(s) extra</strong> incluída(s) nos espaços que sobraram —
+    sempre por cima do pedido, nunca no lugar dele. Aparecem como excedente na conferência
+    abaixo.</div></div>
+{% elif extra_erro %}
+<div class="recado perigo"><span class="ic">✕</span><div>{{ extra_erro }}</div></div>
+{% endif %}
+
 {% for g in grupos %}
 {% set gi = loop.index0 %}
 <div class="cartao" id="g{{ gi }}">
@@ -178,6 +208,15 @@
       produz {{ g.total_produz if g.total_produz is defined else '—' }}</span>
     <span class="etiqueta">{{ g.n_tipos_peca }} tipos</span>
     <span class="etiqueta">{{ 'veio travado' if g.tem_veio else 'liso, pode girar' }}</span>
+    {% if pct_extra %}
+    <form method="post" action="/resultado/{{ plano.id }}/grupo/{{ gi }}/preencher-extra"
+          style="margin-left:auto;" onsubmit="carregando('Preenchendo com peças extras...')">
+      <button class="btn secundario btn-sm" type="submit"
+              title="Usa o percentual de peças extras cadastrado na máquina para aproveitar o espaço que sobrou nas chapas deste grupo">
+        Preencher com peças extras (até {{ pct_extra|int if pct_extra == pct_extra|int else pct_extra }}%)
+      </button>
+    </form>
+    {% endif %}
   </div>
 
   {% if g.faltas %}

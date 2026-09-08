@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block titulo %}Plano manual{% endblock %}
+{% block cabecalho %}Plano manual{% endblock %}
+{% block subcabecalho %}Monte um padrão à mão, sem precisar de um Kambam{% endblock %}
+
+{% block estilo %}
+<style>
+  .opcao { display:flex; gap:12px; align-items:flex-start; padding:14px 0; border-top:1px solid var(--linha); }
+  .opcao:first-of-type { border-top:none; }
+  .opcao .txt { flex:1; }
+  .opcao .rot { font-weight:600; font-size:13.5px; }
+  .opcao .aj { color:var(--tinta-2); font-size:12.5px; margin-top:2px; }
+  .chave { position:relative; width:44px; height:25px; flex:none; margin-top:2px; }
+  .chave input { opacity:0; width:0; height:0; }
+  .chave span { position:absolute; inset:0; background:#c6ccd2; border-radius:99px; transition:.2s; }
+  .chave span:before { content:""; position:absolute; width:19px; height:19px; left:3px; top:3px;
+                       background:#fff; border-radius:50%; transition:.2s; }
+  .chave input:checked + span { background:var(--verde); }
+  .chave input:checked + span:before { transform:translateX(19px); }
+</style>
+{% endblock %}
+
+{% block conteudo %}
+{% if erro %}<div class="recado perigo"><span class="ic">✕</span><div>{{ erro }}</div></div>{% endif %}
+
+<div class="cartao" style="max-width:520px;">
+  <h2>Escolha a máquina</h2>
+  <p class="ajuda">Define o tamanho da chapa, a serra e o empilhamento que você vai usar pra
+    montar o padrão.</p>
+
+  {% if not maquinas %}
+  <div class="vazio">
+    <div class="ic">🛠️</div>
+    <p>Nenhuma máquina cadastrada.<br>O plano precisa saber em qual máquina vai ser cortado.</p>
+    <a href="/maquinas/nova" class="btn">Cadastrar uma máquina</a>
+  </div>
+  {% else %}
+  <form method="post">
+    <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
+      {% for maq in maquinas %}
+      <label style="display:flex; align-items:center; gap:10px; padding:12px 14px;
+                    border:1px solid var(--linha); border-radius:8px; cursor:pointer;">
+        <input type="radio" name="maquina_id" value="{{ maq.id }}" {{ 'checked' if loop.first }}>
+        <div>
+          <div style="font-weight:680;">{{ maq.nome }}</div>
+          <div style="color:var(--tinta-2); font-size:12px;">
+            chapa {{ maq.chapa_larg }}×{{ maq.chapa_alt }}mm · serra {{ maq.kerf }}mm ·
+            empilha {{ (maq.pilha_max // espessura_padrao)|int }} chapas de {{ espessura_padrao }}mm
+          </div>
+        </div>
+      </label>
+      {% endfor %}
+    </div>
+
+    <div class="opcao">
+      <label class="chave">
+        <input type="checkbox" name="respeitar_veio" checked><span></span>
+      </label>
+      <div class="txt">
+        <div class="rot">Respeitar o veio da chapa</div>
+        <div class="aj">Peça aparente não gira, para o desenho da madeira não sair
+          atravessado. Desligue apenas para comparar quanto o veio custa em material —
+          nunca para mandar à máquina.</div>
+      </div>
+    </div>
+
+    <button type="submit" class="btn" style="margin-top:16px;">Criar chapa em branco →</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

@@ -34,6 +34,7 @@
             <input class="cg-table-search" data-col="0" placeholder="filtrar..."></th>
           <th><div class="cg-col-header">Cores de chapa que usa</div></th>
           <th class="cg-acoes-col"><div class="cg-col-header">Situação</div></th>
+          <th class="cg-acoes-col"></th>
         </tr>
       </thead>
       <tbody>
@@ -52,9 +53,13 @@
             <span class="cg-estado {{ 'ok' if a.cores }}">
               {% if a.cores %}{{ a.cores|length }} cores{% else %}sem chapa{% endif %}</span>
           </td>
+          <td class="cg-acoes-col">
+            <button class="btn perigo btn-sm"
+                    onclick='excluirRegistro("acabamento",{{ a.nome|tojson }},{{ a.nome|tojson }}, this.closest("tr"))'>excluir</button>
+          </td>
         </tr>
         {% else %}
-        <tr class="cg-vazio"><td colspan="3">
+        <tr class="cg-vazio"><td colspan="4">
           Nenhum acabamento cadastrado. Eles entram sozinhos quando você calcula um plano.
         </td></tr>
         {% endfor %}

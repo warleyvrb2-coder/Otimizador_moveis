@@ -257,6 +257,21 @@ input:focus, select:focus, textarea:focus { outline:2px solid var(--laranja-cla)
 @keyframes girar { to { transform:rotate(360deg); } }
 .vc-loading-texto { font-size:11px; color:#5B6572; font-weight:600; }
 
+/* ══ MODAL DE EDIÇÃO — genérico, usado nas telas de Cadastros ═ */
+.vc-modal-overlay { display:none; position:fixed; inset:0; background:rgba(15,42,68,.45);
+                    z-index:998; align-items:center; justify-content:center; }
+.vc-modal-overlay.ativo { display:flex; }
+.vc-modal { background:var(--branco); border-radius:10px; box-shadow:var(--sombra);
+           width:380px; max-width:92vw; padding:20px; }
+.vc-modal h3 { font-size:13px; font-weight:700; margin-bottom:14px; }
+.vc-modal-campo { margin-bottom:12px; }
+.vc-modal-campo label { display:block; font-size:10px; font-weight:700; color:#5B6572;
+                        text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
+.vc-modal-campo input { width:100%; padding:8px 10px; border:1px solid var(--cinza-borda);
+                        border-radius:7px; font-size:12px; }
+.vc-modal-erro { color:var(--vermelho); font-size:10.5px; margin-top:8px; display:none; }
+.vc-modal-acoes { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+
 @media (max-width:900px) {
   .sidebar { position:fixed; left:calc(-1 * var(--sidebar-aberta)); height:100vh;
              width:var(--sidebar-aberta); min-width:var(--sidebar-aberta); transition:left .2s; }

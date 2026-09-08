@@ -300,20 +300,53 @@ def sequencia_cortes(itens: list[dict], w: float, h: float,
 
 
 def encaixar(retalho: Retalho, comp: float, larg: float, kerf: float,
-             pode_girar: bool) -> dict | None:
+             pode_girar: bool, forcar_giro: bool | None = None) -> dict | None:
     """
     Onde a peça fica dentro da sobra, ou None se não couber.
 
     Exige a folga do kerf além da medida: o corte que separa a peça nova das
     vizinhas também come material. É um pouco conservador quando a sobra
     encosta na borda da chapa, e essa é a direção certa de errar.
+
+    forcar_giro: None deixa o sistema escolher (tenta reto primeiro, depois
+    girado, como sempre foi). True/False testa SÓ a orientação pedida - é o
+    que o plano manual usa, porque lá quem decide a orientação arrastando a
+    peça é a pessoa, não o sistema.
     """
-    for w, h, girada in ((comp, larg, False), (larg, comp, True)):
+    orientacoes = ((comp, larg, False), (larg, comp, True))
+    if forcar_giro is not None:
+        orientacoes = tuple(o for o in orientacoes if o[2] == forcar_giro)
+    for w, h, girada in orientacoes:
         if girada and not pode_girar:
             continue
         if w + kerf <= retalho.w + TOL and h + kerf <= retalho.h + TOL:
             return {'x': retalho.x, 'y': retalho.y, 'w': w, 'h': h, 'rotated': girada}
     return None
+
+
+def melhor_encaixe_em_retalhos(retalhos: list[Retalho], comp: float, larg: float,
+                               kerf: float, pode_girar: bool) -> dict | None:
+    """
+    Escolhe, entre todos os retalhos, o que sobra menos espaço depois de
+    encaixar a peça - ou None se ela não couber em nenhum.
+
+    É o que permite "só indicar a quantidade" em vez de clicar sobra por
+    sobra: o operador escolhe a peça, o sistema acha sozinho onde ela cabe
+    melhor. "Melhor" aqui é *best fit* - o retalho que deixa a menor sobra
+    depois do encaixe, para não gastar um espaço grande com uma peça
+    pequena enquanto uma peça maior fica sem lugar.
+    """
+    melhor = None
+    menor_sobra = None
+    for retalho in retalhos:
+        encaixe = encaixar(retalho, comp, larg, kerf, pode_girar)
+        if encaixe is None:
+            continue
+        sobra = retalho.w * retalho.h - encaixe['w'] * encaixe['h']
+        if menor_sobra is None or sobra < menor_sobra:
+            menor_sobra = sobra
+            melhor = encaixe
+    return melhor
 
 
 def diagnosticar(retalho: Retalho, comp: float, larg: float, kerf: float,

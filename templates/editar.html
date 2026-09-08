@@ -49,6 +49,9 @@
                 white-space:nowrap; }
   .item-p .md { color:var(--tinta-3); white-space:nowrap; font-size:11.5px; }
   .item-p .porque { color:var(--vermelho); font-size:11px; white-space:nowrap; }
+  .item-p .qtd-incluir { width:48px; padding:5px 6px; border:1px solid var(--linha);
+                         border-radius:6px; font-size:12px; text-align:center; }
+  .item-p .btn-incluir { padding:5px 9px; font-size:11.5px; white-space:nowrap; }
   .titulo-lista { font-size:11px; font-weight:700; text-transform:uppercase;
                   letter-spacing:.05em; color:var(--tinta-2); margin:14px 0 7px; }
   .carregando { color:var(--tinta-3); font-size:13px; padding:10px 0; }
@@ -60,6 +63,7 @@
 {% if ok %}<div class="recado info"><span class="ic">✓</span>
   <div>Padrão atualizado. A aprovação do PCP foi retirada — o desenho mudou e precisa de
     nova conferência.</div></div>{% endif %}
+{% if aviso %}<div class="recado info"><span class="ic">ℹ️</span><div>{{ aviso }}</div></div>{% endif %}
 
 <div class="recado atencao">
   <span class="ic">⚠️</span>
@@ -113,6 +117,7 @@
   <input type="hidden" name="retalho" id="f-retalho">
   <input type="hidden" name="cod" id="f-cod">
   <input type="hidden" name="indice" id="f-indice">
+  <input type="hidden" name="quantidade" id="f-quantidade">
 </form>
 {% endblock %}
 
@@ -216,30 +221,26 @@ async function listar() {
   const alvo = document.getElementById('resultado');
   alvo.innerHTML = '<div class="carregando">Conferindo o cadastro...</div>';
   const r = await fetch(`${BASE}/candidatas?retalho=${sobraSel}&busca=${encodeURIComponent(busca)}`);
-  const {cabem, nao_cabem} = await r.json();
+  const {cabem} = await r.json();
 
   let html = '';
   if (cabem.length) {
-    html += `<div class="titulo-lista">Cabem aqui (${cabem.length})</div><div class="lista">`;
+    html += `<div class="titulo-lista">Cabem aqui (${cabem.length})</div>
+             <p class="ajuda" style="margin:0 0 8px; font-size:12px;">Clique na peça pra
+               colocar uma exatamente aqui, ou digite a quantidade e clique
+               <strong>Incluir →</strong> pra colocar várias de uma vez (cada uma no melhor
+               espaço livre do padrão).</p>
+             <div class="lista">`;
     cabem.forEach((c, i) => {
       html += `<div class="item-p" data-cabe="${i}">
         <span class="cod">${c.cod}</span><span class="ds">${c.desc}</span>
-        <span class="md">${c.comp}×${c.larg}${c.rotated ? ' ⟲' : ''}</span></div>`;
+        <span class="md">${c.comp}×${c.larg}${c.rotated ? ' ⟲' : ''}</span>
+        <input type="number" min="1" step="1" value="1" class="qtd-incluir" title="Quantidade">
+        <button type="button" class="btn secundario btn-incluir">Incluir →</button></div>`;
     });
     html += '</div>';
   } else {
     html += '<div class="titulo-lista">Nenhuma peça cabe neste espaço</div>';
-  }
-  if (nao_cabem.length) {
-    html += `<div class="titulo-lista">Não cabem, e por quê (${nao_cabem.length})</div>
-             <div class="lista">`;
-    nao_cabem.forEach((c, i) => {
-      html += `<div class="item-p recusada" data-nao="${i}">
-        <span class="cod">${c.cod}</span><span class="ds">${c.desc}</span>
-        <span class="md">${c.comp}×${c.larg}</span>
-        <span class="porque">${c.curto}</span></div>`;
-    });
-    html += '</div>';
   }
   alvo.innerHTML = html;
 
@@ -250,15 +251,15 @@ async function listar() {
       veredito('sim', `${c.cod} cabe`, c.motivo);
     };
     n.onclick = () => colocar(c.cod);
-  });
-  alvo.querySelectorAll('[data-nao]').forEach(n => {
-    const c = nao_cabem[+n.dataset.nao];
-    n.onmouseenter = () => {
-      const s = dados.livres[sobraSel];
-      desenhar({x:s.x, y:s.y, w:Math.min(c.comp, s.w * 1.6),
-                h:Math.min(c.larg, s.h * 1.6), ok:false});
-      veredito('nao', `${c.cod} não entra — ${c.curto}`, c.motivo);
-    };
+    const qtdInput = n.querySelector('.qtd-incluir');
+    qtdInput.addEventListener('mousedown', ev => ev.stopPropagation());
+    qtdInput.addEventListener('click', ev => ev.stopPropagation());
+    const btnIncluir = n.querySelector('.btn-incluir');
+    btnIncluir.addEventListener('mousedown', ev => ev.stopPropagation());
+    btnIncluir.addEventListener('click', ev => {
+      ev.stopPropagation();
+      incluirQuantidade(c.cod, qtdInput);
+    });
   });
   document.getElementById('chapa').onmouseleave = () => desenhar();
 }
@@ -269,6 +270,14 @@ function colocar(cod) {
   document.getElementById('f-acao').value = 'adicionar';
   document.getElementById('f-retalho').value = sobraSel;
   document.getElementById('f-cod').value = cod;
+  document.getElementById('frm-aplicar').submit();
+}
+
+function incluirQuantidade(cod, inputEl) {
+  const n = Math.max(1, parseInt(inputEl.value, 10) || 1);
+  document.getElementById('f-acao').value = 'incluir_melhor';
+  document.getElementById('f-cod').value = cod;
+  document.getElementById('f-quantidade').value = n;
   document.getElementById('frm-aplicar').submit();
 }
 

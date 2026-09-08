@@ -39,6 +39,7 @@
             <div class="cg-col-header">Desenho <button class="cg-sort-btn" data-col="1">⇅</button></div>
             <input class="cg-table-search" data-col="1" placeholder="madeira / lisa"></th>
           <th class="cg-acoes-col"><div class="cg-col-header">Situação</div></th>
+          <th class="cg-acoes-col"></th>
         </tr>
       </thead>
       <tbody>
@@ -57,9 +58,13 @@
             <span class="cg-estado {{ 'ok' if c.confirmado }}">
               {{ 'CONFERIDA' if c.confirmado else 'palpite' }}</span>
           </td>
+          <td class="cg-acoes-col">
+            <button class="btn perigo btn-sm"
+                    onclick='excluirRegistro("cor",{{ c.nome|tojson }},{{ c.nome|tojson }}, this.closest("tr"))'>excluir</button>
+          </td>
         </tr>
         {% else %}
-        <tr class="cg-vazio"><td colspan="3">
+        <tr class="cg-vazio"><td colspan="4">
           Nenhuma cor cadastrada. Elas entram sozinhas quando você calcula um plano.
         </td></tr>
         {% endfor %}

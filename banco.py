@@ -157,6 +157,7 @@ def criar_tabelas() -> None:
                 pilha_max     INTEGER NOT NULL,
                 estagios      INTEGER NOT NULL,
                 tempo_grupo   INTEGER NOT NULL,
+                pct_extra     REAL NOT NULL DEFAULT 0,
                 ativa         INTEGER NOT NULL DEFAULT 1,
                 criada_em     TEXT
             );
@@ -214,6 +215,13 @@ PARAMETROS = {
                     'rotulo': 'Tempo de cálculo por grupo (s)',
                     'ajuda': 'Quanto o otimizador pensa em cada cor. Mais tempo chega mais '
                              'perto do ótimo, com retorno decrescente.'},
+    'pct_extra':   {'padrao': 0, 'tipo': float,
+                    'rotulo': 'Peças extras (%)',
+                    'ajuda': 'Depois que o plano fecha o pedido, o botão "Preencher com peças '
+                             'extras" usa esta porcentagem para cortar peças a mais nos espaços '
+                             'que ainda sobraram na chapa, aumentando o aproveitamento. 10% '
+                             'libera até 10% a mais de cada peça do grupo (sempre marcado como '
+                             'extra, nunca conta como pedido). Deixe 0 para desligar.'},
 }
 
 
@@ -236,7 +244,8 @@ def salvar_parametros(valores: dict) -> dict:
     """Grava só o que for número válido e estiver dentro de um limite sensato."""
     criar_tabelas()
     limites = {'chapa_larg': (500, 6000), 'chapa_alt': (500, 3000), 'kerf': (0, 15),
-               'pilha_max': (15, 400), 'estagios': (2, 3), 'tempo_grupo': (5, 600)}
+               'pilha_max': (15, 400), 'estagios': (2, 3), 'tempo_grupo': (5, 600),
+               'pct_extra': (0, 100)}
     erros = {}
     with conectar() as con:
         for chave, meta in PARAMETROS.items():
@@ -266,6 +275,7 @@ def _garantir_coluna(con, tabela: str, coluna: str, definicao: str) -> None:
 def migrar() -> None:
     with conectar() as con:
         _garantir_coluna(con, 'peca', 'medida_confirmada', 'INTEGER NOT NULL DEFAULT 0')
+        _garantir_coluna(con, 'maquina', 'pct_extra', 'REAL NOT NULL DEFAULT 0')
 
 
 def resolver_conflito(cod: str, comp_mm: int, larg_mm: int) -> None:
@@ -703,7 +713,108 @@ def definir_cor(nome: str, amadeirada: bool) -> None:
         con.execute('UPDATE cor SET amadeirada=?, confirmado=1 WHERE nome=?', (int(amadeirada), nome))
 
 
-CAMPOS_MAQUINA = ('chapa_larg', 'chapa_alt', 'kerf', 'pilha_max', 'estagios', 'tempo_grupo')
+def editar_peca(cod: str, descricao: str, comp_mm: int, larg_mm: int) -> dict:
+    """Corrige descrição e medida à mão. Não mexe em 'aparente' - isso é o toggle."""
+    descricao = (descricao or '').strip()
+    if not descricao:
+        return {'descricao': 'não pode ficar em branco'}
+    try:
+        comp_mm, larg_mm = int(comp_mm), int(larg_mm)
+    except (TypeError, ValueError):
+        return {'medida': 'precisa ser um número inteiro'}
+    if comp_mm <= 0 or larg_mm <= 0:
+        return {'medida': 'precisa ser maior que zero'}
+    with conectar() as con:
+        con.execute('UPDATE peca SET descricao=?, comp_mm=?, larg_mm=? WHERE cod=?',
+                    (descricao, comp_mm, larg_mm, cod))
+    return {}
+
+
+def editar_modelo(cod: str, descricao: str) -> dict:
+    descricao = (descricao or '').strip()
+    if not descricao:
+        return {'descricao': 'não pode ficar em branco'}
+    with conectar() as con:
+        con.execute('UPDATE modelo SET descricao=? WHERE cod=?', (descricao, cod))
+    return {}
+
+
+def impacto_exclusao_peca(cod: str) -> dict:
+    """O que se perde ao excluir esta peça: os vínculos com móveis."""
+    with conectar() as con:
+        n = con.execute('SELECT COUNT(*) n FROM modelo_peca WHERE peca_cod=?', (cod,)).fetchone()['n']
+    return {'vinculos_modelo': n}
+
+
+def excluir_peca(cod: str) -> bool:
+    """
+    Remove a peça e os vínculos dela com móveis (modelo_peca).
+
+    Planos JÁ CALCULADOS não são afetados: cada um guarda sua própria cópia
+    da geometria (pad['itens']), não uma referência viva ao cadastro - por
+    isso excluir a peça aqui não invalida nem muda um plano existente.
+
+    Devolve False se o código não existia - sem isso, um DELETE que não
+    encontra a linha (id errado, corrida com outra exclusão) "funciona" sem
+    apagar nada, e quem chamou não tem como distinguir isso de um sucesso.
+    """
+    with conectar() as con:
+        con.execute('DELETE FROM modelo_peca WHERE peca_cod=?', (cod,))
+        apagou = con.execute('DELETE FROM peca WHERE cod=?', (cod,)).rowcount
+    return apagou > 0
+
+
+def impacto_exclusao_cor(nome: str) -> dict:
+    """O que se perde ao excluir esta cor: os vínculos com acabamentos."""
+    with conectar() as con:
+        n = con.execute('SELECT COUNT(*) n FROM acabamento_cor WHERE cor=?', (nome,)).fetchone()['n']
+    return {'vinculos_acabamento': n}
+
+
+def excluir_cor(nome: str) -> bool:
+    """Remove a cor e os vínculos dela com acabamentos (acabamento_cor)."""
+    with conectar() as con:
+        con.execute('DELETE FROM acabamento_cor WHERE cor=?', (nome,))
+        apagou = con.execute('DELETE FROM cor WHERE nome=?', (nome,)).rowcount
+    return apagou > 0
+
+
+def impacto_exclusao_modelo(cod: str) -> dict:
+    """O que se perde ao excluir este móvel: os vínculos com peças (a lista técnica)."""
+    with conectar() as con:
+        n = con.execute('SELECT COUNT(*) n FROM modelo_peca WHERE modelo_cod=?', (cod,)).fetchone()['n']
+    return {'vinculos_peca': n}
+
+
+def excluir_modelo(cod: str) -> bool:
+    """
+    Remove o móvel e a lista técnica dele (modelo_peca).
+
+    As PEÇAS em si não são apagadas - só o vínculo. Elas voltam a aparecer
+    em "peças sem modelo" e continuam disponíveis pra otimizar o corte.
+    """
+    with conectar() as con:
+        con.execute('DELETE FROM modelo_peca WHERE modelo_cod=?', (cod,))
+        apagou = con.execute('DELETE FROM modelo WHERE cod=?', (cod,)).rowcount
+    return apagou > 0
+
+
+def impacto_exclusao_acabamento(nome: str) -> dict:
+    """O que se perde ao excluir este acabamento: os vínculos com cores de chapa."""
+    with conectar() as con:
+        n = con.execute('SELECT COUNT(*) n FROM acabamento_cor WHERE acabamento=?', (nome,)).fetchone()['n']
+    return {'vinculos_cor': n}
+
+
+def excluir_acabamento(nome: str) -> bool:
+    """Remove o acabamento e os vínculos dele com cores de chapa."""
+    with conectar() as con:
+        con.execute('DELETE FROM acabamento_cor WHERE acabamento=?', (nome,))
+        apagou = con.execute('DELETE FROM acabamento WHERE nome=?', (nome,)).rowcount
+    return apagou > 0
+
+
+CAMPOS_MAQUINA = ('chapa_larg', 'chapa_alt', 'kerf', 'pilha_max', 'estagios', 'tempo_grupo', 'pct_extra')
 
 
 def listar_maquinas(so_ativas: bool = False) -> list[sqlite3.Row]:
@@ -713,6 +824,7 @@ def listar_maquinas(so_ativas: bool = False) -> list[sqlite3.Row]:
     perde a configuração nem precisa recadastrar.
     """
     criar_tabelas()
+    migrar()
     with conectar() as con:
         tem = con.execute('SELECT COUNT(*) n FROM maquina').fetchone()['n']
     if not tem:
@@ -730,13 +842,15 @@ def listar_maquinas(so_ativas: bool = False) -> list[sqlite3.Row]:
 
 def maquina(maquina_id) -> sqlite3.Row | None:
     criar_tabelas()
+    migrar()
     with conectar() as con:
         return con.execute('SELECT * FROM maquina WHERE id=?', (maquina_id,)).fetchone()
 
 
 def _validar_maquina(dados: dict) -> tuple[dict, dict]:
     limites = {'chapa_larg': (500, 6000), 'chapa_alt': (500, 3000), 'kerf': (0, 15),
-               'pilha_max': (15, 400), 'estagios': (2, 3), 'tempo_grupo': (5, 600)}
+               'pilha_max': (15, 400), 'estagios': (2, 3), 'tempo_grupo': (5, 600),
+               'pct_extra': (0, 100)}
     limpos, erros = {}, {}
     nome = (dados.get('nome') or '').strip()
     if not nome:
@@ -768,32 +882,34 @@ def _validar_maquina(dados: dict) -> tuple[dict, dict]:
 
 def criar_maquina(dados: dict) -> tuple[int | None, dict]:
     criar_tabelas()
+    migrar()
     limpos, erros = _validar_maquina(dados)
     if erros:
         return None, erros
     with conectar() as con:
         cur = con.execute(
             'INSERT INTO maquina (nome, descricao, chapa_larg, chapa_alt, kerf, pilha_max,'
-            ' estagios, tempo_grupo, ativa, criada_em) VALUES (?,?,?,?,?,?,?,?,?,?)',
+            ' estagios, tempo_grupo, pct_extra, ativa, criada_em) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
             (limpos['nome'], limpos['descricao'], limpos['chapa_larg'], limpos['chapa_alt'],
              limpos['kerf'], limpos['pilha_max'], limpos['estagios'], limpos['tempo_grupo'],
-             limpos.get('ativa', 1),
+             limpos.get('pct_extra', 0), limpos.get('ativa', 1),
              datetime.now(timezone.utc).isoformat(timespec='seconds')))
         return cur.lastrowid, {}
 
 
 def atualizar_maquina(maquina_id, dados: dict) -> dict:
     criar_tabelas()
+    migrar()
     limpos, erros = _validar_maquina(dados)
     if erros:
         return erros
     with conectar() as con:
         con.execute(
             'UPDATE maquina SET nome=?, descricao=?, chapa_larg=?, chapa_alt=?, kerf=?,'
-            ' pilha_max=?, estagios=?, tempo_grupo=?, ativa=? WHERE id=?',
+            ' pilha_max=?, estagios=?, tempo_grupo=?, pct_extra=?, ativa=? WHERE id=?',
             (limpos['nome'], limpos['descricao'], limpos['chapa_larg'], limpos['chapa_alt'],
              limpos['kerf'], limpos['pilha_max'], limpos['estagios'], limpos['tempo_grupo'],
-             limpos['ativa'], maquina_id))
+             limpos.get('pct_extra', 0), limpos['ativa'], maquina_id))
     return {}
 
 
@@ -903,6 +1019,15 @@ def regras_aprendidas(minimo: int = 2) -> list[dict]:
     novo. Guardamos a MENOR sobra em que ela coube, que é o espaço mínimo
     necessário pra sugerir com segurança.
 
+    Conta 'adicionar' (uma peça de cada vez, clicando na sobra) E
+    'incluir_melhor' (o botão de quantidade, que escolhe a sobra sozinho) -
+    os dois são a mesma intenção do operador, só que o segundo é mais rápido
+    de usar. Contar só 'adicionar' faria o aprendizado esquecer justamente
+    quem passou a usar o jeito mais rápido. 'incluir_melhor' não grava a
+    sobra (ele testa várias, não uma só), então MIN() ignora essas linhas
+    pra achar a menor sobra - só fica sem menor_w/h se o código NUNCA tiver
+    passado por um 'adicionar'.
+
     `minimo` é quantas repetições exigimos antes de confiar. Dois já indica
     padrão; um pode ter sido um caso isolado.
     """
@@ -913,7 +1038,8 @@ def regras_aprendidas(minimo: int = 2) -> list[dict]:
                    MIN(sobra_w) menor_w, MIN(sobra_h) menor_h,
                    MAX(quando) ultima
               FROM edicao_log
-             WHERE acao = 'adicionar' AND peca_cod IS NOT NULL AND cor IS NOT NULL
+             WHERE acao IN ('adicionar', 'incluir_melhor')
+               AND peca_cod IS NOT NULL AND cor IS NOT NULL
              GROUP BY cor, esp, peca_cod
             HAVING COUNT(*) >= ?
              ORDER BY vezes DESC

@@ -63,6 +63,10 @@
           </td>
           <td class="cg-acoes-col">
             <a class="btn secundario btn-sm" href="/modelos/{{ m.cod }}">abrir</a>
+            <button class="btn secundario btn-sm"
+                    onclick='editarModelo({{ m.cod|tojson }},{{ m.descricao|tojson }})'>editar</button>
+            <button class="btn perigo btn-sm"
+                    onclick='excluirRegistro("modelo",{{ m.cod|tojson }},{{ (m.cod ~ " - " ~ m.descricao)|tojson }}, this.closest("tr"))'>excluir</button>
           </td>
         </tr>
         {% else %}
