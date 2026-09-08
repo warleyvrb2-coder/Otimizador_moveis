@@ -1410,10 +1410,20 @@ def aplicar_edicao(plano_id, gi, pi):
         if idx is None or not (0 <= idx < len(itens)):
             return volta(erro='Peca nao encontrada neste padrao.')
         alvo = itens[idx]
+        forcar_veio = request.form.get('forcar_veio') == '1'
         peca_cad = next((p for p in banco.listar_pecas(alvo['cod'], limite=80)
                           if p['cod'] == alvo['cod']), None)
-        if peca_cad is not None and not _pode_girar_aqui(peca_cad, grupo):
-            return volta(erro=f"A peca {alvo['cod']} nao pode ser girada (regra de veio da cor/material).")
+        if peca_cad is not None and not _pode_girar_aqui(peca_cad, grupo) and not forcar_veio:
+            # Bloqueio de veio, nao de geometria - diferente de "nao cabe",
+            # aqui quem decide se vale o risco e a pessoa em frente a chapa
+            # de verdade, nao o sistema. Devolve um aviso pra tela poder
+            # perguntar "gira mesmo assim?" em vez de so recusar sem saida -
+            # orcamento/regra automatica existe pra limitar o automatico,
+            # nao pra travar uma decisao humana explicita (mesmo principio
+            # do "adicionar" no editor de padrao comum).
+            return volta(erro=f"A peca {alvo['cod']} e aparente e esta chapa respeita o veio - "
+                              f"girar deixa o desenho da madeira atravessado.",
+                         veio_bloqueou='1')
         novo_w, novo_h = alvo['h'], alvo['w']
         rodada = not alvo.get('rotated', False)
         outros = itens[:idx] + itens[idx + 1:]

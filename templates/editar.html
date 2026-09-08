@@ -10,7 +10,12 @@
 
 {% block estilo %}
 <style>
-  .duas { display:grid; grid-template-columns: 1.25fr 1fr; gap:18px; align-items:start; }
+  /* A chapa e o que importa nessa tela - min-width:0 nos dois lados e o
+     que faz o grid respeitar esse 1.9fr/1fr de verdade: sem isso, uma
+     descricao de peca comprida forcava a coluna da lista a crescer alem
+     da sua fracao, espremendo a chapa. */
+  .duas { display:grid; grid-template-columns: 1.9fr 1fr; gap:18px; align-items:start; }
+  .duas > div { min-width:0; }
   @media (max-width:1020px) { .duas { grid-template-columns:1fr; } }
 
   #chapa { width:100%; height:auto; display:block; border-radius:8px;
@@ -27,8 +32,8 @@
                           stroke:var(--vermelho); stroke-dasharray:26 16; }
   #chapa text { pointer-events:none; font-family:inherit; }
 
-  .veredito { border-radius:var(--raio); padding:12px 15px; font-size:13px; line-height:1.5;
-              border:1px solid; margin-bottom:12px; display:flex; gap:10px; }
+  .veredito { border-radius:var(--raio); padding:10px 13px; font-size:12px; line-height:1.45;
+              border:1px solid; margin-bottom:12px; display:flex; gap:9px; }
   .veredito.sim { background:var(--verde-claro); border-color:#cfe3d7; color:var(--verde-escuro); }
   .veredito.nao { background:var(--vermelho-claro); border-color:#f2d5cf; color:#7d2718; }
   .veredito.neutro { background:var(--fundo); border-color:var(--linha); color:var(--tinta-2); }
@@ -38,20 +43,20 @@
   .busca-linha input { flex:1; padding:9px 12px; border:1px solid var(--linha);
                        border-radius:8px; font-size:13.5px; }
   .lista { max-height:300px; overflow-y:auto; border:1px solid var(--linha); border-radius:8px; }
-  .item-p { display:flex; gap:9px; align-items:center; padding:8px 11px;
-            border-bottom:1px solid var(--linha); font-size:12.5px; cursor:pointer; }
+  .item-p { display:flex; gap:6px; align-items:center; padding:7px 9px;
+            border-bottom:1px solid var(--linha); font-size:11px; cursor:pointer; }
   .item-p:last-child { border-bottom:none; }
   .item-p:hover { background:var(--verde-claro); }
   .item-p.recusada { cursor:default; opacity:.75; }
   .item-p.recusada:hover { background:var(--vermelho-claro); }
-  .item-p .cod { font-weight:680; min-width:52px; font-variant-numeric:tabular-nums; }
-  .item-p .ds { flex:1; color:var(--tinta-2); overflow:hidden; text-overflow:ellipsis;
-                white-space:nowrap; }
-  .item-p .md { color:var(--tinta-3); white-space:nowrap; font-size:11.5px; }
-  .item-p .porque { color:var(--vermelho); font-size:11px; white-space:nowrap; }
-  .item-p .qtd-incluir { width:48px; padding:5px 6px; border:1px solid var(--linha);
-                         border-radius:6px; font-size:12px; text-align:center; }
-  .item-p .btn-incluir { padding:5px 9px; font-size:11.5px; white-space:nowrap; }
+  .item-p .cod { font-weight:680; min-width:40px; font-variant-numeric:tabular-nums; }
+  .item-p .ds { flex:1; min-width:0; color:var(--tinta-2); overflow:hidden;
+                text-overflow:ellipsis; white-space:nowrap; }
+  .item-p .md { color:var(--tinta-3); white-space:nowrap; font-size:10.5px; }
+  .item-p .porque { color:var(--vermelho); font-size:10px; white-space:nowrap; }
+  .item-p .qtd-incluir { width:38px; padding:4px 5px; border:1px solid var(--linha);
+                         border-radius:6px; font-size:11px; text-align:center; }
+  .item-p .btn-incluir { padding:4px 7px; font-size:10.5px; white-space:nowrap; }
   .titulo-lista { font-size:11px; font-weight:700; text-transform:uppercase;
                   letter-spacing:.05em; color:var(--tinta-2); margin:14px 0 7px; }
   .carregando { color:var(--tinta-3); font-size:13px; padding:10px 0; }

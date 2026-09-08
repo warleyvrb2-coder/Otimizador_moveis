@@ -19,7 +19,13 @@
 
 {% block estilo %}
 <style>
-  .duas { display:grid; grid-template-columns: 1.25fr 1fr; gap:18px; align-items:start; }
+  /* A chapa é o que importa nessa tela - a lista de peças é só apoio, não
+     pode brigar espaço com ela. min-width:0 nos dois lados é o que faz o
+     grid respeitar esse 1.9fr/1fr de verdade: sem isso, uma descrição de
+     peça comprida (ex. "LAT ES N°01/ LAT DIR N°04 DUPLA ROUPEIRO") forçava
+     a coluna da lista a crescer além da sua fração, espremendo a chapa. */
+  .duas { display:grid; grid-template-columns: 1.9fr 1fr; gap:18px; align-items:start; }
+  .duas > div { min-width:0; }
   @media (max-width:1020px) { .duas { grid-template-columns:1fr; } }
 
   #chapa { width:100%; height:auto; display:block; border-radius:8px;
@@ -40,8 +46,8 @@
   #chapa text { pointer-events:none; font-family:inherit; }
   #chapa .acao text { pointer-events:none; }
 
-  .veredito { border-radius:var(--raio); padding:12px 15px; font-size:13px; line-height:1.5;
-              border:1px solid; margin-bottom:12px; display:flex; gap:10px; }
+  .veredito { border-radius:var(--raio); padding:10px 13px; font-size:12px; line-height:1.45;
+              border:1px solid; margin-bottom:12px; display:flex; gap:9px; }
   .veredito.sim { background:var(--verde-claro); border-color:#cfe3d7; color:var(--verde-escuro); }
   .veredito.nao { background:var(--vermelho-claro); border-color:#f2d5cf; color:#7d2718; }
   .veredito.neutro { background:var(--fundo); border-color:var(--linha); color:var(--tinta-2); }
@@ -61,22 +67,22 @@
   .busca-linha input { flex:1; padding:9px 12px; border:1px solid var(--linha);
                        border-radius:8px; font-size:13.5px; }
   .lista { max-height:420px; overflow-y:auto; border:1px solid var(--linha); border-radius:8px; }
-  .item-p { display:flex; gap:7px; align-items:center; padding:9px 11px;
-            border-bottom:1px solid var(--linha); font-size:12.5px;
+  .item-p { display:flex; gap:6px; align-items:center; padding:7px 9px;
+            border-bottom:1px solid var(--linha); font-size:11px;
             cursor:grab; background:#fff; }
   .item-p:last-child { border-bottom:none; }
   .item-p:hover { background:var(--verde-claro); }
   .item-p.arrastando { opacity:.4; }
   .item-p.recusada { cursor:default; opacity:.75; }
   .item-p.recusada:hover { background:var(--vermelho-claro); }
-  .item-p .cod { font-weight:680; min-width:52px; font-variant-numeric:tabular-nums; }
-  .item-p .ds { flex:1; color:var(--tinta-2); overflow:hidden; text-overflow:ellipsis;
-                white-space:nowrap; }
-  .item-p .md { color:var(--tinta-3); white-space:nowrap; font-size:11.5px; }
-  .item-p .porque { color:var(--vermelho); font-size:11px; white-space:nowrap; }
-  .item-p .qtd-incluir { width:48px; padding:5px 6px; border:1px solid var(--linha);
-                         border-radius:6px; font-size:12px; text-align:center; }
-  .item-p .btn-incluir { padding:5px 9px; font-size:11.5px; white-space:nowrap; }
+  .item-p .cod { font-weight:680; min-width:40px; font-variant-numeric:tabular-nums; }
+  .item-p .ds { flex:1; min-width:0; color:var(--tinta-2); overflow:hidden;
+                text-overflow:ellipsis; white-space:nowrap; }
+  .item-p .md { color:var(--tinta-3); white-space:nowrap; font-size:10.5px; }
+  .item-p .porque { color:var(--vermelho); font-size:10px; white-space:nowrap; }
+  .item-p .qtd-incluir { width:38px; padding:4px 5px; border:1px solid var(--linha);
+                         border-radius:6px; font-size:11px; text-align:center; }
+  .item-p .btn-incluir { padding:4px 7px; font-size:10.5px; white-space:nowrap; }
   .carregando { color:var(--tinta-3); font-size:13px; padding:10px 0; }
   .ajuda-arrastar { color:var(--tinta-2); font-size:12px; margin:0 0 10px; line-height:1.5; }
   #banner-live { margin-bottom:14px; }
@@ -177,6 +183,11 @@ function _banner(cls, icone, msg) {
   const ic = document.createElement('span'); ic.className = 'ic'; ic.textContent = icone;
   const d = document.createElement('div'); d.textContent = msg;
   b.appendChild(ic); b.appendChild(d);
+  // O aviso fica no topo da pagina, mas quem esta arrastando/girando peca
+  // normalmente esta com a tela rolada pra baixo olhando a chapa - sem
+  // isso, um erro (ex.: "nao pode girar, regra de veio") passa em branco
+  // porque a pessoa nunca chega a ver o banner aparecer.
+  b.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 const mostrarErro = msg => _banner('perigo', '✕', msg);
 const mostrarAviso = msg => _banner('info', 'ℹ️', msg);
@@ -186,6 +197,8 @@ const esconderBanner = () => { document.getElementById('banner-live').hidden = t
 // aqui - fala com a MESMA rota /aplicar do editor de padrao comum, so que via
 // fetch (formato=json) em vez de form classico, pra nao recarregar a pagina
 // a cada clique.
+let ultimaResposta = null;  // ultimo JSON de /aplicar, pra quem precisar olhar alem do ok/erro
+
 async function enviar(params) {
   const body = new URLSearchParams({ formato: 'json', ...params });
   let d;
@@ -195,6 +208,7 @@ async function enviar(params) {
   } catch (e) {
     d = { ok: false, erro: 'Nao consegui falar com o servidor. Tente de novo.' };
   }
+  ultimaResposta = d;
   if (d.erro) mostrarErro(d.erro); else esconderBanner();
   if (d.aviso) mostrarAviso(d.aviso);
   return !!d.ok;
@@ -526,7 +540,19 @@ async function soltarArrasteInterno() {
 }
 
 async function girar(i) {
-  const ok = await enviar({ acao: 'girar', indice: i });
+  let ok = await enviar({ acao: 'girar', indice: i });
+  if (!ok && ultimaResposta && ultimaResposta.veio_bloqueou) {
+    // Bloqueio de veio, nao de espaco - quem decide se vale o risco e a
+    // pessoa em frente a chapa de verdade, entao pergunta em vez de so
+    // recusar sem saida.
+    const peca = dados.itens[i];
+    const confirmou = confirm(
+      `A peça ${peca.cod} é aparente e esta chapa respeita o veio — girar deixa o desenho ` +
+      `da madeira atravessado nela.\n\nGirar mesmo assim?`
+    );
+    if (!confirmou) return;
+    ok = await enviar({ acao: 'girar', indice: i, forcar_veio: '1' });
+  }
   if (!ok) return;
   if (sobraSel !== null) voltarParaLista();  // os espacos livres mudaram, a lista escolhida ficou velha
   await carregar();
