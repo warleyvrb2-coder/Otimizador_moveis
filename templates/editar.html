@@ -19,9 +19,12 @@
   @media (max-width:1020px) { .duas { grid-template-columns:1fr; } }
 
   #chapa { width:100%; height:auto; display:block; border-radius:8px;
-           border:1px solid var(--linha); background:#f4f1ea; touch-action:manipulation; }
-  #chapa .peca { cursor:pointer; }
-  #chapa .peca:hover rect { stroke:var(--vermelho); stroke-width:9; }
+           border:1px solid var(--linha); background:#f4f1ea; touch-action:none; }
+  #chapa .peca .corpo { cursor:grab; }
+  #chapa .peca.arrastando-interno .corpo { cursor:grabbing; }
+  #chapa .peca:hover .corpo { stroke:#2563eb; stroke-width:6; }
+  #chapa .peca .acao { cursor:pointer; }
+  #chapa .peca .acao:hover circle { filter:brightness(0.94); }
   #chapa .vazio { fill:#e9ecee; stroke:#c3cace; stroke-width:3;
                   stroke-dasharray:22 14; cursor:pointer; }
   #chapa .vazio:hover { fill:#dfe6ea; }
@@ -31,6 +34,8 @@
   #chapa .fantasma.nao { fill:var(--vermelho); fill-opacity:.35;
                           stroke:var(--vermelho); stroke-dasharray:26 16; }
   #chapa text { pointer-events:none; font-family:inherit; }
+  #chapa .acao text { pointer-events:none; }
+  #banner-live { margin-bottom:14px; }
 
   .veredito { border-radius:var(--raio); padding:10px 13px; font-size:12px; line-height:1.45;
               border:1px solid; margin-bottom:12px; display:flex; gap:9px; }
@@ -60,6 +65,15 @@
   .titulo-lista { font-size:11px; font-weight:700; text-transform:uppercase;
                   letter-spacing:.05em; color:var(--tinta-2); margin:14px 0 7px; }
   .carregando { color:var(--tinta-3); font-size:13px; padding:10px 0; }
+
+  /* Peça avulsa: mesma lógica de "incluir_melhor" (quantidade + melhor
+     espaço livre), só que sem código de cadastro - o comprimento/largura
+     digitados fazem esse papel. */
+  .avulsa-linha { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .avulsa-linha input[type="number"] { padding:8px 9px; border:1px solid var(--linha);
+                                        border-radius:8px; font-size:13px; width:96px; }
+  .avulsa-linha input#avulsa-qtd, .avulsa-linha input#avulsa-qtd-m { width:56px; }
+  .avulsa-linha span { color:var(--tinta-3); }
 </style>
 {% endblock %}
 
@@ -69,6 +83,7 @@
   <div>Padrão atualizado. A aprovação do PCP foi retirada — o desenho mudou e precisa de
     nova conferência.</div></div>{% endif %}
 {% if aviso %}<div class="recado info"><span class="ic">ℹ️</span><div>{{ aviso }}</div></div>{% endif %}
+<div class="recado" id="banner-live" hidden></div>
 
 <div class="recado atencao">
   <span class="ic">⚠️</span>
@@ -90,8 +105,9 @@
   <div>
     <div class="cartao">
       <h2>Chapa</h2>
-      <p class="ajuda">Clique num <strong>espaço vazio</strong> para escolher onde a peça
-        entra. Clique numa <strong>peça</strong> para tirá-la.</p>
+      <p class="ajuda">Clique num <strong>espaço vazio</strong> para escolher onde uma peça
+        nova entra. Peça já colocada: <strong>arraste</strong> pra reposicionar, use
+        <strong>⟳</strong> pra girar 90° e <strong>×</strong> pra tirar.</p>
       <svg id="chapa" xmlns="http://www.w3.org/2000/svg"></svg>
     </div>
   </div>
@@ -113,17 +129,22 @@
         <div id="resultado"></div>
       </div>
     </div>
+
+    <div class="cartao" style="margin-top:14px;">
+      <h2>Peça avulsa por dimensão</h2>
+      <p class="ajuda">Não tem código no cadastro? Diga o comprimento, a largura (mm) e a
+        quantidade — cada uma entra sozinha no melhor espaço livre do padrão, sem precisar
+        escolher onde.</p>
+      <div class="avulsa-linha">
+        <input type="number" id="avulsa-comp" min="1" step="1" placeholder="comprimento">
+        <span>×</span>
+        <input type="number" id="avulsa-larg" min="1" step="1" placeholder="largura">
+        <input type="number" id="avulsa-qtd" min="1" step="1" value="1" title="Quantidade">
+        <button type="button" class="btn secundario" onclick="incluirAvulsa()">Incluir →</button>
+      </div>
+    </div>
   </div>
 </div>
-
-<form id="frm-aplicar" method="post"
-      action="/resultado/{{ plano.id }}/padrao/{{ gi }}/{{ pi }}/aplicar" style="display:none;">
-  <input type="hidden" name="acao" id="f-acao">
-  <input type="hidden" name="retalho" id="f-retalho">
-  <input type="hidden" name="cod" id="f-cod">
-  <input type="hidden" name="indice" id="f-indice">
-  <input type="hidden" name="quantidade" id="f-quantidade">
-</form>
 {% endblock %}
 
 {% block script %}
@@ -143,12 +164,85 @@ const el = (tag, attrs) => {
   return n;
 };
 
+// Banner de erro/aviso no topo da pagina, reaproveitado do plano manual -
+// substitui os recados vindos por query string (?erro=/?ok=/?aviso=), que so
+// serviam quando toda acao recarregava a pagina inteira.
+function _banner(cls, icone, msg) {
+  const b = document.getElementById('banner-live');
+  b.className = 'recado ' + cls;
+  b.hidden = false;
+  b.innerHTML = '';
+  const ic = document.createElement('span'); ic.className = 'ic'; ic.textContent = icone;
+  const d = document.createElement('div'); d.textContent = msg;
+  b.appendChild(ic); b.appendChild(d);
+  b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+const mostrarErro = msg => _banner('perigo', '✕', msg);
+const mostrarAviso = msg => _banner('info', 'ℹ️', msg);
+const esconderBanner = () => { document.getElementById('banner-live').hidden = true; };
+
+// Toda mudanca no padrao (mover, girar, adicionar, incluir, remover) passa
+// por aqui - fala com a rota /aplicar via fetch (formato=json) em vez de
+// form classico, pra nao recarregar a pagina a cada clique/arraste. E a
+// MESMA rota que o plano manual ja usa (app.py trata os dois fluxos igual).
+let ultimaResposta = null;
+async function enviar(params) {
+  const body = new URLSearchParams({ formato: 'json', ...params });
+  let d;
+  try {
+    const resp = await fetch(`${BASE}/aplicar`, { method: 'POST', body });
+    d = await resp.json();
+  } catch (e) {
+    d = { ok: false, erro: 'Não consegui falar com o servidor. Tente de novo.' };
+  }
+  ultimaResposta = d;
+  if (d.erro) mostrarErro(d.erro); else esconderBanner();
+  if (d.aviso) mostrarAviso(d.aviso);
+  return !!d.ok;
+}
+
 async function carregar() {
   dados = await (await fetch(BASE + '/dados')).json();
   desenhar();
   document.getElementById('cab-info').textContent =
     `${dados.repeticoes} chapas · ${dados.aproveitamento.toFixed(1)}% de aproveitamento · ` +
     `${dados.estagios_atuais < 99 ? dados.estagios_atuais : '—'} estágios`;
+}
+
+// mm por pixel na tela agora - usado pra desenhar os icones de acao (girar/
+// remover) num tamanho legivel independente do zoom da chapa.
+function escalaMm() {
+  const rect = document.getElementById('chapa').getBoundingClientRect();
+  return dados.chapa.w / Math.max(1, rect.width);
+}
+
+// Converte a posicao do mouse (pixels da tela) pra coordenada em mm dentro
+// do viewBox do SVG - e o que permite o arraste seguir o cursor 1:1
+// independente do zoom/tamanho real da chapa desenhada.
+function mmDoEvento(ev) {
+  const svg = document.getElementById('chapa');
+  const pt = svg.createSVGPoint();
+  pt.x = ev.clientX; pt.y = ev.clientY;
+  const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return { x: loc.x, y: loc.y };
+}
+
+// Trava a posicao candidata dentro dos limites da chapa - sem isso, um
+// arraste rapido pra fora da borda deixava a peca com x/y negativo.
+function clampPos(it, x, y) {
+  const { w: cw, h: ch } = dados.chapa;
+  return { x: Math.min(Math.max(0, x), Math.max(0, cw - it.w)), y: Math.min(Math.max(0, y), Math.max(0, ch - it.h)) };
+}
+
+// Confere se a posicao candidata (arraste em andamento, ainda nao
+// confirmado no servidor) bate em cima de outra peca ja colocada - preview
+// no cliente, pra pintar de vermelho antes mesmo de soltar o mouse.
+function sobrepoeCliente(cand, ignorarIdx) {
+  return dados.itens.some((it, j) => {
+    if (j === ignorarIdx) return false;
+    return cand.x < it.x + it.w - 0.5 && it.x < cand.x + cand.w - 0.5 &&
+           cand.y < it.y + it.h - 0.5 && it.y < cand.y + cand.h - 0.5;
+  });
 }
 
 function desenhar(fantasma) {
@@ -175,23 +269,76 @@ function desenhar(fantasma) {
     svg.appendChild(g);
   });
 
+  // raio dos botões de ação (girar/remover) em mm, pra ficarem do mesmo
+  // tamanho visual em qualquer zoom - mesma conta do plano manual.
+  const raio = 15 * escalaMm();
   dados.itens.forEach((it, i) => {
-    const g = el('g', {class:'peca'});
-    g.appendChild(el('rect', {x:it.x, y:it.y, width:it.w, height:it.h,
-                              fill:cor(it.cod), stroke:'#222', 'stroke-width':3}));
-    const tam = Math.max(30, Math.min(Math.min(it.w, it.h)/3.2, 110));
+    const g = el('g', {class:'peca', 'data-i':i});
+    const corpo = el('rect', {class:'corpo', x:it.x, y:it.y, width:it.w, height:it.h,
+                              fill:cor(it.cod), stroke:'#222', 'stroke-width':3});
+    g.appendChild(corpo);
+
+    // Rótulo em 2 níveis, igual ao PDF/relatório (visualize.py): peça
+    // grande o bastante ganha código + dimensão (comprimento x largura,
+    // com "⟲" se girada) igual ao relatório; peça mais estreita (ex.:
+    // rodapé de 70mm de altura) não cabe com esse critério e ficava sem
+    // NENHUM texto - o relatório sempre mostra ao menos o código, então
+    // essa tela precisa mostrar a mesma coisa, senão a peça "desaparece"
+    // aqui mesmo estando lá no plano de verdade. A peça pequena (2º nível)
+    // fica só com o código mesmo, sem dimensão - de propósito, pra não
+    // poluir peça que já é pequena na tela (mesma escolha do relatório).
     if (it.w > 150 && it.h > 90) {
+      const tam = Math.max(30, Math.min(Math.min(it.w, it.h)/3.2, 110));
+      const t = el('text', {x:it.x + it.w/2, y:it.y + it.h/2 - tam*0.35, 'text-anchor':'middle',
+                            'dominant-baseline':'middle', 'font-size':tam,
+                            'font-weight':700, fill:'#111'});
+      t.textContent = it.cod;
+      g.appendChild(t);
+      const tamDim = Math.max(14, tam*0.42);
+      const td = el('text', {x:it.x + it.w/2, y:it.y + it.h/2 + tam*0.5, 'text-anchor':'middle',
+                             'dominant-baseline':'middle', 'font-size':tamDim, fill:'#333'});
+      td.textContent = `${Math.round(it.w)} × ${Math.round(it.h)}` + (it.rotated ? ' ⟲' : '');
+      g.appendChild(td);
+    } else if (it.w > 70 && it.h > 34) {
+      const tam = Math.max(22, Math.min(it.h/2.2, 60));
       const t = el('text', {x:it.x + it.w/2, y:it.y + it.h/2, 'text-anchor':'middle',
                             'dominant-baseline':'middle', 'font-size':tam,
                             'font-weight':700, fill:'#111'});
       t.textContent = it.cod;
       g.appendChild(t);
     }
-    g.onclick = () => tirar(i, it);
+
     const tt = el('title');
     tt.textContent = `${it.cod} — ${it.desc}\n${Math.round(it.w)} × ${Math.round(it.h)} mm` +
-                     `\nclique para tirar`;
+                     `\narraste para mover`;
     g.appendChild(tt);
+
+    // Botão girar (⟳) - canto superior direito da peça.
+    const bg = el('g', {class:'acao acao-girar',
+                        transform:`translate(${it.x + it.w - raio - 4},${it.y + raio + 4})`});
+    bg.appendChild(el('circle', {r:raio, fill:'#fff', stroke:'#222', 'stroke-width':2}));
+    const tg = el('text', {'text-anchor':'middle', 'dominant-baseline':'central', 'font-size':raio*1.2});
+    tg.textContent = '⟳';
+    bg.appendChild(tg);
+    bg.addEventListener('mousedown', ev => ev.stopPropagation());
+    bg.addEventListener('click', ev => { ev.stopPropagation(); girar(i); });
+    g.appendChild(bg);
+
+    // Botão remover (×) - canto superior esquerdo da peça.
+    const br = el('g', {class:'acao acao-remover',
+                        transform:`translate(${it.x + raio + 4},${it.y + raio + 4})`});
+    br.appendChild(el('circle', {r:raio, fill:'#fff', stroke:'var(--vermelho)', 'stroke-width':2}));
+    const tr = el('text', {'text-anchor':'middle', 'dominant-baseline':'central',
+                           'font-size':raio*1.1, fill:'var(--vermelho)'});
+    tr.textContent = '×';
+    br.appendChild(tr);
+    br.addEventListener('mousedown', ev => ev.stopPropagation());
+    br.addEventListener('click', ev => { ev.stopPropagation(); tirar(i, it); });
+    g.appendChild(br);
+
+    // Arrastar o corpo da peça reposiciona - o próprio corpo (não o grupo
+    // inteiro) escuta o mousedown pra não competir com os botões de ação.
+    corpo.addEventListener('mousedown', ev => iniciarArrasteInterno(ev, i, g));
     svg.appendChild(g);
   });
 
@@ -200,6 +347,73 @@ function desenhar(fantasma) {
                                 height:fantasma.h, rx:4,
                                 class:'fantasma' + (fantasma.ok ? '' : ' nao')}));
   }
+}
+
+// --- Arrastar peça já colocada dentro da chapa (reposicionar) ---
+// Mesmo mecanismo do plano manual: mousedown no corpo da peça inicia,
+// mousemove no document (não no elemento - o cursor sai da peça durante o
+// arraste) atualiza a prévia via transform, mouseup confirma no servidor.
+let interno = null;
+
+function iniciarArrasteInterno(ev, i, g) {
+  if (ev.button !== 0) return;
+  ev.preventDefault();
+  const it = dados.itens[i];
+  interno = { i, origX: it.x, origY: it.y, p0: mmDoEvento(ev), g, novo: null, invalido: false };
+  g.classList.add('arrastando-interno');
+  document.addEventListener('mousemove', moverArrasteInterno);
+  document.addEventListener('mouseup', soltarArrasteInterno);
+}
+
+function moverArrasteInterno(ev) {
+  if (!interno) return;
+  const it = dados.itens[interno.i];
+  const p = mmDoEvento(ev);
+  const alvo = clampPos(it, interno.origX + (p.x - interno.p0.x), interno.origY + (p.y - interno.p0.y));
+  interno.novo = alvo;
+  interno.g.setAttribute('transform', `translate(${alvo.x - interno.origX},${alvo.y - interno.origY})`);
+  const invalido = sobrepoeCliente({ x: alvo.x, y: alvo.y, w: it.w, h: it.h }, interno.i);
+  interno.invalido = invalido;
+  interno.g.querySelector('.corpo').setAttribute('stroke', invalido ? 'var(--vermelho)' : '#222');
+}
+
+async function soltarArrasteInterno() {
+  document.removeEventListener('mousemove', moverArrasteInterno);
+  document.removeEventListener('mouseup', soltarArrasteInterno);
+  if (!interno) return;
+  const { i, origX, origY, novo, invalido, g } = interno;
+  interno = null;
+  g.classList.remove('arrastando-interno');
+  if (!novo || (Math.abs(novo.x - origX) < 1 && Math.abs(novo.y - origY) < 1)) {
+    desenhar();  // arraste minusculo ou cancelado - so redesenha na posicao original
+    return;
+  }
+  if (invalido) {
+    mostrarErro('Essa posição sobrepõe outra peça.');
+    desenhar();
+    return;
+  }
+  const ok = await enviar({ acao: 'mover', indice: i, x: novo.x, y: novo.y });
+  if (ok) await carregar(); else desenhar();
+}
+
+// Gira 90° uma peça já colocada. Se a chapa tem veio e a peça é aparente, o
+// servidor recusa e devolve veio_bloqueou=1 - a tela então pergunta se
+// quer girar mesmo assim (mesma pergunta do plano manual), em vez de só
+// bloquear sem saída: quem decide se vale o risco é quem está na frente da
+// chapa de verdade.
+async function girar(i) {
+  let ok = await enviar({ acao: 'girar', indice: i });
+  if (!ok && ultimaResposta && ultimaResposta.veio_bloqueou) {
+    const peca = dados.itens[i];
+    const confirmou = confirm(
+      `A peça ${peca.cod} é aparente e esta chapa respeita o veio — girar deixa o desenho ` +
+      `da madeira atravessado nela.\n\nGirar mesmo assim?`
+    );
+    if (!confirmou) return;
+    ok = await enviar({ acao: 'girar', indice: i, forcar_veio: '1' });
+  }
+  if (ok) await carregar();
 }
 
 function veredito(classe, titulo, texto) {
@@ -271,27 +485,65 @@ async function listar() {
 
 function buscar(e) { e.preventDefault(); listar(); return false; }
 
-function colocar(cod) {
-  document.getElementById('f-acao').value = 'adicionar';
-  document.getElementById('f-retalho').value = sobraSel;
-  document.getElementById('f-cod').value = cod;
-  document.getElementById('frm-aplicar').submit();
+// Peça sem código no cadastro: comprimento/largura digitados na hora fazem
+// o papel do código. Se JÁ tem um espaço selecionado na chapa (sobraSel),
+// manda o índice dele - o servidor então encaixa exatamente ali, nunca em
+// outro canto, mesmo que caiba "melhor" em outro lugar. Sem espaço
+// selecionado, cai no comportamento de sempre: melhor encaixe em qualquer
+// canto livre da chapa.
+async function incluirAvulsa() {
+  const comp = parseFloat(document.getElementById('avulsa-comp').value);
+  const larg = parseFloat(document.getElementById('avulsa-larg').value);
+  const qtd = Math.max(1, parseInt(document.getElementById('avulsa-qtd').value, 10) || 1);
+  if (!comp || !larg || comp <= 0 || larg <= 0) {
+    mostrarErro('Informe comprimento e largura (mm) maiores que zero.');
+    return;
+  }
+  const params = { acao: 'incluir_avulsa', comp, larg, quantidade: qtd };
+  if (sobraSel !== null) params.retalho = sobraSel;
+  const ok = await enviar(params);
+  if (!ok) return;
+  document.getElementById('avulsa-comp').value = '';
+  document.getElementById('avulsa-larg').value = '';
+  document.getElementById('avulsa-qtd').value = '1';
+  if (sobraSel !== null) voltarParaEscolha();
+  await carregar();
 }
 
-function incluirQuantidade(cod, inputEl) {
+// Volta a tela pro estado inicial ("escolha um espaço") depois de uma
+// peça entrar - os espaços livres mudaram, então a seleção anterior não
+// faz mais sentido (mesmo raciocínio do plano manual).
+function voltarParaEscolha() {
+  sobraSel = null;
+  document.getElementById('painel').style.display = 'none';
+  document.getElementById('tit-lado').textContent = 'Escolha um espaço na chapa';
+  veredito('neutro', 'Escolha um espaço',
+           'Clique num dos espaços tracejados. Vou listar tudo que existe no cadastro e ' +
+           'dizer, peça por peça, se entra ali — e quando não entrar, por quê.');
+}
+
+async function colocar(cod) {
+  const ok = await enviar({ acao: 'adicionar', retalho: sobraSel, cod });
+  if (!ok) return;
+  voltarParaEscolha();
+  await carregar();
+}
+
+async function incluirQuantidade(cod, inputEl) {
   const n = Math.max(1, parseInt(inputEl.value, 10) || 1);
-  document.getElementById('f-acao').value = 'incluir_melhor';
-  document.getElementById('f-cod').value = cod;
-  document.getElementById('f-quantidade').value = n;
-  document.getElementById('frm-aplicar').submit();
+  const ok = await enviar({ acao: 'incluir_melhor', cod, quantidade: n });
+  if (!ok) return;
+  voltarParaEscolha();
+  await carregar();
 }
 
-function tirar(i, it) {
+async function tirar(i, it) {
   if (!confirm(`Tirar ${it.cod} deste padrão?\n` +
                `Isso remove ${dados.repeticoes} peças da produção.`)) return;
-  document.getElementById('f-acao').value = 'remover';
-  document.getElementById('f-indice').value = i;
-  document.getElementById('frm-aplicar').submit();
+  const ok = await enviar({ acao: 'remover', indice: i });
+  if (!ok) return;
+  if (sobraSel !== null) voltarParaEscolha();  // os espaços livres mudaram
+  await carregar();
 }
 
 carregar();

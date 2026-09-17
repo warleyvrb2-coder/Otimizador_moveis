@@ -86,6 +86,15 @@
   .carregando { color:var(--tinta-3); font-size:13px; padding:10px 0; }
   .ajuda-arrastar { color:var(--tinta-2); font-size:12px; margin:0 0 10px; line-height:1.5; }
   #banner-live { margin-bottom:14px; }
+
+  /* Peça avulsa: mesma lógica de "incluir_melhor" (quantidade + melhor
+     espaço livre), só que sem código de cadastro - comprimento/largura
+     digitados fazem esse papel. */
+  .avulsa-linha { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+  .avulsa-linha input[type="number"] { padding:8px 9px; border:1px solid var(--linha);
+                                        border-radius:8px; font-size:13px; width:96px; }
+  .avulsa-linha input#avulsa-qtd-m { width:56px; }
+  .avulsa-linha span { color:var(--tinta-3); }
 </style>
 {% endblock %}
 
@@ -129,6 +138,7 @@
           quando a peça arrastada cabe ali, e <strong style="color:var(--vermelho)">vermelhos</strong>
           quando não cabe (considerando a orientação marcada acima). Clique num espaço tracejado
           pra ver, separado, o que cabe e o que não cabe ali.</p>
+
         <form class="busca-linha" onsubmit="return buscar(event)">
           <input type="search" id="busca" placeholder="filtrar por código ou nome...">
           <button class="btn secundario" type="submit">Filtrar</button>
@@ -148,6 +158,20 @@
           <button class="btn secundario" type="submit">Filtrar</button>
         </form>
         <div id="resultado-espaco"><div class="carregando">Conferindo o cadastro...</div></div>
+      </div>
+    </div>
+
+    <div class="cartao" style="margin-top:14px;">
+      <h2>Peça avulsa por dimensão</h2>
+      <p class="ajuda">Não tem código no cadastro? Diga o comprimento, a largura (mm) e a
+        quantidade. Com um espaço selecionado acima, entra exatamente ali; sem seleção, entra
+        sozinha no melhor espaço livre do padrão.</p>
+      <div class="avulsa-linha" style="margin-bottom:0;">
+        <input type="number" id="avulsa-comp-m" min="1" step="1" placeholder="comprimento">
+        <span>×</span>
+        <input type="number" id="avulsa-larg-m" min="1" step="1" placeholder="largura">
+        <input type="number" id="avulsa-qtd-m" min="1" step="1" value="1" title="Quantidade">
+        <button type="button" class="btn secundario" onclick="incluirAvulsa()">Incluir →</button>
       </div>
     </div>
   </div>
@@ -296,8 +320,29 @@ function desenhar(fantasma) {
       fill: cor(it.cod), stroke: '#222', 'stroke-width': 3
     });
     g.appendChild(corpo);
+    // Rótulo em 2 níveis, igual ao PDF/relatório (visualize.py): peça
+    // grande o bastante ganha código + dimensão (comprimento x largura,
+    // com "⟲" se girada); abaixo do primeiro limiar ainda mostra o
+    // código, só que menor e SEM dimensão (de propósito, pra não poluir -
+    // mesma escolha do relatório) - peça fina (ex.: rodapé de 70mm de
+    // altura) não sumia no relatório e não devia sumir aqui também.
     if (it.w > 150 && it.h > 90) {
       const tam = Math.max(30, Math.min(Math.min(it.w, it.h) / 3.2, 110));
+      const t = el('text', {
+        x: it.x + it.w / 2, y: it.y + it.h / 2 - tam * 0.35, 'text-anchor': 'middle',
+        'dominant-baseline': 'middle', 'font-size': tam, 'font-weight': 700, fill: '#111'
+      });
+      t.textContent = it.cod;
+      g.appendChild(t);
+      const tamDim = Math.max(14, tam * 0.42);
+      const td = el('text', {
+        x: it.x + it.w / 2, y: it.y + it.h / 2 + tam * 0.5, 'text-anchor': 'middle',
+        'dominant-baseline': 'middle', 'font-size': tamDim, fill: '#333'
+      });
+      td.textContent = `${Math.round(it.w)} × ${Math.round(it.h)}` + (it.rotated ? ' ⟲' : '');
+      g.appendChild(td);
+    } else if (it.w > 70 && it.h > 34) {
+      const tam = Math.max(22, Math.min(it.h / 2.2, 60));
       const t = el('text', {
         x: it.x + it.w / 2, y: it.y + it.h / 2, 'text-anchor': 'middle',
         'dominant-baseline': 'middle', 'font-size': tam, 'font-weight': 700, fill: '#111'
@@ -574,6 +619,31 @@ async function incluirQuantidade(cod, inputEl) {
   // Chamável tanto da lista padrão quanto da lista "cabem aqui" de um espaço
   // selecionado - nesse segundo caso os espaços livres mudam, então a
   // selecao fica velha e e melhor voltar pra lista geral.
+  if (sobraSel !== null) voltarParaLista();
+  await carregar();
+}
+
+// Peça sem código no cadastro: comprimento/largura digitados na hora fazem
+// o papel do código. Se JÁ tem um espaço selecionado (sobraSel, painel
+// "cabem aqui" de um espaço específico), manda o índice dele - o servidor
+// então encaixa exatamente ali, nunca em outro canto. Sem espaço
+// selecionado (lista geral de peças), cai no comportamento de sempre:
+// melhor encaixe em qualquer canto livre da chapa.
+async function incluirAvulsa() {
+  const comp = parseFloat(document.getElementById('avulsa-comp-m').value);
+  const larg = parseFloat(document.getElementById('avulsa-larg-m').value);
+  const qtd = Math.max(1, parseInt(document.getElementById('avulsa-qtd-m').value, 10) || 1);
+  if (!comp || !larg || comp <= 0 || larg <= 0) {
+    mostrarErro('Informe comprimento e largura (mm) maiores que zero.');
+    return;
+  }
+  const params = { acao: 'incluir_avulsa', comp, larg, quantidade: qtd };
+  if (sobraSel !== null) params.retalho = sobraSel;
+  const ok = await enviar(params);
+  if (!ok) return;
+  document.getElementById('avulsa-comp-m').value = '';
+  document.getElementById('avulsa-larg-m').value = '';
+  document.getElementById('avulsa-qtd-m').value = '1';
   if (sobraSel !== null) voltarParaLista();
   await carregar();
 }

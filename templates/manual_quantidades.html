@@ -23,6 +23,7 @@
               <span style="color:var(--tinta-2); font-size:12px;">{{ p.desc }}</span></td>
           <td class="num">{{ p.por_chapa }}</td>
           <td><input type="number" min="0" step="1" name="qtd_{{ p.cod }}"
+                     value="{{ p.desejado_anterior or '' }}"
                      placeholder="0" style="width:100%; padding:7px 10px;
                      border:1px solid var(--linha); border-radius:6px;"></td>
         </tr>

@@ -15,8 +15,10 @@ Fluxo:
 5. Mostramos os PADRÕES de corte: o desenho, quantas chapas repetir, e o
    destino de cada peça por Kambam
 """
+import glob
 import os
 import secrets
+import shutil
 
 from flask import (Flask, request, render_template, redirect, url_for,
                    jsonify, abort, Response, send_from_directory, send_file,
@@ -160,6 +162,29 @@ def planos():
                        'chapas': p['total_chapas'], 'aprovado': bool(p['aprovado']),
                        'aprovado_por': p['aprovado_por']})
     return render_template('planos.html', pagina='planos', planos=lista)
+
+
+@app.route('/planos/<plano_id>/excluir', methods=['POST'])
+def excluir_plano(plano_id):
+    """
+    Apaga o plano: registro no banco + imagens/PDF em disco + os Kambans
+    originais que foram enviados pra gerar ele. Só remove o histórico do
+    cálculo - se a chapa já foi cortada de verdade, a produção em si não
+    depende deste registro pra ter acontecido.
+    """
+    apagou = banco.excluir_plano(plano_id)
+    if not apagou:
+        return jsonify({'ok': False, 'erro': 'Plano não encontrado.'}), 404
+
+    pasta = os.path.join(OUTPUT_DIR, plano_id)
+    if os.path.isdir(pasta):
+        shutil.rmtree(pasta, ignore_errors=True)
+    for caminho in glob.glob(os.path.join(UPLOAD_DIR, f'{plano_id}_*')):
+        try:
+            os.remove(caminho)
+        except OSError:
+            pass
+    return jsonify({'ok': True})
 
 
 def diagnostico_armazenamento() -> dict:
@@ -378,7 +403,14 @@ def manual_quantidades(plano_id):
     from collections import Counter
     contagem = Counter(it['cod'] for it in padrao['itens'])
     descricoes = {it['cod']: it['desc'] for it in padrao['itens']}
-    pecas_no_padrao = [{'cod': cod, 'desc': descricoes[cod], 'por_chapa': qtd}
+    # Se a página já foi calculada antes (reabrindo pra editar), padrao['pecas']
+    # guarda a quantidade desejada da última vez em 'lotes' - sem isso, reabrir
+    # pra ajustar um número já apagava todos os outros, forçando digitar tudo
+    # de novo em vez de só corrigir o que mudou.
+    anteriores = {item['cod']: item.get('lotes', {}).get('Plano manual', 0)
+                  for item in padrao.get('pecas') or []}
+    pecas_no_padrao = [{'cod': cod, 'desc': descricoes[cod], 'por_chapa': qtd,
+                         'desejado_anterior': anteriores.get(cod, 0)}
                         for cod, qtd in sorted(contagem.items())]
 
     if not pecas_no_padrao:
@@ -1100,6 +1132,49 @@ def _melhor_encaixe_valido(base_item, comp, larg, kerf, pode_girar, itens_ocupad
     return None
 
 
+def _contido(retalho, original) -> bool:
+    """Se `retalho` está inteiramente dentro dos limites de `original` -
+    usado pra saber se uma sobra recalculada depois de um encaixe ainda é
+    "o mesmo espaço" que a pessoa escolheu, e não outro pedaço qualquer da
+    chapa que sobrou de coincidência com o mesmo tamanho."""
+    return (retalho.x >= original.x - 0.5 and retalho.y >= original.y - 0.5 and
+            retalho.x + retalho.w <= original.x + original.w + 0.5 and
+            retalho.y + retalho.h <= original.y + original.h + 0.5)
+
+
+def _encaixar_repetido_no_retalho(base_item, comp, larg, kerf, pode_girar, itens_ocupados,
+                                   sheet_w, sheet_h, max_estagios, retalho_alvo, quantidade):
+    """
+    Encaixa até `quantidade` cópias da mesma peça, todas dentro do MESMO
+    espaço que a pessoa escolheu na tela - nunca em outro lugar da chapa.
+
+    edicao.encaixar sempre ancora a peça no canto (x,y) do retalho recebido;
+    depois de encaixar uma, o que sobra desse mesmo espaço vira uma sobra
+    NOVA (ou duas, em L) na lista recalculada por edicao.retalhos_livres.
+    Pra continuar enchendo o espaço original em vez de pular pra qualquer
+    sobra do mesmo tamanho na chapa toda, cada passo só aceita uma sobra
+    recalculada que esteja CONTIDA dentro do retalho original (`_contido`) -
+    e para (sem procurar em outro lugar) no primeiro passo em que nada mais
+    cabe ali, porque "onde eu cliquei" para de existir quando enche.
+    """
+    itens = list(itens_ocupados)
+    alvo = retalho_alvo
+    incluidos = []
+    while len(incluidos) < quantidade and alvo is not None:
+        enc = edicao.encaixar(alvo, comp, larg, kerf, pode_girar)
+        if not enc:
+            break
+        candidato = {**base_item, **enc}
+        if edicao.validar_padrao(itens + [candidato], sheet_w, sheet_h, max_estagios):
+            break  # caberia geometricamente, mas quebraria o corte em guilhotina
+        itens.append(candidato)
+        incluidos.append(candidato)
+        livres_novos = edicao.retalhos_livres(itens, sheet_w, sheet_h)
+        candidatos_contidos = [s for s in livres_novos if _contido(s, alvo)]
+        alvo = max(candidatos_contidos, key=lambda s: s.w * s.h, default=None)
+    return incluidos
+
+
 def _preencher_padroes_extra(padroes, catalogo, orcamento_fisico, pode_girar_por_cod,
                               kerf, sheet_w, sheet_h, max_estagios):
     """
@@ -1466,6 +1541,61 @@ def aplicar_edicao(plano_id, gi, pi):
         if incluidas < quantidade:
             aviso = f'Incluidas {incluidas} de {quantidade} pedidas ({motivo_parada}).'
         peca_cod_registro = peca['cod']
+    elif acao == 'incluir_avulsa':
+        # Peca SEM codigo no cadastro - o operador digita a dimensao
+        # (comprimento x largura) na hora, pra cobrir sobra com algo que nao
+        # tem numero cadastrado (corte avulso, teste, retalho de outro
+        # pedido). O codigo exibido vira a propria dimensao ("400x390"), pra
+        # a mesma dimensao usada duas vezes no padrao agrupar como o mesmo
+        # "tipo" no relatorio, igual peca de catalogo agrupa pelo cod dela.
+        # Sem "aparente" no cadastro pra consultar, cai no mesmo lado
+        # conservador do resto do sistema (banco.pode_girar): se a chapa tem
+        # veio, a peca avulsa nao gira sozinha. Para girar mesmo assim, o
+        # operador usa o botao de girar na peca ja colocada, que pergunta
+        # antes de furar a regra, igual peca de catalogo.
+        try:
+            comp = float((request.form.get('comp') or '').replace(',', '.'))
+            larg = float((request.form.get('larg') or '').replace(',', '.'))
+        except ValueError:
+            return volta(erro='Informe comprimento e largura em milímetros (só números).')
+        if comp <= 0 or larg <= 0:
+            return volta(erro='Comprimento e largura precisam ser maiores que zero.')
+        quantidade = max(1, request.form.get('quantidade', type=int) or 1)
+        cod_avulso = f'{comp:.0f}x{larg:.0f}'
+        pode_girar = not grupo.get('tem_veio')
+        base_item = {'cod': cod_avulso, 'desc': f'Peça avulsa {comp:.0f}×{larg:.0f}mm',
+                     'piece_key': cod_avulso + '_avulsa', 'shelf': 0}
+        # Com espaço escolhido na tela (retalho preenchido): a peça entra
+        # EXATAMENTE ali, e só ali - nunca no "melhor lugar" de outro canto
+        # da chapa, mesmo que caiba melhor em outro lugar. Sem espaço
+        # escolhido (formulário sempre visível, sem nenhuma sobra marcada):
+        # cai no comportamento de sempre, melhor encaixe em qualquer canto.
+        i_ret = request.form.get('retalho', type=int)
+        if i_ret is not None:
+            livres = edicao.retalhos_livres(itens, r['sheet_w'], r['sheet_h'])
+            if not (0 <= i_ret < len(livres)):
+                return volta(erro='Esse espaço não existe mais nesta chapa - a seleção deve ter ficado velha.')
+            incluidos = _encaixar_repetido_no_retalho(
+                base_item, comp, larg, r['kerf'], pode_girar, itens,
+                r['sheet_w'], r['sheet_h'], r['estagios'], livres[i_ret], quantidade)
+            itens = itens + incluidos
+            incluidas = len(incluidos)
+            motivo_parada = 'esse espaço específico não tem mais lugar pra essa dimensão'
+        else:
+            incluidas, motivo_parada = 0, None
+            for _ in range(quantidade):
+                novo_item = _melhor_encaixe_valido(
+                    base_item, comp, larg, r['kerf'], pode_girar, itens, r['sheet_w'], r['sheet_h'], r['estagios'])
+                if novo_item is None:
+                    motivo_parada = 'nao ha mais espaco livre onde essa dimensao caiba (respeitando o corte em guilhotina)'
+                    break
+                itens = itens + [novo_item]
+                incluidas += 1
+        if incluidas == 0:
+            return volta(erro=f'Nao consegui incluir nenhuma peca avulsa {cod_avulso}: {motivo_parada}')
+        if incluidas < quantidade:
+            aviso = f'Incluídas {incluidas} de {quantidade} pedidas ({motivo_parada}).'
+        peca_cod_registro = cod_avulso
     else:
         return volta(erro='Acao desconhecida.')
 

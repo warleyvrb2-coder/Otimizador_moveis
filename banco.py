@@ -980,6 +980,21 @@ def listar_planos(limite: int = 60) -> list[dict]:
     return [dict(r) for r in linhas]
 
 
+def excluir_plano(plano_id: str) -> bool:
+    """
+    Apaga o registro do plano no banco.
+
+    So o registro - as imagens/PDF em disco (OUTPUT_DIR/<plano_id>) e os
+    Kambans originais enviados (UPLOAD_DIR/<plano_id>_*) sao arquivo, nao
+    linha de banco, e ficam por conta de quem chama (app.py, que sabe onde
+    o DATA_DIR de verdade esta em cada ambiente).
+    """
+    criar_tabelas()
+    with conectar() as con:
+        cur = con.execute('DELETE FROM plano WHERE id=?', (plano_id,))
+        return cur.rowcount > 0
+
+
 def aprovar_plano(plano_id: str, por: str, observacao: str = '', aprovar: bool = True) -> None:
     """
     Marca o plano como conferido pelo PCP.

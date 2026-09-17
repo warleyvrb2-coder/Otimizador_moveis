@@ -11,6 +11,9 @@
   <span class="etiqueta ok">✓ aprovado por {{ plano.aprovado_por }}</span>
   {% endif %}
   {% if plano %}
+  {% if manual %}
+  <a class="btn secundario" href="/manual/{{ plano.id }}/quantidades">← Editar quantidades</a>
+  {% endif %}
   <a class="btn secundario" href="/resultado/{{ plano.id }}/relatorio/planejado-produzido">Planejado × Produzido</a>
   <a class="btn secundario" href="/resultado/{{ plano.id }}/relatorio/pecas-extras">Peças extras</a>
   <a class="btn secundario" href="/resultado/{{ plano.id }}/pdf">Baixar PDF</a>

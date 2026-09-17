@@ -4,6 +4,21 @@
 {% block subcabecalho %}Histórico de cálculos, gravado no banco{% endblock %}
 {% block acoes %}<a href="/novo" class="btn">Novo plano</a>{% endblock %}
 
+{% block estilo %}
+<style>
+  /* Ações da linha só com ícone (sem texto), lado a lado - abrir, excluir,
+     PDF. Nada de link "PDF · abrir →" competindo em texto com o botão de
+     excluir: os três ficam do mesmo tamanho, pequenos, na mesma linha -
+     mesmo padrão visual da coluna "Ações" dos cadastros de outros módulos
+     (ícone de linha monocromático, sem emoji). */
+  .acoes-plano { display:flex; gap:5px; }
+  .btn-icone { display:inline-flex; align-items:center; justify-content:center;
+               width:26px; height:26px; padding:0; }
+  .btn-icone svg { width:14px; height:14px; }
+  .btn-icone.icone-perigo { color:var(--vermelho); }
+</style>
+{% endblock %}
+
 {% block conteudo %}
 <div class="recado info">
   <span class="ic">ℹ️</span>
@@ -34,8 +49,38 @@
             {% elif p.estado == 'pronto' %}<span class="etiqueta atencao">a conferir</span>
             {% endif %}</td>
         <td class="num">
-          {% if p.estado == 'pronto' %}<a href="/resultado/{{ p.id }}/pdf">PDF</a>
-            &nbsp;<a href="/resultado/{{ p.id }}">abrir →</a>
+          {% if p.estado == 'pronto' %}
+          <div class="acoes-plano">
+            <a href="/resultado/{{ p.id }}" class="btn secundario btn-icone" title="Abrir">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </a>
+            <button type="button" class="btn secundario btn-icone icone-perigo" title="Excluir este plano"
+                    onclick='excluirPlano({{ p.id|tojson }}, {{ p.aprovado|tojson }}, this.closest("tr"))'>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1.2 14.1a2 2 0 0 1-2 1.9H8.2a2 2 0 0 1-2-1.9L5 6"/>
+                <path d="M8.5 6V4a1.5 1.5 0 0 1 1.5-1.5h4A1.5 1.5 0 0 1 15.5 4v2"/>
+                <line x1="10" y1="11" x2="10" y2="17"/>
+                <line x1="14" y1="11" x2="14" y2="17"/>
+              </svg>
+            </button>
+            <a href="/resultado/{{ p.id }}/pdf" class="btn secundario btn-icone" title="Baixar PDF">
+              <svg viewBox="0 0 24 24">
+                <path d="M13.5 2H6.8A1.8 1.8 0 0 0 5 3.8v16.4A1.8 1.8 0 0 0 6.8 22h10.4a1.8 1.8 0 0 0 1.8-1.8V7.5z"
+                      fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                <path d="M13.5 2v4.7a.8.8 0 0 0 .8.8H19" fill="none" stroke="currentColor"
+                      stroke-width="1.6" stroke-linejoin="round"/>
+                <rect x="4.2" y="13.2" width="12.4" height="6.6" rx="1" fill="#d32f2f"/>
+                <text x="10.4" y="17.9" font-size="5.6" font-weight="700" fill="#fff"
+                      text-anchor="middle" font-family="Arial, Helvetica, sans-serif">PDF</text>
+              </svg>
+            </a>
+          </div>
           {% elif p.estado != 'erro' %}<a href="/calculando/{{ p.id }}">acompanhar →</a>{% endif %}
         </td>
       </tr>
@@ -50,4 +95,25 @@
   </div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block script %}
+<script>
+// Exclui um plano gravado no banco (registro + imagens/PDF + Kambans
+// originais em disco - tudo tratado do lado do servidor). Plano aprovado
+// ganha um aviso extra na pergunta, porque é o que vale pra produção.
+async function excluirPlano(id, aprovado, linha) {
+  let msg = 'Excluir este plano?\n\nIsso remove o histórico do cálculo (registro, PDF e imagens). Não desfaz nenhuma chapa já cortada.';
+  if (aprovado) msg = '⚠️ Este plano está APROVADO (é o que vale pra produção).\n\n' + msg;
+  if (!confirm(msg)) return;
+
+  const r = await fetch(`/planos/${id}/excluir`, { method: 'POST' });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.ok) {
+    alert('Não consegui excluir' + (d.erro ? ' (' + d.erro + ')' : '') + '. Recarregue a página e tente de novo.');
+    return;
+  }
+  linha.remove();
+}
+</script>
 {% endblock %}

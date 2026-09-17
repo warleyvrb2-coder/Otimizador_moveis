@@ -18,7 +18,7 @@ combinado), resolvemos chapa a chapa, sempre a partir do MESMO pool restante
 """
 import copy
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from ortools.sat.python import cp_model
 
 SCALE = 1  # dimensões já em mm inteiros
@@ -232,6 +232,7 @@ def _pack_shelves(pool, sheet_w: int, sheet_h: int, placed: list, qty_used: dict
     tira depois vira peças com um corte só, sem posição surpresa no meio.
     """
     y = 0.0
+    faixas_geradas = []  # (h_faixa, escolhas) na ordem em que a busca gulosa achou cada uma
     while sheet_h - y > 1:
         h_livre = sheet_h - y
         # Candidata por altura de peça, mas só as MAIS PROMISSORAS: com
@@ -281,14 +282,40 @@ def _pack_shelves(pool, sheet_w: int, sheet_h: int, placed: list, qty_used: dict
             break  # nada mais coube na altura que sobrou - fica sem uso
 
         h_faixa, escolhas, _, _ = melhor
+        # A escolha gulosa acima decide QUAIS tipos entram na faixa e QUANTOS
+        # de cada, mas na ordem em que cada um "ganhou" a comparação de score -
+        # que pode intercalar peça grande com pequena sem nenhum motivo prático
+        # (ex.: peça de 562mm de largura logo depois de uma de 1730mm na mesma
+        # faixa). Reordenar aqui por largura decrescente não muda quantidade
+        # nem área usada - só a posição x de cada bloco - e dá uma faixa com
+        # cadência de corte previsível: da peça mais larga pra mais estreita,
+        # sempre a mesma sequência dentro do mesmo padrão.
+        escolhas = sorted(escolhas, key=lambda e: -e[1])
+        faixas_geradas.append((h_faixa, escolhas))
+        for p, iw, ih, rot, count in escolhas:
+            p.qty_total -= count
+            qty_used[p.key] = qty_used.get(p.key, 0) + count
+        y += h_faixa + kerf
+
+    # A mesma busca gulosa acima, olhando faixa por faixa sem lembrar da
+    # anterior, também intercala FAIXAS inteiras: uma peça cuja demanda não
+    # cabe toda numa faixa só (ex.: 8 unidades de 900mm de largura, só 4
+    # cabem de altura) fica com o restante empurrado pra uma faixa mais
+    # adiante, porque nessa hora outra peça pontuou melhor - o mesmo código
+    # saindo em 2 faixas separadas por uma faixa de peça diferente no meio.
+    # Reordenar a lista de faixas por largura decrescente antes de definir o
+    # Y final resolve isso do mesmo jeito que o reordenamento acima resolve
+    # dentro de uma faixa só: a altura total ocupada é a soma das faixas
+    # independente da ordem, então mudar a ordem não afeta o que cabe.
+    faixas_geradas.sort(key=lambda f: -f[0])
+    y = 0.0
+    for h_faixa, escolhas in faixas_geradas:
         x = 0.0
         for p, iw, ih, rot, count in escolhas:
             for i in range(count):
                 placed.append(PlacedItem(piece_key=p.key, cod=p.cod, desc=p.desc, shelf=0,
                                           x=x + i * (iw + kerf), y=y, w=iw, h=ih, rotated=rot))
             x += _ocupa(count, iw, kerf) + kerf
-            p.qty_total -= count
-            qty_used[p.key] = qty_used.get(p.key, 0) + count
         y += h_faixa + kerf
 
 
@@ -305,12 +332,36 @@ def _pack_columns(pool, sheet_w: int, sheet_h: int, placed: list, qty_used: dict
 
     Implementado chamando _pack_shelves com os eixos trocados e transpondo
     o resultado de volta - mesma lógica, só que "deitada".
+
+    Peça com veio travado (pode_girar=False) só tem UMA orientação válida
+    no mundo físico: comprimento (w) sempre no sentido do veio da chapa.
+    Como aqui os eixos internos estão trocados, a orientação "sem rotação"
+    que o _pack_shelves de baixo aplicaria devolveria o comprimento no
+    eixo físico ERRADO depois de transpor de volta - a peça saía virada na
+    chapa mesmo sem nenhuma flag marcar "rotated" (o bug que fazia a mesma
+    peça de material com veio aparecer deitada num padrão e em pé noutro,
+    dentro do mesmo plano). Por isso ela entra na chamada interna já com
+    w/h pré-trocados: o que pro empacotador de faixas é "sem rotação" volta,
+    depois da transposição abaixo, com o veio no eixo físico certo. Peça
+    que pode girar não precisa disso - qualquer uma das duas orientações é
+    válida pra ela, então entra como está.
     """
+    pool_eixos_trocados = [p if p.pode_girar else replace(p, w=p.h, h=p.w) for p in pool]
+    peca_por_key = {p.key: p for p in pool}
+
     placed_t: list = []
-    _pack_shelves(pool, sheet_h, sheet_w, placed_t, qty_used, strategy=strategy, kerf=kerf, estagios=estagios)
+    _pack_shelves(pool_eixos_trocados, sheet_h, sheet_w, placed_t, qty_used,
+                  strategy=strategy, kerf=kerf, estagios=estagios)
     for it in placed_t:
+        final_w, final_h = it.h, it.w
+        # "rotated" é sempre em relação ao cadastro (w = comprimento no
+        # sentido do veio) - comparar contra a peça original, nunca contra
+        # a flag interna do _pack_shelves, que perde o significado aqui
+        # depois da troca de eixos acima.
+        original = peca_por_key.get(it.piece_key)
+        girada = bool(original) and final_w != original.w
         placed.append(PlacedItem(piece_key=it.piece_key, cod=it.cod, desc=it.desc, shelf=0,
-                                  x=it.y, y=it.x, w=it.h, h=it.w, rotated=not it.rotated))
+                                  x=it.y, y=it.x, w=final_w, h=final_h, rotated=girada))
 
 
 def _pack_split_2_colunas(pool, sheet_w: int, sheet_h: int, kerf: float, estagios: int, strategy: str):
@@ -490,27 +541,91 @@ def _refine_last_sheet_cpsat(pool, sheet_w: int, sheet_h: int, max_shelves: int,
         return [], {}
 
     por_key = {p.key: p for p in usable}
-    placed = []
+    # O solver é livre pra atribuir qualquer combinação de peça a qualquer
+    # índice de faixa - nada impede a demanda de um código que não cabe
+    # numa faixa só de sair espalhada em índices de faixa não-adjacentes,
+    # com a faixa de outro código encaixada no meio (mesmo problema do
+    # laço guloso de _pack_shelves, ver correção lá). Por isso a posição Y
+    # final só é decidida DEPOIS: aqui só se monta a lista de faixas na
+    # ordem natural dos índices do solver, sem posicionar nada ainda.
+    faixas = []  # (h_s, [(piece, w, h, rotated, qty), ...])
     qty_used = {}
-    y_cursor = 0.0
     for s in shelves:
         h_s = solver.Value(shelf_h[s])
         if h_s == 0:
             continue
-        x_cursor = 0.0
+        itens_da_faixa = []
         for chave in [k for k in x if k[1] == s]:
             qty = solver.Value(x[chave])
             if qty <= 0:
                 continue
             p = por_key[chave[0]]
             w, h = dim[chave]
+            itens_da_faixa.append((p, w, h, bool(chave[2]), qty))
+            qty_used[p.key] = qty_used.get(p.key, 0) + qty
+        if itens_da_faixa:
+            faixas.append((h_s, itens_da_faixa))
+
+    # Mesmo critério de _pack_shelves: reordenar por largura decrescente da
+    # peça dominante da faixa (aqui, a mais larga dela) antes de definir o
+    # Y - sort estável, então duas faixas do mesmo código ficam adjacentes.
+    # Não muda quantidade nem viabilidade, só a ordem de empilhamento.
+    faixas.sort(key=lambda f: -max(w for _, w, _, _, _ in f[1]))
+
+    placed = []
+    y_cursor = 0.0
+    for h_s, itens_da_faixa in faixas:
+        # mesma cadência de corte da versão heurística: peça mais larga
+        # primeiro, dentro da própria faixa.
+        itens_da_faixa = sorted(itens_da_faixa, key=lambda item: -item[1])
+        x_cursor = 0.0
+        for p, w, h, rotated, qty in itens_da_faixa:
             for _ in range(qty):
                 placed.append(PlacedItem(piece_key=p.key, cod=p.cod, desc=p.desc,
-                                          shelf=s, x=x_cursor, y=y_cursor, w=w, h=h,
-                                          rotated=bool(chave[2])))
+                                          shelf=0, x=x_cursor, y=y_cursor, w=w, h=h,
+                                          rotated=rotated))
                 x_cursor += w + kerf   # o corte entre duas peças da faixa
-            qty_used[p.key] = qty_used.get(p.key, 0) + qty
         y_cursor += h_s + kerf         # o corte entre duas faixas
+    return placed, qty_used
+
+
+def _refine_last_sheet_cpsat_colunas(pool, sheet_w: int, sheet_h: int, max_shelves: int,
+                                      time_limit_s: float, value_dict: dict | None = None,
+                                      kerf: float = KERF_MM, estagios: int = 3):
+    """
+    Versão em COLUNAS do modelo exato acima - o mesmo raciocínio de
+    _pack_columns, mas pro CP-SAT.
+
+    O modelo exato só sabe montar em faixas horizontais. Isso é ótimo
+    quando as peças compartilham altura, mas quando muitas cópias do MESMO
+    código compartilham LARGURA (e não altura - ex.: uma peça de 280mm e
+    outra de 198mm de altura, sempre paredas), a versão em faixa intercala
+    as duas por linha e sobra uma tira de ~(280-198)mm ao lado de CADA
+    linha, em vez de uma vez só no fim de uma coluna com as 2 pilhas
+    separadas. Chamado com os eixos trocados e o resultado transposto de
+    volta, igual _pack_columns - inclusive a mesma pré-troca de w/h antes
+    de entrar no modelo: aqui toda peça já chega com pode_girar=False
+    (optimize_group_cg trava a orientação antes de gerar qualquer padrão),
+    então sem essa pré-troca o comprimento cairia no eixo físico errado
+    depois de transpor, do mesmo jeito que dava em _pack_columns.
+
+    Roda um CP-SAT inteiro a mais por chamada (o de faixa e o de coluna,
+    fica-se com o melhor) - o preço de ter as duas opções na hora do
+    pricing exato do Column Generation.
+    """
+    pool_eixos_trocados = [p if p.pode_girar else replace(p, w=p.h, h=p.w) for p in pool]
+    peca_por_key = {p.key: p for p in pool}
+
+    placed_t, qty_used = _refine_last_sheet_cpsat(pool_eixos_trocados, sheet_h, sheet_w, max_shelves,
+                                                   time_limit_s, value_dict=value_dict, kerf=kerf,
+                                                   estagios=estagios)
+    placed = []
+    for it in placed_t:
+        final_w, final_h = it.h, it.w
+        original = peca_por_key.get(it.piece_key)
+        girada = bool(original) and final_w != original.w
+        placed.append(PlacedItem(piece_key=it.piece_key, cod=it.cod, desc=it.desc, shelf=it.shelf,
+                                  x=it.y, y=it.x, w=final_w, h=final_h, rotated=girada))
     return placed, qty_used
 
 

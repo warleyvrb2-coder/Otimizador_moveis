@@ -181,6 +181,13 @@ def aplicar_aprendizado(grupos_resultado: list, par: dict) -> list[dict]:
                     if (r['cor'] or '').strip().upper() == g['cor'].strip().upper()]
         if not do_grupo:
             continue
+        # Mesma regra de consistência do otimizador principal (ver
+        # column_generation.optimize_group_cg): a peça sugerida pelo
+        # aprendizado entra numa orientação na primeira sobra onde couber e
+        # trava nela pro resto do plano inteiro - senão a mesma sugestão
+        # podia entrar "de pé" numa chapa e "de lado" noutra, só porque a
+        # sobra de cada uma tinha um formato diferente.
+        orientacao_travada: dict[str, bool] = {}
         for pad in g['padroes']:
             for regra in do_grupo:
                 p = pecas_cad.get(regra['peca_cod'])
@@ -189,7 +196,8 @@ def aplicar_aprendizado(grupos_resultado: list, par: dict) -> list[dict]:
                 livres = edicao.retalhos_livres(pad['itens'], par['chapa_larg'], par['chapa_alt'])
                 for ret in livres:
                     enc = edicao.encaixar(ret, p['comp_mm'], p['larg_mm'], par['kerf'],
-                                           pode_girar=not (g['tem_veio'] and p['aparente']))
+                                           pode_girar=not (g['tem_veio'] and p['aparente']),
+                                           forcar_giro=orientacao_travada.get(p['cod']))
                     if not enc:
                         continue
                     teste = pad['itens'] + [{'cod': p['cod'], 'desc': p['descricao'],
@@ -200,6 +208,7 @@ def aplicar_aprendizado(grupos_resultado: list, par: dict) -> list[dict]:
                         continue
                     pad['itens'] = teste
                     pad['sugerido'] = True
+                    orientacao_travada.setdefault(p['cod'], enc['rotated'])
                     aplicadas.append({'cor': g['cor'], 'cod': p['cod'],
                                        'desc': p['descricao'], 'padrao': pad['n'],
                                        'vezes': regra['vezes'],

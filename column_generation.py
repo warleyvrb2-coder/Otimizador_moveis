@@ -23,13 +23,14 @@ do OR-Tools, que já está no requirements.txt do projeto.
 """
 import copy
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ortools.linear_solver import pywraplp
 from ortools.sat.python import cp_model
 
 from optimizer import (PieceType, PlacedItem, SheetResult, _pack_shelves, _pack_columns,
-                        _pack_split_2_colunas, _refine_last_sheet_cpsat, KERF_MM)
+                        _pack_split_2_colunas, _refine_last_sheet_cpsat,
+                        _refine_last_sheet_cpsat_colunas, KERF_MM)
 
 
 @dataclass
@@ -81,9 +82,29 @@ def _generate_pattern(piece_info: dict, demand_cap: dict, sheet_w: int, sheet_h:
                                pode_girar=base.pode_girar))
 
     if exact:
-        placed, qty_used = _refine_last_sheet_cpsat(pool, sheet_w, sheet_h, max_shelves, time_limit_s,
-                                                      value_dict=value_dict, kerf=kerf,
-                                                      estagios=estagios)
+        # O modelo exato só sabe montar em faixas - roda também a variante
+        # em colunas (_refine_last_sheet_cpsat_colunas) e fica com a que
+        # pontuar melhor no MESMO critério que o modelo está otimizando
+        # (valor dual no pricing, área fora dele). Sem isso, padrão onde
+        # peças do mesmo código compartilham LARGURA (não altura) sempre
+        # saía em faixa, espalhando a mesma sobra de altura numa tira ao
+        # lado de cada linha em vez de concentrada uma vez só no fim da
+        # coluna. Custa um CP-SAT inteiro a mais por chamada.
+        placed_faixa, qty_faixa = _refine_last_sheet_cpsat(
+            pool, sheet_w, sheet_h, max_shelves, time_limit_s,
+            value_dict=value_dict, kerf=kerf, estagios=estagios)
+        placed_coluna, qty_coluna = _refine_last_sheet_cpsat_colunas(
+            pool, sheet_w, sheet_h, max_shelves, time_limit_s,
+            value_dict=value_dict, kerf=kerf, estagios=estagios)
+
+        def _pontuacao(candidato):
+            placed_i, qty_i = candidato
+            if value_dict is not None:
+                return sum(value_dict.get(k, 0.0) * q for k, q in qty_i.items())
+            return sum(it.w * it.h for it in placed_i)
+
+        placed, qty_used = max([(placed_faixa, qty_faixa), (placed_coluna, qty_coluna)],
+                                key=_pontuacao)
     else:
         # Tenta 3 jeitos de arrumar em faixas/colunas e fica com o de maior
         # área coberta. Faixa pura ganha quando as peças compartilham
@@ -174,8 +195,19 @@ def optimize_group_cg(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
     nível; None = sem limite). Os padrões vindos do CP-SAT exato já são
     sempre 2 estágios por natureza do modelo, então não precisam desse
     parâmetro.
+
+    Toda peça entra travada na orientação do cadastro (pode_girar=False),
+    mesmo a que teoricamente poderia girar (cor sem veio). Não é regra de
+    veio - é regra de operação: o mesmo código só pode aparecer numa única
+    posição em TODO o plano, faixa ou coluna, chapa 1 ou chapa 50. Deixar
+    o otimizador escolher a orientação livremente por padrão fazia a
+    mesma peça (ex.: 11883) sair "de pé" na maioria das chapas e "de lado"
+    numa chapa isolada, só porque naquela sobra específica a versão
+    girada cobria uns milímetros extras - ganho de aproveitamento que o
+    operador paga caro tentando lembrar qual chapa cortar de qual jeito.
     """
     t_start = time.time()
+    pieces = [replace(p, pode_girar=False) for p in pieces]
     piece_info = {p.key: p for p in pieces}
     demand = {p.key: p.qty_total for p in pieces}
     piece_keys = list(demand.keys())
