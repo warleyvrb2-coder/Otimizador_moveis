@@ -4,6 +4,146 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-09-21 — Serra (kerf) não reservava espaço nenhum entre peças no plano manual/edição
+
+### O problema: peças coladas sem nenhum vão pro disco da serra passar
+
+Reportado com print: 32 peças de 333×395mm lado a lado e empilhadas, com
+serra de 4,4mm configurada - conferido no banco, as posições reais eram
+x=0, 333, 666, 999... e y=0, 395, 790... **zero espaço entre uma peça e a
+próxima**, em vez de x=0, 337.4, 674.8... (333 + 4,4 de kerf). O corte não
+existia no papel; na serra de verdade, ou a peça sai maior que o espaço
+que sobrou, ou não sobra nada pro disco cortar.
+
+**Causa raiz**: `edicao.encaixar` sempre devolve a peça encostada no canto
+(x, y) do espaço livre que recebe - o kerf ali só é usado pra CONFERIR se
+a peça cabe (`largura + kerf <= espaço`), nunca vira posição de verdade.
+Quem deveria reservar esse kerf era `edicao.retalhos_livres` (a função que
+calcula o que ainda está livre pra próxima peça entrar) - mas ela nunca
+recebia o kerf, só as peças já colocadas e o tamanho da chapa. Isso afeta
+TUDO que passa por ela: arrastar peça no plano manual, incluir por código,
+incluir por dimensão (peça avulsa), sugestão automática do aprendizado,
+preenchimento de peças extras - qualquer fluxo que calcula "o que ainda
+cabe aqui" a partir de peças já postas manualmente.
+
+O motor automático (`optimizer.py`, column generation) nunca teve esse
+problema - ele calcula posição somando `medida + kerf` a cada peça nova
+desde o início, não depende de "espaço livre recalculado". O bug era só
+no lado interativo (`edicao.py`), usado pelo plano manual e pelo editor de
+padrão.
+
+**A correção**: `edicao.retalhos_livres` (e as duas funções internas que
+ela usa, `_bordas` e `_ocupada`) ganharam um parâmetro `kerf` - cada peça
+já colocada passa a "reservar" um kerf inteiro ao redor dela (não meio-
+kerf: nesse sistema uma peça nova entra ancorada exatamente no canto do
+espaço livre calculado, então quem tem que reservar a serra inteira é a
+peça que já está lá, ANTES da nova nascer - a metade não bastava, testado
+e comprovado com números reais). Perto da própria borda da chapa a folga
+não passa do 0/limite: ali não existe corte, é o fim do material. Todos os
+10 lugares do código que chamam essa função (`app.py`, `pipeline.py`)
+passaram a mandar o kerf de verdade da máquina.
+
+Testado isolado: peça de 333×395 com kerf 4,4 - o próximo espaço livre à
+direita agora começa em 337,4 (não mais 333), o de baixo em 399,4 (não
+mais 395). Testado também que peça JÁ corretamente espaçada (como o motor
+automático sempre gerou) não perde nenhum espaço a mais por causa da
+correção - o kerf reservado por uma peça cai exatamente onde a vizinha já
+está, sem sobra fantasma e sem espaço a menos.
+
+### Bug encontrado de brinde: preenchimento de peça avulsa desistia cedo
+
+Ao testar a correção acima com o cenário real do print (encher a chapa
+toda com cópias da mesma peça avulsa), achei um segundo bug, sem relação
+com o kerf: `_encaixar_repetido_no_retalho` (correção de 18/09, "peça
+avulsa entra exatamente onde eu cliquei") comparava a próxima sobra contra
+a ÚLTIMA tentada, não contra o espaço ORIGINAL escolhido - depois de
+encher uma linha inteira lado a lado, a fatia final que sobra no fim dela
+costuma ficar estreita demais pra mais uma peça, e o preenchimento
+desistia ali, mesmo com a linha de baixo inteira ainda livre (bem maior
+que a fatia estreita que acabou de falhar).
+
+**A correção**: a cada peça, considera de novo TODAS as sobras contidas
+no espaço originalmente escolhido, da maior pra menor, e só desiste
+quando NENHUMA delas aceita a peça - não mais na primeira tentativa
+específica que falhar. Testado com os números exatos do print: pedindo
+até 40 peças de 333×395mm num espaço de 2750×1860mm com kerf 4,4, agora
+encaixam as 32 que cabem de verdade (8 colunas × 4 linhas), preenchendo
+linha por linha - antes parava em 8 (só a primeira linha).
+
+## 2026-09-18 — Horário do servidor 3h adiantado, peça mais longa na ponta, códigos iguais agrupados
+
+### Horário gravado certo (UTC), mas mostrado errado (+3h) só quando publicado
+
+No Railway o horário aparecia 3h adiantado (ex.: 15h de Brasília mostrava
+18h). O grave é gravado certo - `datetime.now(timezone.utc)`, sempre - só
+a EXIBIÇÃO tinha o problema: `.astimezone()` sem argumento nenhum converte
+pro fuso do sistema operacional onde o Python está rodando. Na sua máquina
+Windows (já configurado pra Brasília), isso "funcionava" por coincidência;
+publicado no Railway, o container roda em UTC, e a mesma chamada não
+convertia nada. Tinha ainda dois lugares mostrando o horário gravado
+CRU, cortando a string ISO na mão (`[:16]|replace('T',' ')`), sem
+NENHUMA conversão - mesmo bug, sem nem a coincidência de funcionar local.
+
+**A correção**: uma função só, `_hora_br` (`app.py`), fixa o fuso em
+`America/Sao_Paulo` (não no fuso do sistema) e vira filtro Jinja
+(`{{ valor|hora_br }}`) - toda tela que mostra "quando algo aconteceu"
+passa por ela agora (`/planos`, início, aprovação do plano, histórico do
+aprendizado), nenhuma com sua própria conversão (ou falta dela)
+divergente. Precisou de `tzdata` no `requirements.txt` - o `zoneinfo` do
+Python depende do banco de fusos horários do sistema operacional, que o
+Windows não traz nativo (só "funcionava" aqui porque outro pacote já
+tinha trazido de carona; sem declarar, um ambiente novo sem essa
+dependência de bônus quebraria).
+
+Testado isolado: horário UTC 14:30 (gravado) exibe 11:30 (Brasília,
+UTC-3) - direto de string ISO e de objeto datetime, nos dois formatos
+que o projeto usa pra guardar hora.
+
+### Peça de maior comprimento sempre numa ponta da pilha, nunca no meio
+
+Reportado com print: 3 faixas empilhadas (comprimentos 2057, 2250 e
+2085mm) - a de 2250mm (a mais longa) saiu na faixa do MEIO, não numa
+ponta. Causa: o reordenamento de faixas (correção de 17/09) usava a
+LARGURA da peça dominante (`h_faixa`) como critério, não o comprimento -
+então uma peça mais larga podia ganhar a ponta de outra mais longa.
+Troquei o critério pra comprimento decrescente da peça dominante de cada
+faixa (a mesma peça que já manda na cadência de corte dentro da própria
+faixa, agora manda também na ordem de empilhamento entre faixas) - a
+maior automaticamente cai numa ponta, por definição de ordenar.
+Corrigido nos dois motores (`_pack_shelves` e `_refine_last_sheet_cpsat`,
+`optimizer.py`).
+
+### Duas peças de código diferente mas mesma medida ainda alternavam
+
+Reportado com print: colunas alternando 8988, 8987, 8988, 8987 (as duas
+com 880×450mm - mesma medida, código diferente) em vez de agrupadas. O
+reordenamento por comprimento (acima) não resolve esse caso: as duas
+faixas EMPATAM no comprimento, e um sort estável em empate preserva a
+ordem original da busca gulosa - que pode alternar entre dois códigos
+igualmente bons a cada passo. Acrescentado o código como critério de
+desempate (`e[0].cod`) em TODOS os pontos que já ordenavam por
+comprimento - dentro da faixa e entre faixas, nos dois motores - duas
+peças de comprimento igual (mesmo com código diferente) agora sempre
+ficam adjacentes.
+
+Testado isolado com os códigos exatos do print (8988/8987, 880×450):
+saem agrupados (2×8987 seguidas de 2×8988), nunca mais alternando -
+confirmado nos dois motores. Regressões de veio travado, cadência dentro
+da faixa e agrupamento de código já corrigido continuam passando.
+
+### Investigado, sem correção ainda: espaço ao lado da peça repetido por faixa
+
+Reportado com print (Padrão 2, 10395+8989 repetido em 3 faixas, sobra
+uma margem à direita em cada uma). Contas: 2250 (10395) + 432 (8989) +
+4,4 (serra) = 2686,4mm; chapa tem 2750mm de largura - sobram 63,6mm, e
+NENHUMA peça do catálogo é estreita o bastante pra entrar nesse resto,
+então esse valor é o mesmo INDEPENDENTE de como as peças forem
+arranjadas (faixa ou coluna) - não é desperdício "corrigível" por
+reordenar nada, é chapa que realmente não dá pra usar com esse conjunto
+de peças. Perguntei ao usuário se o exemplo real é outro (peça igual com
+espaço sobrando ENTRE duas cópias dela mesma, não na borda da chapa) -
+aguardando resposta antes de mudar algo que, pelas contas, já está certo.
+
 ## 2026-09-17 (6) — Peça avulsa entra exatamente no espaço escolhido, não no "melhor lugar"
 
 ### O problema: cliquei num espaço, mandei incluir, e a peça foi pra outro canto

@@ -82,7 +82,7 @@
     <tbody>
       {% for e in historico %}
       <tr>
-        <td style="white-space:nowrap;">{{ e.quando[:16]|replace('T',' ') }}</td>
+        <td style="white-space:nowrap;">{{ e.quando|hora_br }}</td>
         <td>{{ e.cor }}</td>
         <td>{% if e.acao == 'adicionar' %}<span class="etiqueta ok">colocou</span>
             {% else %}<span class="etiqueta perigo">tirou</span>{% endif %}</td>

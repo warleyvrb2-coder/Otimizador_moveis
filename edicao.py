@@ -33,27 +33,45 @@ class Retalho:
         return (self.w / 1000) * (self.h / 1000)
 
 
-def _bordas(itens: list[dict], w: float, h: float) -> tuple[list, list]:
+def _bordas(itens: list[dict], w: float, h: float, kerf: float = 0.0) -> tuple[list, list]:
+    """
+    Linhas de grade: bordas das peças já colocadas, cada uma alargada por
+    um kerf INTEIRO pra dentro do espaço livre ao redor (não meio-kerf):
+    o cálculo do retalho livre vê UMA peça de cada vez, nunca duas se
+    encostando ao mesmo tempo pra "dividir" o corte entre elas - a peça
+    nova só existe DEPOIS que o retalho já foi calculado e ela foi
+    encaixada no canto dele (edicao.encaixar sempre ancora no canto,
+    nunca deixa folga própria). Então quem reserva o corte inteiro tem
+    que ser a peça que já está lá, senão sobra só metade do kerf de
+    verdade pra peça nova entrar. Quando as duas peças já coexistem numa
+    chamada futura, cada uma alarga um kerf inteiro na direção da outra -
+    as duas bordas caem exatamente onde a peça vizinha já está (não
+    sobra, não falta), porque a peça vizinha, ancorada no canto do
+    retalho anterior, já nasceu exatamente um kerf mais longe. Perto da
+    própria borda da chapa a folga NÃO estende além do 0/w/h: não existe
+    corte nem perda de material ali, é o fim da chapa.
+    """
     xs = {0.0, float(w)}
     ys = {0.0, float(h)}
     for it in itens:
-        xs.update((float(it['x']), float(it['x']) + float(it['w'])))
-        ys.update((float(it['y']), float(it['y']) + float(it['h'])))
+        ix, iy = float(it['x']), float(it['y'])
+        xs.update((max(0.0, ix - kerf), min(float(w), ix + float(it['w']) + kerf)))
+        ys.update((max(0.0, iy - kerf), min(float(h), iy + float(it['h']) + kerf)))
     return sorted(xs), sorted(ys)
 
 
-def _ocupada(itens: list[dict], x0, y0, x1, y1) -> bool:
+def _ocupada(itens: list[dict], x0, y0, x1, y1, kerf: float = 0.0) -> bool:
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     for it in itens:
         ix, iy = float(it['x']), float(it['y'])
-        if ix - TOL < cx < ix + float(it['w']) + TOL and \
-           iy - TOL < cy < iy + float(it['h']) + TOL:
+        if ix - kerf - TOL < cx < ix + float(it['w']) + kerf + TOL and \
+           iy - kerf - TOL < cy < iy + float(it['h']) + kerf + TOL:
             return True
     return False
 
 
 def retalhos_livres(itens: list[dict], w: float, h: float,
-                    minimo: float = 80.0) -> list[Retalho]:
+                    minimo: float = 80.0, kerf: float = 0.0) -> list[Retalho]:
     """
     Os espaços vazios da chapa, como retângulos.
 
@@ -61,16 +79,27 @@ def retalhos_livres(itens: list[dict], w: float, h: float,
     de cada célula dessa grade ou está tudo ocupado ou está tudo livre, então
     juntar células livres vizinhas dá os retângulos de sobra.
 
+    kerf: reserva um kerf inteiro ao redor de cada peça já colocada ANTES de
+    calcular o que sobra - sem isso, duas peças ficavam livres pra entrar
+    coladas uma na outra (nenhum espaço pro disco da serra passar entre
+    elas), porque `encaixar` só cobra o kerf como condição de caber, nunca
+    como posição real: ele sempre devolve a peça encostada no canto do
+    retalho recebido. É aqui, no cálculo do retalho em si, que o kerf
+    precisa entrar pra a peça seguinte já nascer na posição certa. Default
+    0.0 preserva o comportamento antigo pra chamada que ainda não repassa
+    o kerf (nenhuma deveria ficar assim, mas evita quebrar em silêncio se
+    uma ficar pra trás).
+
     Devolve só os MAXIMAIS (nenhum contido em outro) e acima de `minimo` nos
     dois lados — retalho menor que isso não serve pra peça nenhuma e só
     poluiria a tela.
     """
-    xs, ys = _bordas(itens, w, h)
+    xs, ys = _bordas(itens, w, h, kerf)
     nx, ny = len(xs) - 1, len(ys) - 1
     if nx <= 0 or ny <= 0:
         return []
 
-    livre = [[not _ocupada(itens, xs[i], ys[j], xs[i + 1], ys[j + 1])
+    livre = [[not _ocupada(itens, xs[i], ys[j], xs[i + 1], ys[j + 1], kerf)
               for j in range(ny)] for i in range(nx)]
 
     achados: list[tuple] = []

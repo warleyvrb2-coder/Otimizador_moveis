@@ -193,7 +193,8 @@ def aplicar_aprendizado(grupos_resultado: list, par: dict) -> list[dict]:
                 p = pecas_cad.get(regra['peca_cod'])
                 if not p:
                     continue
-                livres = edicao.retalhos_livres(pad['itens'], par['chapa_larg'], par['chapa_alt'])
+                livres = edicao.retalhos_livres(pad['itens'], par['chapa_larg'], par['chapa_alt'],
+                                                 kerf=par['kerf'])
                 for ret in livres:
                     enc = edicao.encaixar(ret, p['comp_mm'], p['larg_mm'], par['kerf'],
                                            pode_girar=not (g['tem_veio'] and p['aparente']),

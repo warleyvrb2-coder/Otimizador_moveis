@@ -19,6 +19,8 @@ import glob
 import os
 import secrets
 import shutil
+from datetime import datetime as _datetime, timezone as _timezone
+from zoneinfo import ZoneInfo
 
 from flask import (Flask, request, render_template, redirect, url_for,
                    jsonify, abort, Response, send_from_directory, send_file,
@@ -51,6 +53,38 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # máquina já tem cadastrado - sem perguntar de novo pra cada chapa manual.
 ESPESSURA_PADRAO_MM = 15
 
+# Todo horário gravado no banco é UTC (datetime.now(timezone.utc), em
+# banco.py e jobs.py) - correto pra guardar, mas errado pra mostrar direto:
+# na sua máquina, .astimezone() sem argumento converte pro fuso do Windows
+# (já configurado pra Brasília, então "funcionava"); publicado no Railway, o
+# container roda em UTC, e a mesma chamada não converte NADA - o horário
+# aparecia 3h adiantado. Fixar o fuso aqui, explícito, funciona igual nos
+# dois lugares, não depende de qual fuso o sistema operacional do servidor
+# está configurado.
+FUSO_BR = ZoneInfo('America/Sao_Paulo')
+
+
+def _hora_br(valor) -> str:
+    """
+    Formata um horário (datetime com timezone, ou string ISO) no fuso de
+    Brasília, sempre - é a função ÚNICA que qualquer tela usa pra mostrar
+    'quando' algo aconteceu, tanto direto do Python quanto via filtro Jinja
+    ({{ valor|hora_br }}), pra nunca mais ter conversão de fuso duplicada
+    (e divergente) espalhada entre rotas e templates.
+    """
+    if not valor:
+        return ''
+    try:
+        momento = valor if isinstance(valor, _datetime) else _datetime.fromisoformat(valor)
+    except (ValueError, TypeError):
+        return str(valor)
+    if momento.tzinfo is None:
+        # Registro antigo, gravado antes desta correção, sem timezone
+        # explícito no texto - o código sempre gravou em UTC, então assume
+        # isso em vez de tratar como se já fosse hora de Brasília.
+        momento = momento.replace(tzinfo=_timezone.utc)
+    return momento.astimezone(FUSO_BR).strftime('%d/%m %H:%M')
+
 # Senha única compartilhada. Não é sistema de usuários - é uma tranca pra URL
 # não ficar aberta na internet enquanto o testador usa.
 APP_USUARIO = os.environ.get('APP_USUARIO', 'benetil')
@@ -67,6 +101,7 @@ EM_NUVEM = bool(os.environ.get('RAILWAY_ENVIRONMENT') or
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024  # 30MB
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
+app.jinja_env.filters['hora_br'] = _hora_br
 
 
 @app.before_request
@@ -139,14 +174,6 @@ def index():
                             maquinas=banco.listar_maquinas(so_ativas=True))
 
 
-def _quando(iso: str) -> str:
-    from datetime import datetime as _dt
-    try:
-        return _dt.fromisoformat(iso).astimezone().strftime('%d/%m %H:%M')
-    except (ValueError, TypeError):
-        return iso or ''
-
-
 @app.route('/planos')
 def planos():
     """Os que ainda estão calculando vêm da memória; o resto, do banco."""
@@ -154,11 +181,11 @@ def planos():
     for j in sorted(jobs.todos(), key=lambda j: j.criado_em, reverse=True):
         if j.estado in ('na_fila', 'rodando', 'erro'):
             lista.append({'id': j.id, 'estado': j.estado, 'pct': j.pct,
-                           'quando': j.criado_em.astimezone().strftime('%d/%m %H:%M'),
+                           'quando': _hora_br(j.criado_em),
                            'arquivos': None, 'chapas': None, 'aprovado': False})
     for p in banco.listar_planos():
         lista.append({'id': p['id'], 'estado': 'pronto', 'pct': 100,
-                       'quando': _quando(p['criado_em']), 'arquivos': p['arquivos'],
+                       'quando': _hora_br(p['criado_em']), 'arquivos': p['arquivos'],
                        'chapas': p['total_chapas'], 'aprovado': bool(p['aprovado']),
                        'aprovado_por': p['aprovado_por']})
     return render_template('planos.html', pagina='planos', planos=lista)
@@ -1117,7 +1144,7 @@ def _melhor_encaixe_valido(base_item, comp, larg, kerf, pode_girar, itens_ocupad
     especifica - e o que o arraste com "virar ao soltar" marcado precisa,
     pra buscar em toda a chapa sem trocar a orientacao que a pessoa pediu.
     """
-    livres = edicao.retalhos_livres(itens_ocupados, sheet_w, sheet_h)
+    livres = edicao.retalhos_livres(itens_ocupados, sheet_w, sheet_h, kerf=kerf)
     candidatas = []
     for retalho in livres:
         enc = edicao.encaixar(retalho, comp, larg, kerf, pode_girar, forcar_giro=forcar_giro)
@@ -1149,29 +1176,38 @@ def _encaixar_repetido_no_retalho(base_item, comp, larg, kerf, pode_girar, itens
     espaço que a pessoa escolheu na tela - nunca em outro lugar da chapa.
 
     edicao.encaixar sempre ancora a peça no canto (x,y) do retalho recebido;
-    depois de encaixar uma, o que sobra desse mesmo espaço vira uma sobra
-    NOVA (ou duas, em L) na lista recalculada por edicao.retalhos_livres.
-    Pra continuar enchendo o espaço original em vez de pular pra qualquer
-    sobra do mesmo tamanho na chapa toda, cada passo só aceita uma sobra
-    recalculada que esteja CONTIDA dentro do retalho original (`_contido`) -
-    e para (sem procurar em outro lugar) no primeiro passo em que nada mais
-    cabe ali, porque "onde eu cliquei" para de existir quando enche.
+    depois de encaixar uma, o que sobra desse mesmo espaço vira uma ou mais
+    sobras novas na lista recalculada por edicao.retalhos_livres. A cada
+    passo, considera TODAS as sobras que ainda estão CONTIDAS dentro do
+    espaço ORIGINAL escolhido (`_contido` contra `retalho_alvo`, sempre o
+    mesmo - nunca contra a última sobra tentada), da maior pra menor, e
+    para na primeira que aceita a peça. Sem isso (versão anterior, contra
+    a última sobra): depois de encher uma linha inteira lado a lado, a
+    última fatia que sobra no fim dela costuma ficar estreita demais pra
+    peça - e o laço desistia ali, mesmo com o resto do espaço original
+    (a próxima linha inteira, por exemplo) ainda livre e maior que a fatia
+    estreita que acabou de falhar.
     """
     itens = list(itens_ocupados)
-    alvo = retalho_alvo
     incluidos = []
-    while len(incluidos) < quantidade and alvo is not None:
-        enc = edicao.encaixar(alvo, comp, larg, kerf, pode_girar)
-        if not enc:
+    while len(incluidos) < quantidade:
+        livres = edicao.retalhos_livres(itens, sheet_w, sheet_h, kerf=kerf)
+        candidatos = sorted((s for s in livres if _contido(s, retalho_alvo)),
+                            key=lambda s: -(s.w * s.h))
+        colocado = False
+        for alvo in candidatos:
+            enc = edicao.encaixar(alvo, comp, larg, kerf, pode_girar)
+            if not enc:
+                continue
+            candidato = {**base_item, **enc}
+            if edicao.validar_padrao(itens + [candidato], sheet_w, sheet_h, max_estagios):
+                continue  # esse encaixe especifico quebraria a guilhotina - tenta o proximo
+            itens.append(candidato)
+            incluidos.append(candidato)
+            colocado = True
             break
-        candidato = {**base_item, **enc}
-        if edicao.validar_padrao(itens + [candidato], sheet_w, sheet_h, max_estagios):
-            break  # caberia geometricamente, mas quebraria o corte em guilhotina
-        itens.append(candidato)
-        incluidos.append(candidato)
-        livres_novos = edicao.retalhos_livres(itens, sheet_w, sheet_h)
-        candidatos_contidos = [s for s in livres_novos if _contido(s, alvo)]
-        alvo = max(candidatos_contidos, key=lambda s: s.w * s.h, default=None)
+        if not colocado:
+            break
     return incluidos
 
 
@@ -1205,7 +1241,7 @@ def _preencher_padroes_extra(padroes, catalogo, orcamento_fisico, pode_girar_por
         progresso = True
         while progresso:
             progresso = False
-            livres = edicao.retalhos_livres(itens, sheet_w, sheet_h)
+            livres = edicao.retalhos_livres(itens, sheet_w, sheet_h, kerf=kerf)
             if not livres:
                 break
             melhor = None
@@ -1271,7 +1307,7 @@ def editar_padrao(plano_id, gi, pi):
     grupo, padrao = _localizar_padrao(r, gi, pi)
     if padrao is None or 'itens' not in padrao:
         abort(404)
-    livres = edicao.retalhos_livres(padrao['itens'], r['sheet_w'], r['sheet_h'])
+    livres = edicao.retalhos_livres(padrao['itens'], r['sheet_w'], r['sheet_h'], kerf=r['kerf'])
     escolhido = request.args.get('retalho', type=int)
     busca = request.args.get('busca', '').strip()
     candidatas = []
@@ -1303,7 +1339,7 @@ def dados_padrao(plano_id, gi, pi):
     grupo, padrao = _localizar_padrao(r, gi, pi)
     if padrao is None or 'itens' not in padrao:
         abort(404)
-    livres = edicao.retalhos_livres(padrao['itens'], r['sheet_w'], r['sheet_h'])
+    livres = edicao.retalhos_livres(padrao['itens'], r['sheet_w'], r['sheet_h'], kerf=r['kerf'])
     return jsonify({
         'chapa': {'w': r['sheet_w'], 'h': r['sheet_h'], 'kerf': r['kerf'],
                    'estagios': r['estagios'], 'veio': bool(grupo.get('tem_veio')),
@@ -1338,7 +1374,7 @@ def simular_encaixe(plano_id, gi, pi):
     if peca is None:
         return jsonify({'ok': False, 'curto': 'peca desconhecida',
                          'motivo': 'O codigo ' + cod + ' nao existe no cadastro de pecas.'})
-    livres = edicao.retalhos_livres(padrao['itens'], r['sheet_w'], r['sheet_h'])
+    livres = edicao.retalhos_livres(padrao['itens'], r['sheet_w'], r['sheet_h'], kerf=r['kerf'])
     if not isinstance(i_ret, int) or not (0 <= i_ret < len(livres)):
         return jsonify({'ok': False, 'curto': 'sem sobra',
                          'motivo': 'Escolha primeiro em qual espaco da chapa a peca entra.'})
@@ -1363,7 +1399,7 @@ def candidatas_sobra(plano_id, gi, pi):
         abort(404)
     i_ret = request.args.get('retalho', type=int)
     busca = request.args.get('busca', '').strip()
-    livres = edicao.retalhos_livres(padrao['itens'], r['sheet_w'], r['sheet_h'])
+    livres = edicao.retalhos_livres(padrao['itens'], r['sheet_w'], r['sheet_h'], kerf=r['kerf'])
     if i_ret is None or not (0 <= i_ret < len(livres)):
         return jsonify({'cabem': [], 'nao_cabem': []})
 
@@ -1434,7 +1470,7 @@ def aplicar_edicao(plano_id, gi, pi):
         cod = (request.form.get('cod') or '').strip()
         girar_raw = request.form.get('girar')
         forcar_giro = None if girar_raw is None else (girar_raw == '1')
-        livres = edicao.retalhos_livres(itens, r['sheet_w'], r['sheet_h'])
+        livres = edicao.retalhos_livres(itens, r['sheet_w'], r['sheet_h'], kerf=r['kerf'])
         peca = next((p for p in banco.listar_pecas(cod, limite=80) if p['cod'] == cod), None)
         if peca is None:
             return volta(erro='Codigo ' + cod + ' nao existe no cadastro de pecas.')
@@ -1572,7 +1608,7 @@ def aplicar_edicao(plano_id, gi, pi):
         # cai no comportamento de sempre, melhor encaixe em qualquer canto.
         i_ret = request.form.get('retalho', type=int)
         if i_ret is not None:
-            livres = edicao.retalhos_livres(itens, r['sheet_w'], r['sheet_h'])
+            livres = edicao.retalhos_livres(itens, r['sheet_w'], r['sheet_h'], kerf=r['kerf'])
             if not (0 <= i_ret < len(livres)):
                 return volta(erro='Esse espaço não existe mais nesta chapa - a seleção deve ter ficado velha.')
             incluidos = _encaixar_repetido_no_retalho(

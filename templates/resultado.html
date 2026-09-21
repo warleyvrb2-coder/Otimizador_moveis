@@ -79,7 +79,7 @@
   {% if plano.aprovado %}
     <div class="ap-tit">✓ Plano aprovado pelo PCP</div>
     <div class="ap-sub">Por <strong>{{ plano.aprovado_por }}</strong> em
-      {{ plano.aprovado_em[:16]|replace('T',' ') }}. Este é o plano que vale —
+      {{ plano.aprovado_em|hora_br }}. Este é o plano que vale —
       não precisa recalcular.</div>
     {% if plano.observacao %}
     <div class="ap-obs">“{{ plano.observacao }}”</div>

@@ -285,12 +285,15 @@ def _pack_shelves(pool, sheet_w: int, sheet_h: int, placed: list, qty_used: dict
         # A escolha gulosa acima decide QUAIS tipos entram na faixa e QUANTOS
         # de cada, mas na ordem em que cada um "ganhou" a comparação de score -
         # que pode intercalar peça grande com pequena sem nenhum motivo prático
-        # (ex.: peça de 562mm de largura logo depois de uma de 1730mm na mesma
-        # faixa). Reordenar aqui por largura decrescente não muda quantidade
-        # nem área usada - só a posição x de cada bloco - e dá uma faixa com
-        # cadência de corte previsível: da peça mais larga pra mais estreita,
-        # sempre a mesma sequência dentro do mesmo padrão.
-        escolhas = sorted(escolhas, key=lambda e: -e[1])
+        # (ex.: peça de 562mm de comprimento logo depois de uma de 1730mm na
+        # mesma faixa). Reordenar aqui por comprimento decrescente não muda
+        # quantidade nem área usada - só a posição x de cada bloco - e dá uma
+        # faixa com cadência de corte previsível: da peça mais longa pra mais
+        # curta, sempre a mesma sequência dentro do mesmo padrão. O código
+        # como critério de desempate (peça de mesmo comprimento, código
+        # diferente) agrupa as duas cópias juntas em vez de deixar a ordem
+        # de descoberta da busca gulosa intercalar os dois códigos.
+        escolhas = sorted(escolhas, key=lambda e: (-e[1], e[0].cod))
         faixas_geradas.append((h_faixa, escolhas))
         for p, iw, ih, rot, count in escolhas:
             p.qty_total -= count
@@ -299,15 +302,24 @@ def _pack_shelves(pool, sheet_w: int, sheet_h: int, placed: list, qty_used: dict
 
     # A mesma busca gulosa acima, olhando faixa por faixa sem lembrar da
     # anterior, também intercala FAIXAS inteiras: uma peça cuja demanda não
-    # cabe toda numa faixa só (ex.: 8 unidades de 900mm de largura, só 4
+    # cabe toda numa faixa só (ex.: 8 unidades de 900mm de comprimento, só 4
     # cabem de altura) fica com o restante empurrado pra uma faixa mais
     # adiante, porque nessa hora outra peça pontuou melhor - o mesmo código
     # saindo em 2 faixas separadas por uma faixa de peça diferente no meio.
-    # Reordenar a lista de faixas por largura decrescente antes de definir o
-    # Y final resolve isso do mesmo jeito que o reordenamento acima resolve
-    # dentro de uma faixa só: a altura total ocupada é a soma das faixas
-    # independente da ordem, então mudar a ordem não afeta o que cabe.
-    faixas_geradas.sort(key=lambda f: -f[0])
+    # Reordenar a lista de faixas antes de definir o Y final resolve isso do
+    # mesmo jeito que o reordenamento acima resolve dentro de uma faixa só: a
+    # altura total ocupada é a soma das faixas independente da ordem, então
+    # mudar a ordem não afeta o que cabe.
+    #
+    # Critério: comprimento decrescente da peça dominante de cada faixa
+    # (escolhas já vem ordenada por comprimento, então escolhas[0] é ela) -
+    # não largura. Faz a peça de MAIOR comprimento do padrão sempre cair
+    # numa ponta da pilha (a primeira faixa, no topo), nunca espremida no
+    # meio só porque a largura dela é menor que a de outra faixa qualquer -
+    # e, por ser sort estável, duas faixas do mesmo comprimento (código
+    # diferente, mesma medida) ficam na ordem do desempate por código,
+    # abaixo, em vez de na ordem em que a busca gulosa as achou.
+    faixas_geradas.sort(key=lambda f: (-f[1][0][1], f[1][0][0].cod))
     y = 0.0
     for h_faixa, escolhas in faixas_geradas:
         x = 0.0
@@ -566,18 +578,25 @@ def _refine_last_sheet_cpsat(pool, sheet_w: int, sheet_h: int, max_shelves: int,
         if itens_da_faixa:
             faixas.append((h_s, itens_da_faixa))
 
-    # Mesmo critério de _pack_shelves: reordenar por largura decrescente da
-    # peça dominante da faixa (aqui, a mais larga dela) antes de definir o
-    # Y - sort estável, então duas faixas do mesmo código ficam adjacentes.
-    # Não muda quantidade nem viabilidade, só a ordem de empilhamento.
-    faixas.sort(key=lambda f: -max(w for _, w, _, _, _ in f[1]))
+    # Mesmo critério de _pack_shelves: reordenar por comprimento decrescente
+    # da peça dominante da faixa (a de maior comprimento nela) antes de
+    # definir o Y - faz a peça mais longa do padrão cair numa ponta da
+    # pilha, e o código dela entra como desempate (sort estável) pra duas
+    # faixas do mesmo comprimento mas código diferente (ex.: duas peças de
+    # medida igual, código diferente) ficarem adjacentes em vez de na ordem
+    # em que o solver as atribuiu. Não muda quantidade nem viabilidade, só
+    # a ordem de empilhamento.
+    def _peca_dominante(faixa):
+        return max(faixa[1], key=lambda item: item[1])  # item = (peca, w, h, rotated, qtd)
+
+    faixas.sort(key=lambda f: (-_peca_dominante(f)[1], _peca_dominante(f)[0].cod))
 
     placed = []
     y_cursor = 0.0
     for h_s, itens_da_faixa in faixas:
-        # mesma cadência de corte da versão heurística: peça mais larga
-        # primeiro, dentro da própria faixa.
-        itens_da_faixa = sorted(itens_da_faixa, key=lambda item: -item[1])
+        # mesma cadência de corte da versão heurística: peça mais longa
+        # primeiro, código como desempate, dentro da própria faixa.
+        itens_da_faixa = sorted(itens_da_faixa, key=lambda item: (-item[1], item[0].cod))
         x_cursor = 0.0
         for p, w, h, rotated, qty in itens_da_faixa:
             for _ in range(qty):

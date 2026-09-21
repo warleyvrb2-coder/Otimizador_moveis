@@ -62,7 +62,7 @@
       <p class="ajuda">O que foi calculado, e o que ainda espera a conferência do PCP.</p>
       {% for p in planos %}
       <div class="linha-plano">
-        <span class="qd">{{ p.criado_em[:16]|replace('T',' ') }}</span>
+        <span class="qd">{{ p.criado_em|hora_br }}</span>
         <span class="ar">{{ p.arquivos or '—' }}</span>
         <span>{{ p.total_chapas }} chapas</span>
         {% if p.aprovado %}<span class="etiqueta ok">aprovado</span>
