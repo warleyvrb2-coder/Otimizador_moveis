@@ -414,11 +414,10 @@ def manual_editor(plano_id):
 @app.route('/manual/<plano_id>/quantidades', methods=['GET', 'POST'])
 def manual_quantidades(plano_id):
     """
-    Última etapa: você diz quanto precisa de cada peça que colocou na
-    chapa, e o sistema calcula quantas vezes repetir o padrão. É a mesma
-    conta de sempre - quantas chapas até a peça mais exigente do padrão
-    fechar a quantidade pedida - só que partindo de um padrão desenhado à
-    mão em vez de vindo do Kambam.
+    Última etapa: você marca qual é a peça PRINCIPAL do padrão (só uma) e
+    diz quanto precisa dela; o sistema calcula quantas vezes repetir o
+    padrão até essa peça fechar a quantidade pedida. As outras peças da
+    chapa são aproveitamento - não puxam a contagem de chapas.
     """
     salvo = banco.obter_plano(plano_id) or abort(404)
     r = salvo['resultado']
@@ -444,27 +443,54 @@ def manual_quantidades(plano_id):
         return redirect(url_for('manual_editor', plano_id=plano_id,
                                  erro='Posicione ao menos uma peça antes de calcular.'))
 
-    if request.method == 'GET':
-        return render_template('manual_quantidades.html', pagina='novo_manual',
-                                plano=salvo, r=r, padrao=padrao, pecas=pecas_no_padrao)
+    # Peça principal escolhida da última vez (reabrindo pra editar) - só vale
+    # se ela ainda está na chapa. Plano gravado na versão com várias
+    # prioridades (padrao['pecas_prioritarias'], lista) usa a primeira. Com uma
+    # peça só no padrão, ela já é a principal sem precisar marcar nada.
+    principal_anterior = padrao.get('peca_principal')
+    if principal_anterior is None and padrao.get('pecas_prioritarias'):
+        principal_anterior = padrao['pecas_prioritarias'][0]
+    if principal_anterior not in contagem:
+        principal_anterior = pecas_no_padrao[0]['cod'] if len(pecas_no_padrao) == 1 else None
 
-    desejado = {}
-    for p in pecas_no_padrao:
-        try:
-            q = int(request.form.get(f'qtd_{p["cod"]}', '0') or '0')
-        except ValueError:
-            q = 0
-        if q > 0:
-            desejado[p['cod']] = q
-    if not desejado:
+    def _tela(erro=None):
+        """Renderiza a tela de quantidades, com o erro (se houver)."""
         return render_template('manual_quantidades.html', pagina='novo_manual',
                                 plano=salvo, r=r, padrao=padrao, pecas=pecas_no_padrao,
-                                erro='Informe a quantidade de pelo menos uma peça.')
+                                principal=principal_anterior, erro=erro,
+                                valores=request.form if request.method == 'POST' else None)
 
-    # Quantas vezes repetir a chapa até a peça mais exigente do padrao
-    # fechar: se o padrao tem 3 peças X e voce quer 100, precisa de 34
-    # chapas (arredondado pra cima - sobra é normal, chapa se corta inteira).
-    padrao['repeticoes'] = max(-(-desejado[cod] // contagem[cod]) for cod in desejado)
+    if request.method == 'GET':
+        return _tela()
+
+    principal = request.form.get('principal') or (
+        pecas_no_padrao[0]['cod'] if len(pecas_no_padrao) == 1 else None)
+    if principal not in contagem:
+        return _tela('Marque qual é a peça principal - é ela que define quantas chapas cortar.')
+    principal_anterior = principal  # se voltar com erro, mantém a marcação feita
+    try:
+        q_principal = int(request.form.get(f'qtd_{principal}', '0') or '0')
+    except ValueError:
+        q_principal = 0
+    if q_principal <= 0:
+        return _tela('Informe a quantidade da peça principal.')
+    # Só a principal tem "pedido": as outras são aproveitamento, então não
+    # entram na demanda - assim a conferência do plano trata o que elas
+    # produzem como sobra de aproveitamento (aba Peças extras), e não como
+    # "faltou peça" contra um número que ninguém pediu.
+    desejado = {principal: q_principal}
+
+    # A peça PRINCIPAL é a razão do plano existir (o Kambam está sendo montado
+    # pra produzir ela); as outras entram só pra aproveitar espaço da chapa.
+    # Por isso só a principal define quantas vezes repetir o padrão: se ela tem
+    # 4 por chapa e você quer 450, são 113 chapas (arredondado pra cima - sobra
+    # é normal, chapa se corta inteira). Antes, TODA peça com quantidade
+    # digitada puxava a conta pra cima, e uma peça avulsa de 1 por chapa
+    # forçava 450 chapas mesmo com a principal fechando em 113. Escolha única
+    # de propósito: um plano manual tem UMA razão de existir.
+    padrao['peca_principal'] = principal
+    padrao.pop('pecas_prioritarias', None)  # formato da versão com várias
+    padrao['repeticoes'] = -(-desejado[principal] // contagem[principal])
     padrao['ciclos'] = -(-padrao['repeticoes'] // padrao.get('pilha', 1))
     padrao['pecas'] = _pecas_do_padrao(padrao)
     for item in padrao['pecas']:

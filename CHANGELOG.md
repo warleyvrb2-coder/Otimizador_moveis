@@ -4,6 +4,108 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-09-28 (4) — Plano manual: volta a ser UMA peça principal (escolha única)
+
+Decisão do usuário depois de testar a versão com várias prioridades (entrada
+(3), logo abaixo): um plano manual tem uma razão de existir, então a
+prioridade é uma só. `manual_quantidades.html` voltou ao botão de escolha
+única e `manual_quantidades` (`app.py`) voltou a calcular
+`ceil(quantidade ÷ por chapa)` só da principal. Trocar a principal na tela
+trava o campo da anterior e libera o da nova (com foco). Mantido da versão
+anterior por ter valor próprio: o que foi digitado volta preenchido quando a
+tela devolve erro. Plano salvo com várias prioridades
+(`padrao['pecas_prioritarias']`) abre com a primeira marcada e é regravado
+como `padrao['peca_principal']` no próximo cálculo. Testado: 9081=450 →
+113 chapas; trocando a principal pra 8988=600 → 300 chapas; erros de "sem
+principal" e "principal sem quantidade" preservando o digitado.
+
+## 2026-09-28 (3) — Plano manual: várias peças prioritárias (caixas de seleção) — SUBSTITUÍDA pela (4)
+
+A "peça principal" única (entrada de 28/09, abaixo) virou **peças
+prioritárias**: a tela de quantidades (`manual_quantidades.html`) trocou o
+botão de escolha única por uma caixa de seleção por linha. Marcar a caixa
+libera o campo de quantidade daquela peça (e o torna obrigatório); sem
+marcar, o campo fica travado como "aproveitamento" e, por travado, nem é
+enviado - nunca vira pedido por engano.
+
+**Regra de cálculo** (`manual_quantidades`, `app.py`): só as prioritárias
+têm pedido, e o número de chapas é o das necessárias pra TODAS elas
+fecharem - `max(ceil(quantidade ÷ por chapa))` entre as marcadas. As não
+marcadas continuam sendo aproveitamento (por chapa × chapas cortadas, fora
+da demanda, sem acusar "faltou peça"). Validações: ao menos uma marcada, e
+toda marcada precisa de quantidade (o erro cita os códigos que faltam; o
+que já foi digitado volta preenchido em vez de sumir). Padrão com uma peça
+só já vem com ela marcada.
+
+Gravado em `padrao['pecas_prioritarias']` (lista). Plano salvo no formato
+antigo (`padrao['peca_principal']`, uma só) é lido como lista de uma e
+regravado no formato novo no próximo cálculo. Reabrir "Editar quantidades"
+vem com as caixas e quantidades anteriores.
+
+Testado: 9081=900 (4/chapa) sozinha → 225 chapas; 9081=900 + 8988=600
+(2/chapa) → 300 chapas, produzindo 1200 de 9081 e 600 de 8988, sem falta;
+nenhuma marcada / marcada sem quantidade → erro; reabrir mantém as 2
+marcadas; formato antigo abre certo; resultado e relatórios abrem. A lógica
+do campo travar/liberar foi exercitada em Node com um DOM simulado
+(marcar, marcar outra, desmarcar).
+
+## 2026-09-28 (2) — Peça que preenche o espaço exatamente (ex.: 1860mm de ponta a ponta) era recusada
+
+### O problema: "altura + serra" cobrado duas vezes
+
+Reportado: numa sobra de 206×1860mm (de ponta a ponta da chapa), a peça
+avulsa 128×1860 não entrava. Conta real: `encaixar` exigia
+`altura + kerf <= sobra` → 1860 + 4,4 = 1864,4 > 1860. Mas essa sobra encosta
+no topo e na base da chapa, onde não existe corte, e depois da correção da
+serra (21/09) `retalhos_livres` já afasta a sobra um kerf inteiro de cada
+peça já colocada - o vão do disco entre a peça nova e as vizinhas já está
+garantido ali. Somar o kerf de novo em `encaixar` cobrava a serra duas
+vezes. O otimizador automático nunca teve isso (`n` peças ocupam
+`n*medida + (n-1)*kerf`, então uma peça sozinha ocupa só a medida).
+
+**A correção** (`edicao.py`): `encaixar` e `diagnosticar` passaram a
+comparar a medida da peça direto com a sobra, sem somar o kerf (o
+parâmetro continua na assinatura só pra não mexer nos chamadores); a
+mensagem "não cabe" deixou de citar "menos 4,4mm que o corte consome".
+`validar_padrao` já não cobrava kerf, só borda/sobreposição/guilhotina.
+
+Testado no cenário real (4× 9081 + 2× 8988, sobra 206×1860): 128×1860
+entra em x=2543,8 (4,4mm depois da coluna do 8988); 1mm acima da altura
+(1861) continua recusada; chapa inteira 2750×1860 numa peça só entra;
+grade 333×395 segue com as mesmas 32 peças, e a conferência de que duas
+peças nunca ficam a menos de um kerf uma da outra (nem passam da borda)
+dá zero erros em todos os casos.
+
+## 2026-09-28 — Plano manual: peça principal define quantas chapas cortar
+
+### O problema: peça só de aproveitamento puxava o número de chapas
+
+Na tela de quantidades do plano manual, TODA peça com quantidade digitada
+entrava na conta (`max` de `quantidade ÷ por chapa` entre todas). Caso
+real: padrão com 9081 (peça principal, 4 por chapa), 8988 (2 por chapa) e
+uma peça avulsa 128×1770 (1 por chapa), 450 digitado em cada - a 9081
+fecha em 113 chapas, mas a avulsa de 1 por chapa forçava **450 chapas**.
+As duas últimas só entram pra aproveitar espaço, não são o motivo do
+Kambam existir.
+
+**A correção** (`manual_quantidades`, `app.py`, e `manual_quantidades.html`):
+a tela ganhou a marcação de **peça principal** (radio por linha,
+obrigatória; com uma peça só no padrão ela já é a principal). Só a
+principal tem quantidade (campo das outras fica travado como
+"aproveitamento") e só ela define `repeticoes = ceil(quantidade ÷ por
+chapa)`. As demais saem como sobra de aproveitamento (por chapa × chapas
+cortadas) - ficam de fora da demanda de propósito, senão a conferência do
+plano acusaria "faltou peça" contra um número que ninguém pediu; elas
+aparecem como excedente/peças extras nos relatórios. A principal escolhida
+é gravada em `padrao['peca_principal']`: reabrir a tela (botão "Editar
+quantidades") já vem com ela marcada e a quantidade anterior preenchida.
+
+Testado com o cenário exato do print (450 em tudo, 9081 principal): 113
+chapas (antes 450), 9081 produz 452, sem nenhuma falta acusada; sem marcar
+principal ou sem quantidade nela, a tela devolve erro em vez de calcular.
+`/resultado` e os relatórios Planejado × Produzido e Peças extras seguem
+abrindo normal.
+
 ## 2026-09-21 — Serra (kerf) não reservava espaço nenhum entre peças no plano manual/edição
 
 ### O problema: peças coladas sem nenhum vão pro disco da serra passar

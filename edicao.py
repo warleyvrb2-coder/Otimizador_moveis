@@ -333,9 +333,18 @@ def encaixar(retalho: Retalho, comp: float, larg: float, kerf: float,
     """
     Onde a peça fica dentro da sobra, ou None se não couber.
 
-    Exige a folga do kerf além da medida: o corte que separa a peça nova das
-    vizinhas também come material. É um pouco conservador quando a sobra
-    encosta na borda da chapa, e essa é a direção certa de errar.
+    Cabe quando a medida da peça cabe na sobra - SEM somar o kerf de novo.
+    O corte que separa a peça das vizinhas já está reservado no próprio
+    cálculo da sobra (`retalhos_livres(..., kerf=)` afasta a sobra um kerf
+    inteiro de cada peça já colocada), e na borda da chapa não existe corte
+    nenhum. Somar o kerf aqui também cobrava a serra duas vezes e recusava
+    peça que preenche a sobra exatamente - ex.: 1860mm de altura numa sobra
+    de 1860mm que vai de ponta a ponta da chapa, sem vizinha nenhuma pra
+    cortar. É a mesma regra do otimizador automático (n peças ocupam
+    n*medida + (n-1)*kerf: uma peça sozinha ocupa só a medida).
+
+    `kerf` continua na assinatura só pra os chamadores não mudarem; quem usa
+    o kerf de verdade é `retalhos_livres`.
 
     forcar_giro: None deixa o sistema escolher (tenta reto primeiro, depois
     girado, como sempre foi). True/False testa SÓ a orientação pedida - é o
@@ -348,7 +357,7 @@ def encaixar(retalho: Retalho, comp: float, larg: float, kerf: float,
     for w, h, girada in orientacoes:
         if girada and not pode_girar:
             continue
-        if w + kerf <= retalho.w + TOL and h + kerf <= retalho.h + TOL:
+        if w <= retalho.w + TOL and h <= retalho.h + TOL:
             return {'x': retalho.x, 'y': retalho.y, 'w': w, 'h': h, 'rotated': girada}
     return None
 
@@ -389,15 +398,17 @@ def diagnosticar(retalho: Retalho, comp: float, larg: float, kerf: float,
     (veio, guilhotina), ou está errado por poucos milímetros e precisa saber
     quantos. As duas respostas mudam o que ele faz em seguida.
     """
+    # Mesma regra de `encaixar`: a medida da peça contra a sobra, sem somar
+    # o kerf (já reservado no cálculo da sobra, e inexistente na borda).
     def encaixe(pw, ph):
-        return pw + kerf <= retalho.w + TOL and ph + kerf <= retalho.h + TOL
+        return pw <= retalho.w + TOL and ph <= retalho.h + TOL
 
     direto = encaixe(comp, larg)
     girado = encaixe(larg, comp)
 
     if not direto and not girado:
-        falta_c = max(0.0, (comp + kerf) - retalho.w)
-        falta_l = max(0.0, (larg + kerf) - retalho.h)
+        falta_c = max(0.0, comp - retalho.w)
+        falta_l = max(0.0, larg - retalho.h)
         partes = []
         if falta_c > 0:
             partes.append(f'{falta_c:.0f}mm no comprimento')
@@ -405,8 +416,7 @@ def diagnosticar(retalho: Retalho, comp: float, larg: float, kerf: float,
             partes.append(f'{falta_l:.0f}mm na largura')
         return {'ok': False, 'curto': 'não cabe',
                 'motivo': f'Faltam {" e ".join(partes)}. A peça mede {comp:.0f}×{larg:.0f} e '
-                          f'a sobra tem {retalho.w:.0f}×{retalho.h:.0f}, menos {kerf:.1f}mm '
-                          f'que o corte consome.'}
+                          f'a sobra tem {retalho.w:.0f}×{retalho.h:.0f}.'}
 
     if not direto and girado and not pode_girar:
         return {'ok': False, 'curto': 'o veio impede',

@@ -1,30 +1,43 @@
 {% extends "base.html" %}
 {% block titulo %}Quantidades · Plano manual{% endblock %}
-{% block cabecalho %}Quanto você precisa de cada peça?{% endblock %}
-{% block subcabecalho %}O sistema calcula quantas chapas cortar até a peça mais exigente fechar{% endblock %}
+{% block cabecalho %}Quanto você precisa da peça principal?{% endblock %}
+{% block subcabecalho %}O sistema calcula quantas chapas cortar até a peça principal fechar - as outras só aproveitam a chapa{% endblock %}
 {% block acoes %}<a href="/manual/{{ plano.id }}" class="btn secundario">← Voltar à chapa</a>{% endblock %}
 
 {% block conteudo %}
 {% if erro %}<div class="recado perigo"><span class="ic">✕</span><div>{{ erro }}</div></div>{% endif %}
 
-<div class="cartao" style="max-width:680px;">
+<div class="cartao" style="max-width:760px;">
   <h2>Peças deste padrão</h2>
   <p class="ajuda">Cada padrão já traz {{ pecas|length }} tipo(s) de peça, {{ padrao.itens|length }}
-    unidade(s) por chapa no total. Diga quantas você precisa de cada uma — o resto pode
-    ficar em branco se não precisar dela nesta rodada.</p>
+    unidade(s) por chapa no total. Marque qual é a <strong>peça principal</strong> — a que
+    você está montando este Kambam pra produzir — e diga quantas precisa dela: é isso que
+    define quantas chapas cortar. As demais peças entram só pra aproveitar espaço: não
+    têm quantidade, <strong>não aumentam</strong> o número de chapas e saem como sobra de
+    aproveitamento (por chapa × chapas cortadas).</p>
 
   <form method="post">
-    <table class="dados">
-      <thead><tr><th>Peça</th><th class="num">Por chapa</th><th style="width:160px;">Quantidade desejada</th></tr></thead>
+    <table class="dados" id="tab-quantidades">
+      <thead><tr>
+        <th style="width:80px; text-align:center;">Principal</th>
+        <th>Peça</th>
+        <th class="num">Por chapa</th>
+        <th style="width:170px;">Quantidade desejada</th>
+      </tr></thead>
       <tbody>
         {% for p in pecas %}
         <tr>
+          <td style="text-align:center;">
+            <input type="radio" name="principal" value="{{ p.cod }}" required
+                   title="Peça principal do padrão"
+                   {{ 'checked' if principal == p.cod }}>
+          </td>
           <td><strong>{{ p.cod }}</strong><br>
               <span style="color:var(--tinta-2); font-size:12px;">{{ p.desc }}</span></td>
           <td class="num">{{ p.por_chapa }}</td>
-          <td><input type="number" min="0" step="1" name="qtd_{{ p.cod }}"
-                     value="{{ p.desejado_anterior or '' }}"
-                     placeholder="0" style="width:100%; padding:7px 10px;
+          <td><input type="number" min="1" step="1" name="qtd_{{ p.cod }}"
+                     value="{{ valores.get('qtd_' ~ p.cod) if valores and valores.get('qtd_' ~ p.cod) else (p.desejado_anterior or '') }}"
+                     placeholder="aproveitamento" style="width:100%; padding:7px 10px;
                      border:1px solid var(--linha); border-radius:6px;"></td>
         </tr>
         {% endfor %}
@@ -33,4 +46,28 @@
     <button type="submit" class="btn" style="margin-top:16px;">Calcular chapas necessárias →</button>
   </form>
 </div>
+{% endblock %}
+
+{% block script %}
+<script>
+// Só a peça marcada como principal tem quantidade (obrigatória - ela define o
+// número de chapas); nas outras o campo fica travado como "aproveitamento".
+// Campo travado não é enviado, então nunca vira pedido por engano. Trocar a
+// principal destrava o campo da nova e trava o da anterior.
+function marcarPrincipal(comFoco) {
+  document.querySelectorAll('#tab-quantidades tbody tr').forEach(tr => {
+    const ehPrincipal = tr.querySelector('input[type=radio]').checked;
+    const qtd = tr.querySelector('input[type=number]');
+    qtd.required = ehPrincipal;
+    qtd.disabled = !ehPrincipal;
+    qtd.placeholder = ehPrincipal ? 'quantidade' : 'aproveitamento';
+    qtd.style.borderColor = ehPrincipal ? 'var(--laranja)' : 'var(--linha)';
+    tr.style.background = ehPrincipal ? 'var(--cinza-fundo)' : '';
+    if (comFoco && ehPrincipal && !qtd.value) qtd.focus();
+  });
+}
+document.querySelectorAll('#tab-quantidades input[type=radio]')
+  .forEach(r => r.addEventListener('change', () => marcarPrincipal(true)));
+marcarPrincipal(false);
+</script>
 {% endblock %}
