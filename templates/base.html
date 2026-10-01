@@ -20,7 +20,7 @@
     <div id="vc-modal-corpo"></div>
     <div class="vc-modal-erro" id="vc-modal-erro"></div>
     <div class="vc-modal-acoes">
-      <button class="btn secundario" type="button" onclick="fecharModal()">Cancelar</button>
+      <button class="btn secundario" type="button" id="vc-modal-cancelar" onclick="fecharModal()">Cancelar</button>
       <button class="btn" type="button" id="vc-modal-salvar">Salvar</button>
     </div>
   </div>
@@ -131,19 +131,32 @@
     document.getElementById('vc-loading').classList.add('ativo');
   }
 
-  // Modal de edição genérico: cada tela monta os campos e diz o que salvar.
-  // Existe aqui (não em cada tela) porque Peças e Móveis precisam do mesmo
+  // Modal genérico: cada tela monta os campos e diz o que salvar. Existe
+  // aqui (não em cada tela) porque Peças e Móveis precisam do mesmo
   // esqueleto - só os campos e a rota de destino mudam.
+  //
+  // aoSalvar é OPCIONAL: sem ele, o modal vira só-leitura (botão Salvar some,
+  // "Cancelar" vira "Fechar") - é o que a lista de planos usa pra mostrar os
+  // nomes dos Kambans de um plano, uma informação que não tem nada pra
+  // editar. Sem esse modo, teria que existir um popup paralelo só pra isso.
   function abrirModal(titulo, camposHtml, aoSalvar) {
     document.getElementById('vc-modal-titulo').textContent = titulo;
     document.getElementById('vc-modal-corpo').innerHTML = camposHtml;
     const erro = document.getElementById('vc-modal-erro');
     erro.style.display = 'none'; erro.textContent = '';
     const botao = document.getElementById('vc-modal-salvar');
-    botao.onclick = async () => {
-      botao.disabled = true;
-      try { await aoSalvar(); } finally { botao.disabled = false; }
-    };
+    const cancelar = document.getElementById('vc-modal-cancelar');
+    if (aoSalvar) {
+      botao.style.display = '';
+      cancelar.textContent = 'Cancelar';
+      botao.onclick = async () => {
+        botao.disabled = true;
+        try { await aoSalvar(); } finally { botao.disabled = false; }
+      };
+    } else {
+      botao.style.display = 'none';
+      cancelar.textContent = 'Fechar';
+    }
     document.getElementById('vc-modal').classList.add('ativo');
   }
   function fecharModal() {

@@ -183,6 +183,10 @@ def criar_tabelas() -> None:
             CREATE INDEX IF NOT EXISTS ix_mp_peca   ON modelo_peca(peca_cod);
             CREATE INDEX IF NOT EXISTS ix_plano_data ON plano(criado_em DESC);
         """)
+    # Roda sempre, logo depois de garantir que as tabelas existem - é como
+    # coluna nova (ex.: plano.descricao) chega em banco que já estava em uso
+    # sem precisar de script manual nem de apagar o banco local.
+    migrar()
 
 
 # Parâmetros da máquina. Ficam no banco pra poder ser ajustados na tela por
@@ -276,6 +280,11 @@ def migrar() -> None:
     with conectar() as con:
         _garantir_coluna(con, 'peca', 'medida_confirmada', 'INTEGER NOT NULL DEFAULT 0')
         _garantir_coluna(con, 'maquina', 'pct_extra', 'REAL NOT NULL DEFAULT 0')
+        # Nome que você escolhe pra identificar o plano depois - sem ela, um
+        # plano manual (sem Kambam nenhum pra mostrar na coluna Arquivos) só
+        # aparecia na lista como um horário e um "—", indistinguível de
+        # qualquer outro plano manual.
+        _garantir_coluna(con, 'plano', 'descricao', 'TEXT')
 
 
 def resolver_conflito(cod: str, comp_mm: int, larg_mm: int) -> None:
@@ -924,7 +933,7 @@ def excluir_maquina(maquina_id) -> None:
         con.execute('DELETE FROM maquina WHERE id=?', (maquina_id,))
 
 
-def salvar_plano(plano_id: str, resultado: dict) -> None:
+def salvar_plano(plano_id: str, resultado: dict, descricao: str = '') -> None:
     """
     Guarda o plano inteiro como JSON.
 
@@ -932,15 +941,32 @@ def salvar_plano(plano_id: str, resultado: dict) -> None:
     vale exatamente como foi calculado — se ele fosse remontado depois a
     partir do cadastro atual, mudar o veio de uma peça reescreveria um plano
     já aprovado, e o desenho no chão de fábrica deixaria de bater.
+
+    descricao: nome livre que você dá ao plano na hora de criar (ex.: "Pedido
+    Fulano - outubro"), pra identificar depois na lista - principalmente no
+    plano manual, que não tem Kambam nenhum pra aparecer na coluna Arquivos.
+    No ON CONFLICT (replano gerado com o mesmo id - não acontece hoje, mas a
+    cláusula já existia) a descrição NÃO é sobrescrita: só `renomear_plano`
+    muda ela depois de criada.
     """
     criar_tabelas()
     arquivos = ', '.join(k['arquivo'] for k in resultado.get('kambans_info') or [])
     with conectar() as con:
         con.execute(
-            'INSERT INTO plano (id, criado_em, arquivos, total_chapas, resultado) '
-            'VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET resultado=excluded.resultado',
+            'INSERT INTO plano (id, criado_em, arquivos, total_chapas, resultado, descricao) '
+            'VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET resultado=excluded.resultado',
             (plano_id, datetime.now(timezone.utc).isoformat(timespec='seconds'),
-             arquivos, resultado.get('total_chapas'), json.dumps(resultado, ensure_ascii=False)))
+             arquivos, resultado.get('total_chapas'), json.dumps(resultado, ensure_ascii=False),
+             (descricao or '').strip()[:200] or None))
+
+
+def renomear_plano(plano_id: str, descricao: str) -> bool:
+    """Troca a descrição de um plano já criado. True se o plano existia."""
+    criar_tabelas()
+    with conectar() as con:
+        cur = con.execute('UPDATE plano SET descricao=? WHERE id=?',
+                           ((descricao or '').strip()[:200] or None, plano_id))
+        return cur.rowcount > 0
 
 
 def atualizar_resultado(plano_id: str, resultado: dict) -> None:
@@ -968,14 +994,15 @@ def obter_plano(plano_id: str) -> dict | None:
         return None
     return {'id': r['id'], 'criado_em': r['criado_em'], 'aprovado': bool(r['aprovado']),
             'aprovado_em': r['aprovado_em'], 'aprovado_por': r['aprovado_por'],
-            'observacao': r['observacao'], 'resultado': json.loads(r['resultado'])}
+            'observacao': r['observacao'], 'descricao': r['descricao'],
+            'resultado': json.loads(r['resultado'])}
 
 
 def listar_planos(limite: int = 60) -> list[dict]:
     criar_tabelas()
     with conectar() as con:
         linhas = con.execute(
-            'SELECT id, criado_em, arquivos, total_chapas, aprovado, aprovado_em, aprovado_por '
+            'SELECT id, criado_em, arquivos, total_chapas, aprovado, aprovado_em, aprovado_por, descricao '
             'FROM plano ORDER BY criado_em DESC LIMIT ?', (limite,)).fetchall()
     return [dict(r) for r in linhas]
 

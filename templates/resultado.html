@@ -63,6 +63,31 @@
   <div class="recado perigo"><span class="ic">✕</span><div>{{ erro }}</div></div>
 {% else %}
 
+{% if plano %}
+<div class="cartao" style="padding:12px 16px; display:flex; align-items:center;
+                            gap:10px; flex-wrap:wrap;" id="desc-bloco">
+  <span style="font-size:13px; display:{{ 'none' if erro_descricao else '' }};" id="desc-texto">
+    {% if plano.descricao %}<strong>{{ plano.descricao }}</strong>
+    {% else %}<span style="color:var(--tinta-3);">Sem descrição</span>{% endif %}
+  </span>
+  <button type="button" class="btn secundario btn-sm" onclick="editarDescricao()"
+          style="display:{{ 'none' if erro_descricao else '' }};">✎ Renomear</button>
+  <form id="desc-form" style="display:{{ 'flex' if erro_descricao else 'none' }}; gap:8px; flex:1;
+                              min-width:260px; align-items:center;"
+        onsubmit="return salvarDescricao(event)">
+    <input type="text" id="desc-input" maxlength="200" required
+           value="{{ plano.descricao or '' }}"
+           placeholder="ex.: Pedido Fulano - outubro"
+           style="flex:1; padding:7px 10px; border:1px solid var(--linha); border-radius:6px; font-size:13px;">
+    <button type="submit" class="btn btn-sm">Salvar</button>
+    <button type="button" class="btn secundario btn-sm" onclick="cancelarDescricao()">Cancelar</button>
+  </form>
+  {% if erro_descricao %}
+  <div style="flex-basis:100%; color:var(--vermelho); font-size:12px;">{{ erro_descricao }}</div>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if not respeitar_veio %}
 <div class="recado perigo">
   <span class="ic">⚠️</span>
@@ -377,4 +402,43 @@
 </div>
 {% endfor %}
 {% endif %}
+{% endblock %}
+
+{% block script %}
+<script>
+// Renomear o plano é feito nesta mesma página, sem recarregar - mostra o
+// form embutido, manda pra /descricao via fetch e atualiza o texto exibido
+// quando a resposta volta OK. Cancelar só esconde o form de volta, sem
+// mandar nada ao servidor.
+function editarDescricao() {
+  document.getElementById('desc-texto').style.display = 'none';
+  document.querySelector('#desc-bloco > .btn').style.display = 'none';
+  document.getElementById('desc-form').style.display = 'flex';
+  document.getElementById('desc-input').focus();
+}
+function cancelarDescricao() {
+  document.getElementById('desc-form').style.display = 'none';
+  document.getElementById('desc-texto').style.display = '';
+  document.querySelector('#desc-bloco > .btn').style.display = '';
+}
+async function salvarDescricao(ev) {
+  ev.preventDefault();
+  const valor = document.getElementById('desc-input').value;
+  const r = await fetch('{{ url_for("renomear_plano", plano_id=plano.id) if plano else "" }}', {
+    method: 'POST',
+    body: new URLSearchParams({ formato: 'json', descricao: valor }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.ok) {
+    alert('Não consegui salvar' + (d.erro ? ' (' + d.erro + ')' : '') + '. Tente de novo.');
+    return false;
+  }
+  const texto = document.getElementById('desc-texto');
+  texto.innerHTML = d.descricao
+    ? '<strong>' + d.descricao.replace(/</g, '&lt;') + '</strong>'
+    : '<span style="color:var(--tinta-3);">Sem descrição</span>';
+  cancelarDescricao();
+  return false;
+}
+</script>
 {% endblock %}

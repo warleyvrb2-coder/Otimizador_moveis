@@ -4,6 +4,94 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-10-01 (3) — Separa Descrição e Arquivos na lista de planos
+
+Pedido do usuário: a coluna "Descrição / arquivos" (entrada anterior)
+misturava os dois - quando o plano tinha Kambam, a lista de nomes de
+arquivo empurrava a descrição e deixava a linha poluída. Virou duas
+colunas.
+
+- `templates/planos.html`: coluna **Descrição** mostra só o texto digitado
+  na criação do plano (manual ou automático). Coluna **Arquivos** mostra só
+  a *quantidade* de Kambans incluídos, como um botão (📎 N); clicar nele
+  abre um popup listando o nome de cada arquivo.
+- `templates/base.html`: o modal genérico `abrirModal(titulo, camposHtml,
+  aoSalvar)` ganhou um modo só-leitura - `aoSalvar` agora é opcional; sem
+  ele, o botão "Salvar" some e "Cancelar" vira "Fechar". Reaproveitado do
+  modal que já existia pra editar Peças/Móveis, em vez de criar um popup
+  paralelo só pra isso.
+- A lista de nomes (`p.arquivos`, string tipo `"a.pdf, b.pdf"` gravada no
+  banco) é quebrada em `templates/planos.html` com `.split(", ")` - não
+  precisou mexer em `banco.py` nem no formato salvo.
+
+## 2026-10-01 (2) — Descrição do plano virou obrigatória
+
+Pedido do usuário: a descrição (entrada anterior) virou campo obrigatório
+nos dois pontos onde se cria um plano, e também não pode ser apagada
+depois - senão o "obrigatório" só valeria no primeiro envio.
+
+- `templates/index.html` e `templates/manual_novo.html`: campo ganhou
+  `required` (bloqueia o envio no navegador, mesma validação HTML5 nativa
+  que o resto do projeto já usa) e o texto "(opcional)" saiu do rótulo.
+- `/otimizar` (`app.py`): valida de novo no servidor antes de processar
+  qualquer arquivo - sem descrição, nem chega a criar os planos, volta pra
+  `/novo` com o aviso. Precisou abrir `index()` pra aceitar `?erro=` (não
+  tinha esse suporte ainda, só o `/manual/novo` tinha).
+- `/manual/novo`: mesma validação, reaproveitando o `erro=` que a tela já
+  tinha pra "escolha uma máquina" - e agora preserva qual máquina você
+  tinha marcado se o erro for só a descrição faltando.
+- `/resultado/<id>/descricao` (renomear): recusa salvar vazio, nos dois
+  formatos que a rota aceita (fetch/json da edição inline, e form clássico
+  como reforço) - senão dava pra criar certo e depois apagar tudo no
+  "✎ Renomear".
+
+Testado: `/otimizar` e `/manual/novo` sem descrição não criam plano
+nenhum e mostram o aviso certo (no manual, com a máquina que você tinha
+marcado continuando marcada); os dois COM descrição continuam criando
+normal; renomear pra vazio é recusado nos dois formatos sem mudar o que já
+estava salvo; renomear pra um texto válido continua funcionando.
+
+## 2026-10-01 — Descrição pra identificar o plano (plano manual ficava em branco na lista)
+
+### O problema: plano manual sem nome nenhum na lista
+
+A coluna "Arquivos" da tela "Planos gerados" mostra o nome do Kambam no
+plano automático, mas o plano manual não tem Kambam nenhum - a coluna
+ficava sempre "—", e dois planos manuais eram indistinguíveis um do outro
+sem abrir cada um pra ver o que tinha dentro.
+
+### A correção: descrição opcional, colocada na criação, editável depois
+
+Coluna nova `plano.descricao` (TEXT), acrescentada via `_garantir_coluna` -
+e, nessa mesma correção, `migrar()` (que já existia fazendo exatamente
+esse tipo de ajuste pra `peca.medida_confirmada` e `maquina.pct_extra`, mas
+nunca era chamada de lugar nenhum) passou a rodar de dentro de
+`criar_tabelas()`, então toda coluna nova desse tipo chega sozinha em
+banco que já está em uso, sem script manual.
+
+- `templates/index.html` (Novo plano de corte) e `templates/manual_novo.html`
+  (Plano manual) ganharam um campo "Descrição (opcional)". No automático, a
+  mesma descrição vale pra todos os planos da rodada (cada máquina com
+  Kambam vira um plano separado, mas a pessoa está identificando o LOTE,
+  não uma máquina isolada).
+- `templates/planos.html`: a coluna virou "Descrição / arquivos" - mostra a
+  descrição em negrito com os arquivos embaixo, menor; sem descrição,
+  mostra só os arquivos; sem nenhum dos dois, "—" (plano manual sem
+  descrição, como era antes).
+- `templates/resultado.html`: a descrição aparece num bloco no topo da
+  tela, com um botão "✎ Renomear" que troca por um campo de texto inline
+  (fetch pra `/resultado/<id>/descricao`, sem recarregar a página) - única
+  forma de corrigir ou acrescentar uma descrição depois de criado o plano.
+
+Testado nos dois fluxos (manual e automático, este com o PDF real do
+usuário): descrição gravada certa (espaço nas pontas cortado), aparece na
+tela de ver/editar e na lista; renomear depois funciona via fetch e
+atualiza a tela sem reload; plano sem descrição mostra "Sem descrição" na
+tela e "—" ou os arquivos na lista; renomear plano inexistente devolve 404.
+Achado e corrigido no caminho: a rota `/planos` montava a linha da tabela
+num dicionário novo e esquecia de copiar `descricao` - a coluna aparecia
+sempre vazia até esse ajuste.
+
 ## 2026-09-28 (4) — Plano manual: volta a ser UMA peça principal (escolha única)
 
 Decisão do usuário depois de testar a versão com várias prioridades (entrada

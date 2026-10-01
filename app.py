@@ -171,7 +171,8 @@ def inicio():
 @app.route('/novo')
 def index():
     return render_template('index.html', pagina='novo', res=banco.resumo(),
-                            maquinas=banco.listar_maquinas(so_ativas=True))
+                            maquinas=banco.listar_maquinas(so_ativas=True),
+                            erro=request.args.get('erro'))
 
 
 @app.route('/planos')
@@ -186,6 +187,7 @@ def planos():
     for p in banco.listar_planos():
         lista.append({'id': p['id'], 'estado': 'pronto', 'pct': 100,
                        'quando': _hora_br(p['criado_em']), 'arquivos': p['arquivos'],
+                       'descricao': p['descricao'],
                        'chapas': p['total_chapas'], 'aprovado': bool(p['aprovado']),
                        'aprovado_por': p['aprovado_por']})
     return render_template('planos.html', pagina='planos', planos=lista)
@@ -212,6 +214,35 @@ def excluir_plano(plano_id):
         except OSError:
             pass
     return jsonify({'ok': True})
+
+
+@app.route('/resultado/<plano_id>/descricao', methods=['POST'])
+def renomear_plano(plano_id):
+    """
+    Troca o nome que identifica o plano (print da tela 'Planos gerados' e do
+    próprio plano aberto) - único jeito de corrigir ou colocar uma descrição
+    num plano manual, que não tem Kambam nenhum pra aparecer sozinho na
+    coluna Arquivos. Chamado pelo formulário de edição inline em
+    resultado.html (fetch, sem recarregar a página) e também funciona como
+    form clássico se o JS falhar.
+    """
+    descricao = (request.form.get('descricao') or '').strip()[:200]
+    # Obrigatória desde a criação do plano - deixar apagar tudo aqui e salvar
+    # vazio reabriria exatamente o problema que a descrição resolve (plano
+    # sem nome nenhum na lista), só que depois de já ter sido criado certo.
+    if not descricao:
+        if request.form.get('formato') == 'json':
+            return jsonify({'ok': False, 'erro': 'A descrição não pode ficar em branco.'}), 400
+        return redirect(url_for('resultado', job_id=plano_id,
+                                 erro_descricao='A descrição não pode ficar em branco.'))
+    se_achou = banco.renomear_plano(plano_id, descricao)
+    if not se_achou:
+        if request.form.get('formato') == 'json':
+            return jsonify({'ok': False, 'erro': 'Plano não encontrado.'}), 404
+        abort(404)
+    if request.form.get('formato') == 'json':
+        return jsonify({'ok': True, 'descricao': descricao})
+    return redirect(url_for('resultado', job_id=plano_id))
 
 
 def diagnostico_armazenamento() -> dict:
@@ -288,6 +319,21 @@ def otimizar():
     max_estagios_raw = request.form.get('max_estagios', 'ilimitado')
     max_depth = None if max_estagios_raw == 'ilimitado' else int(max_estagios_raw)
     respeitar_veio = request.form.get('respeitar_veio') is not None
+    # Uma descrição só pra toda a rodada: cada máquina com Kambam vira um
+    # plano separado (comentário abaixo), mas na prática a pessoa está
+    # identificando o LOTE que está subindo ("Pedido Fulano - outubro"), não
+    # uma máquina isolada - por isso o mesmo texto vai pra todos os planos
+    # criados nesta chamada, em vez de pedir um campo por máquina.
+    #
+    # Obrigatória: o `required` do HTML já barra o envio sem descrição, mas
+    # isso é só o primeiro aviso - quem manda um POST direto (ou com
+    # JavaScript desligado) ainda precisa ser barrado aqui, senão plano sem
+    # nome continua entrando e o problema que a descrição resolve (lista
+    # cheia de "—" indistinguível) volta.
+    descricao = (request.form.get('descricao') or '').strip()[:200]
+    if not descricao:
+        return redirect(url_for('index', erro='Descreva este lote antes de calcular - '
+                                              'é o que identifica o plano depois na lista.'))
 
     criados = []
     for maq in banco.listar_maquinas(so_ativas=True):
@@ -306,7 +352,7 @@ def otimizar():
             pipeline.rodar, salvos, os.path.join(OUTPUT_DIR, job_id), f'/plano/{job_id}',
             respeitar_veio=respeitar_veio, max_depth=max_depth, maquina_id=maq['id'],
             job_id=job_id,
-            ao_terminar=lambda j: (banco.salvar_plano(j.id, j.resultado)
+            ao_terminar=lambda j: (banco.salvar_plano(j.id, j.resultado, descricao=descricao)
                                     if j.resultado and not j.resultado.get('erro') else None),
         )
         criados.append(job.id)
@@ -339,10 +385,20 @@ def manual_novo():
                                 espessura_padrao=ESPESSURA_PADRAO_MM)
 
     maq = banco.maquina(request.form.get('maquina_id', type=int))
+    descricao = (request.form.get('descricao') or '').strip()[:200]
     if not maq:
         return render_template('manual_novo.html', pagina='novo_manual', maquinas=maquinas,
-                                espessura_padrao=ESPESSURA_PADRAO_MM,
+                                espessura_padrao=ESPESSURA_PADRAO_MM, descricao=descricao,
                                 erro='Escolha uma máquina.')
+    # Obrigatória: sem Kambam nenhum, é a única forma de saber depois qual
+    # plano manual é qual na lista - o `required` do HTML já barra o envio,
+    # isto aqui é o reforço do lado do servidor.
+    if not descricao:
+        return render_template('manual_novo.html', pagina='novo_manual', maquinas=maquinas,
+                                espessura_padrao=ESPESSURA_PADRAO_MM,
+                                maquina_selecionada=maq['id'],
+                                erro='Descreva este plano antes de criar a chapa - é o que '
+                                     'identifica ele depois na lista.')
 
     # Mesma conta do fluxo automático (pipeline.py): quantas chapas dessa
     # espessura cabem dentro do limite de empilhamento já cadastrado na
@@ -377,7 +433,7 @@ def manual_novo():
         'grupos': [grupo],
     }
     _redesenhar(plano_id, resultado, grupo, grupo['padroes'][0])
-    banco.salvar_plano(plano_id, resultado)
+    banco.salvar_plano(plano_id, resultado, descricao=descricao)
     return redirect(url_for('manual_editor', plano_id=plano_id))
 
 
@@ -941,6 +997,7 @@ def resultado(job_id):
             motivo_reeq=request.args.get('motivo'),
             extra_ok=request.args.get('extra_ok', type=int),
             extra_erro=request.args.get('extra_erro'),
+            erro_descricao=request.args.get('erro_descricao'),
             pct_extra=float(maq['pct_extra']) if maq and maq['pct_extra'] else 0.0,
             **salvo['resultado'])))
     job = jobs.obter(job_id) or abort(404)

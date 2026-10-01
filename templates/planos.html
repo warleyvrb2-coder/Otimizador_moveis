@@ -16,6 +16,13 @@
                width:26px; height:26px; padding:0; }
   .btn-icone svg { width:14px; height:14px; }
   .btn-icone.icone-perigo { color:var(--vermelho); }
+
+  /* Contagem de arquivos clicável - abre o popup com os nomes. Só aparece
+     quando o plano tem arquivo (plano manual não tem Kambam nenhum). */
+  .qtd-arquivos { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--linha);
+                  border-radius:99px; padding:3px 10px; background:none; cursor:pointer;
+                  color:var(--azul-medio); font-size:12.5px; font-weight:600; }
+  .qtd-arquivos:hover { background:var(--cinza-fundo); }
 </style>
 {% endblock %}
 
@@ -31,7 +38,7 @@
   {% if planos %}
   <table class="dados">
     <thead>
-      <tr><th>Quando</th><th>Situação</th><th>Arquivos</th>
+      <tr><th>Quando</th><th>Situação</th><th>Descrição</th><th>Arquivos</th>
           <th class="num">Chapas</th><th>PCP</th><th></th></tr>
     </thead>
     <tbody>
@@ -43,7 +50,19 @@
           {% elif p.estado == 'erro' %}<span class="etiqueta perigo">falhou</span>
           {% else %}<span class="etiqueta atencao">{{ p.pct }}% · calculando</span>{% endif %}
         </td>
-        <td style="color:var(--tinta-2);">{{ p.arquivos or '—' }}</td>
+        <td>
+          {% if p.descricao %}{{ p.descricao }}{% else %}<span style="color:var(--tinta-2);">—</span>{% endif %}
+        </td>
+        <td>
+          {% if p.arquivos %}
+          <button type="button" class="qtd-arquivos"
+                  onclick='mostrarArquivos({{ (p.arquivos.split(", "))|tojson }})'>
+            📎 {{ p.arquivos.split(", ")|length }}
+          </button>
+          {% else %}
+          <span style="color:var(--tinta-2);">—</span>
+          {% endif %}
+        </td>
         <td class="num">{{ p.chapas if p.chapas is not none else '—' }}</td>
         <td>{% if p.aprovado %}<span class="etiqueta ok">aprovado</span>
             {% elif p.estado == 'pronto' %}<span class="etiqueta atencao">a conferir</span>
@@ -114,6 +133,16 @@ async function excluirPlano(id, aprovado, linha) {
     return;
   }
   linha.remove();
+}
+
+// Mostra os nomes dos arquivos (Kambans) incluídos no plano, num popup
+// só-leitura - a coluna Arquivos só tem espaço pra quantidade, então o
+// nome de cada um fica aqui, um clique de distância.
+function mostrarArquivos(lista) {
+  const html = '<ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px;">'
+    + lista.map(nome => `<li>${nome.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</li>`).join('')
+    + '</ul>';
+  abrirModal('Arquivos deste plano', html);
 }
 </script>
 {% endblock %}

@@ -36,6 +36,7 @@
 {% endblock %}
 
 {% block conteudo %}
+{% if erro %}<div class="recado perigo"><span class="ic">✕</span><div>{{ erro }}</div></div>{% endif %}
 <form method="post" action="/otimizar" enctype="multipart/form-data" id="frm">
 <div class="duas">
   <div>
@@ -70,6 +71,17 @@
       <h2>Opções desta rodada</h2>
       <p class="ajuda">Valem para todas as máquinas desta rodada. Chapa, serra e
         empilhamento são de cada <a href="/maquinas">máquina</a>.</p>
+
+      <div class="opcao" style="flex-direction:column; align-items:stretch; gap:6px;">
+        <div class="rot">Descrição</div>
+        <input type="text" name="descricao" maxlength="200" required
+               placeholder="ex.: Pedido Fulano - outubro"
+               style="padding:9px 12px; border:1px solid var(--linha); border-radius:8px;
+                      font-size:13.5px;">
+        <div class="aj">Pra identificar este lote depois na lista de planos - se subir
+          Kambam pra mais de uma máquina aqui, a mesma descrição vai pra todos os
+          planos gerados nesta rodada.</div>
+      </div>
 
       <div class="opcao">
         <label class="chave">

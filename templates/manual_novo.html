@@ -40,7 +40,9 @@
       {% for maq in maquinas %}
       <label style="display:flex; align-items:center; gap:10px; padding:12px 14px;
                     border:1px solid var(--linha); border-radius:8px; cursor:pointer;">
-        <input type="radio" name="maquina_id" value="{{ maq.id }}" {{ 'checked' if loop.first }}>
+        <input type="radio" name="maquina_id" value="{{ maq.id }}"
+               {{ 'checked' if (maquina_selecionada and maq.id == maquina_selecionada)
+                               or (not maquina_selecionada and loop.first) }}>
         <div>
           <div style="font-weight:680;">{{ maq.nome }}</div>
           <div style="color:var(--tinta-2); font-size:12px;">
@@ -50,6 +52,16 @@
         </div>
       </label>
       {% endfor %}
+    </div>
+
+    <div class="opcao" style="flex-direction:column; align-items:stretch; gap:6px;">
+      <div class="rot">Descrição</div>
+      <input type="text" name="descricao" maxlength="200" required value="{{ descricao or '' }}"
+             placeholder="ex.: Divisórias avulsas - roupeiro Firenze"
+             style="padding:9px 12px; border:1px solid var(--linha); border-radius:8px;
+                    font-size:13.5px;">
+      <div class="aj">Pra identificar este plano depois na lista - sem Kambam nenhum pra
+        mostrar o nome do arquivo, é a única forma de saber qual é qual.</div>
     </div>
 
     <div class="opcao">
