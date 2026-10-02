@@ -677,7 +677,7 @@ def cadastros(aba='moveis'):
         pendentes = request.args.get('pendentes') == '1'
         html = render_template('cad_pecas.html', busca=busca, pendentes=pendentes,
                                 itens=banco.listar_pecas(busca, so_pendentes=pendentes,
-                                                          limite=300),
+                                                          por_codigo=True),
                                 efemero=_disco_efemero(), **comum)
     elif aba == 'chapas':
         html = render_template('cad_chapas.html', itens=banco.listar_cores(), **comum)
@@ -1143,7 +1143,7 @@ def _linhas_planejado_produzido(resultado: dict) -> list[dict]:
     _demanda_do_grupo/_producao_do_grupo, entao nao tem nada especifico de
     um ou outro aqui.
     """
-    catalogo = {p['cod']: p for p in banco.listar_pecas(limite=5000)}
+    catalogo = {p['cod']: p for p in banco.listar_pecas(limite=0)}
     linhas = []
     for g in resultado.get('grupos', []):
         pedido = _demanda_do_grupo(g)
@@ -1931,7 +1931,7 @@ def preencher_extra(plano_id, gi):
                                  extra_erro='Esta maquina nao tem "Pecas extras (%)" configurado '
                                              '(ou esta em 0). Ajuste em Maquinas.') + '#g' + str(gi))
 
-    catalogo = {p['cod']: p for p in banco.listar_pecas(limite=5000)}
+    catalogo = {p['cod']: p for p in banco.listar_pecas(limite=0)}
     total = _preencher_extra_no_grupo(plano_id, r, g, pct, catalogo)
     if total:
         _recalcular(r)
@@ -1961,7 +1961,7 @@ def preencher_extra_tudo(plano_id):
                                  extra_erro='Esta maquina nao tem "Pecas extras (%)" configurado '
                                              '(ou esta em 0). Ajuste em Maquinas.'))
 
-    catalogo = {p['cod']: p for p in banco.listar_pecas(limite=5000)}
+    catalogo = {p['cod']: p for p in banco.listar_pecas(limite=0)}
     total = 0
     for g in r.get('grupos', []):
         total += _preencher_extra_no_grupo(plano_id, r, g, pct, catalogo)

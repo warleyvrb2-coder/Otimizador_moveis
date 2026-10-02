@@ -36,13 +36,13 @@
 <form method="post" enctype="multipart/form-data">
   <div class="cartao">
     <h2>Planilha do Agrosys</h2>
-    <p class="ajuda">O arquivo vem com extensão .xls mas é XML por dentro. Pode enviar
-      como está.</p>
+    <p class="ajuda">Aceita tanto o .xls (que na real é XML por dentro) quanto o .xlsx
+      de verdade — pode enviar direto o que o Agrosys exportar.</p>
     <label class="solta">
       <div style="font-size:30px; opacity:.5;">📊</div>
       <div style="font-weight:600; margin-top:8px;">Clique para escolher a planilha</div>
-      <div style="color:var(--tinta-2); font-size:12.5px; margin-top:3px;">.xls ou .xml</div>
-      <input type="file" name="planilha" accept=".xls,.xml" required
+      <div style="color:var(--tinta-2); font-size:12.5px; margin-top:3px;">.xls, .xlsx ou .xml</div>
+      <input type="file" name="planilha" accept=".xls,.xlsx,.xml" required
              onchange="this.form.querySelector('button').disabled=false;
                        this.parentElement.querySelector('div:nth-child(2)').textContent=this.files[0].name">
     </label>
@@ -67,7 +67,7 @@
     {% for e in espessuras %}
     <label class="esp">
       <input type="checkbox" name="espessura" value="{{ e.valor }}"
-             {{ 'checked' if e.valor >= 6 }}>
+             checked>
       <span class="n">{{ '%.0f'|format(e.valor) }} mm</span>
       <span class="q">{{ e.qtd }} peças</span>
       <span class="ex">{{ e.exemplos | join(' · ') }}</span>
@@ -75,8 +75,8 @@
     {% endfor %}
   </div>
   <p style="color:var(--tinta-2); font-size:12.5px; margin:0 0 16px;">
-    Já deixei marcadas as espessuras de 6mm para cima, que é o que costuma ser painel.
-    Confira — quem conhece o material é você.
+    Todas as espessuras vêm marcadas: entra tudo que tem código, descrição e medida.
+    Desmarque só o que não quiser no cadastro.
   </p>
   <button type="submit" class="btn">Importar as espessuras marcadas</button>
   <a href="/cadastro/importar" class="btn secundario">Cancelar</a>

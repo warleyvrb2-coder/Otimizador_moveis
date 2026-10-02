@@ -18,3 +18,5 @@ venv/
 # banco do cadastro (dados locais, nao versionar)
 *.db
 *.sqlite3
+# copias de seguranca do banco feitas antes de cargas grandes (ex.: catalogo)
+*.db.bak*

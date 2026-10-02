@@ -688,7 +688,14 @@ def importar_catalogo(itens: list[dict], espessuras: set[float]) -> dict:
             'divergentes': divergentes, 'conflitos': conflitos[:40]}
 
 
-def listar_pecas(busca: str = '', so_pendentes: bool = False, limite: int = 0) -> list[sqlite3.Row]:
+def listar_pecas(busca: str = '', so_pendentes: bool = False, limite: int = 0,
+                 por_codigo: bool = False) -> list[sqlite3.Row]:
+    # limite=0 devolve o catálogo inteiro. Quem precisa do catálogo todo (ex.:
+    # demanda x produzido do plano) NÃO pode passar um teto: com o catálogo do
+    # Agrosys (~5 mil peças) um teto fixo cortaria peças do cálculo em silêncio.
+    # por_codigo=True ordena pelo código numérico (87, 158, 159...), a mesma
+    # ordem da planilha do Agrosys; o padrão continua pendentes-primeiro, por
+    # descrição, que é a ordem que quem confere peça a peça usa.
     criar_tabelas()
     sql = 'SELECT * FROM peca'
     cond, args = [], []
@@ -699,7 +706,8 @@ def listar_pecas(busca: str = '', so_pendentes: bool = False, limite: int = 0) -
         cond.append('confirmado = 0')
     if cond:
         sql += ' WHERE ' + ' AND '.join(cond)
-    sql += ' ORDER BY confirmado, descricao, cod'
+    sql += (' ORDER BY CAST(cod AS INTEGER), cod' if por_codigo
+            else ' ORDER BY confirmado, descricao, cod')
     if limite:
         sql += f' LIMIT {int(limite)}'
     with conectar() as con:

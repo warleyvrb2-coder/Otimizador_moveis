@@ -4,6 +4,80 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-10-02 — Catálogo do Agrosys completo no cadastro (5140 peças)
+
+Queixa: "não consigo subir todas as peças" - a lista mostrava 87 e depois
+168, mas a planilha tem 87, 158, 159...
+
+Diagnóstico (planilha lida linha a linha com pandas, 8380 linhas): só 6067
+são peça (o resto é cabeçalho/rodapé repetido nas 104 páginas); 5140 têm
+comprimento e largura e 927 são kit/ferragem/esquema sem medida. Pandas e
+`planilha.ler_itens` bateram exato (5140, zero duplicado, zero descrição
+cortada). Dois motivos para a impressão de peça faltando:
+
+- A lista de Peças ordenava por descrição (`ORDER BY confirmado, descricao,
+  cod`) e mostrava só 300 - o 158 ("LAT DIREITA...") existia, só estava lá
+  atrás, e o usuário não o achava onde a planilha o põe. A aba Peças
+  (`/cadastros/pecas`) agora lista TODAS, ordenadas por código numérico
+  (87, 158, 159...), via `banco.listar_pecas(por_codigo=True)`; o filtro
+  das colunas na tela passa a valer para o cadastro inteiro, não só para
+  300. Os outros usos de `listar_pecas` mantêm a ordem antiga.
+- A importação deixava DESMARCADO tudo abaixo de 6mm, então ficaram de fora
+  1228 peças reais (466 COSTAS 3mm, 418 SALLETO 2,5mm, 330 MANTA 1mm e 14
+  de 0/4/5mm). `templates/importar.html` agora vem com todas as espessuras
+  marcadas (decisão do usuário: entra tudo que tem código, descrição e
+  medida).
+
+Carga feita: backup `cadastro.db.bak_antes_catalogo_2026-10-02` e inserção
+só das 1228 peças que não existiam (3912 -> 5140); nada do que já estava
+cadastrado foi alterado. Uma divergência ficou sem mexer: peça 10313 está
+442x450 no banco e 450x442 no catálogo (comprimento/largura invertidos -
+decidir qual vale, importa pra regra do veio).
+
+Risco evitado: `app.py` carregava o catálogo com `listar_pecas(limite=5000)`
+em três pontos do cálculo de plano (demanda x produzido, preencher extra).
+Com mais de 5000 peças, as excedentes sumiriam do cálculo em silêncio.
+Passou a `limite=0` (catálogo inteiro). `.gitignore` ganhou `*.db.bak*`.
+
+## 2026-10-01 (4) — Importar catálogo passa a aceitar .xlsx real do Agrosys
+
+Pedido do usuário: subir o catálogo completo "Itens com Especificações" do
+Agrosys (6067 itens) pra dentro do cadastro de Peças, pra deixar tudo
+pronto pro cliente. O botão "Importar catálogo" já existia e já lia
+exatamente esse relatório - só que só entendia o formato antigo (.xls que
+na real é SpreadsheetML, o XML do Office 2003). O arquivo que o usuário
+tinha em mãos era um .xlsx de verdade (OOXML), formato que `planilha.py`
+não lia.
+
+- `planilha.py`: `ler_itens()` agora detecta o formato pela assinatura do
+  arquivo (zip começa com "PK") e não pela extensão - necessário porque
+  `/cadastro/importar` sempre salva o upload como ".xml" não importa o que
+  o usuário mandou. `_linhas_antigo()` continua lendo o SpreadsheetML de
+  sempre; `_linhas_xlsx()` é novo e lê o .xlsx na mão (zip +
+  `sheet1.xml` + `sharedStrings.xml`) - não deu pra usar o `openpyxl`
+  porque o .xlsx real do Agrosys tem um `styles.xml` que a biblioteca
+  rejeita ("Colors must be aRGB hex values"), e como só precisamos dos
+  valores das células, ler o XML direto evita essa dependência frágil (e
+  uma dependência nova sem necessidade).
+- `_numero()` ficou mais robusta: antes só trocava vírgula por ponto
+  (funciona pro .xls antigo); agora também lida com o valor bruto do
+  .xlsx, que vem sempre com ponto decimal e sem separador de milhar.
+- Testado batendo os dois formatos contra o mesmo catálogo real: 5140
+  peças válidas nos dois (os outros ~900 registros do arquivo são KIT
+  FERRAGEM, ESQUEMA DE MONTAGEM etc. sem medida, corretamente ignorados).
+  Reconstruí uma vez o catálogo a partir do PDF impresso pra testar antes
+  do usuário achar o .xlsx - aquela reconstrução cortava descrição de
+  peça que quebra em duas linhas no PDF (ex.: "...N°07 PAINEL" faltando o
+  "ZAP"); o .xlsx real não tem esse problema, as 5140 descrições saem
+  completas.
+- `templates/importar.html`: o campo de arquivo tinha `accept=".xls,.xml"` —
+  isso faz o seletor do navegador nem mostrar `.xlsx` como opção, travando
+  o usuário antes mesmo do upload. Virou `accept=".xls,.xlsx,.xml"`, com o
+  texto da tela atualizado pra avisar que os dois formatos funcionam.
+- O agrupamento por espessura (pra separar chapa de verdade de
+  CAIXA/ISOPOR/MANTA) continua pedindo confirmação do usuário antes de
+  gravar, como já era.
+
 ## 2026-10-01 (3) — Separa Descrição e Arquivos na lista de planos
 
 Pedido do usuário: a coluna "Descrição / arquivos" (entrada anterior)
