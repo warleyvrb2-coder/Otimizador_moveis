@@ -1488,7 +1488,10 @@ def candidatas_sobra(plano_id, gi, pi):
 
     ret = livres[i_ret]
     cabem, nao = [], []
-    for p in banco.listar_pecas(busca, limite=400):
+    # Avalia o cadastro INTEIRO: com limite fixo só as primeiras peças em ordem
+    # alfabética eram testadas e o resto nunca aparecia, mesmo cabendo (5140
+    # peças avaliadas levam ~0,1 s).
+    for p in banco.listar_pecas(busca, limite=0):
         d = edicao.diagnosticar(ret, p['comp_mm'], p['larg_mm'], r['kerf'],
                                  _pode_girar_aqui(p, grupo), padrao['itens'],
                                  r['sheet_w'], r['sheet_h'], r['estagios'])
@@ -1502,7 +1505,7 @@ def candidatas_sobra(plano_id, gi, pi):
         elif d['curto'] != 'nao cabe' or len(nao) < 40:
             nao.append(linha)
     cabem.sort(key=lambda c: -(c['w'] * c['h']))
-    return jsonify({'cabem': cabem[:60], 'nao_cabem': nao[:40]})
+    return jsonify({'cabem': cabem, 'nao_cabem': nao[:40]})
 
 
 @app.route('/resultado/<plano_id>/padrao/<int:gi>/<int:pi>/aplicar', methods=['POST'])

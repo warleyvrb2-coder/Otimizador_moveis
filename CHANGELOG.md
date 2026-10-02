@@ -4,6 +4,20 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-10-02 (2) — "Cabem aqui" do plano manual mostra todas que cabem
+
+Queixa: numa chapa 2750x1860 vazia, "Cabem aqui" listava só 60 peças -
+com 5140 no cadastro, todas deveriam ser opção.
+
+Causa (`/resultado/<id>/padrao/<gi>/<pi>/candidatas`, usada pelo plano
+manual e pelo editor de padrão): avaliava só `listar_pecas(limite=400)`,
+as 400 primeiras em ordem alfabética (por isso só apareciam "BASE..."), e
+ainda cortava o resultado em `cabem[:60]`. Agora avalia o cadastro inteiro
+e devolve todas as que cabem (na chapa vazia do teste: 5129 de 5140; as 11
+restantes são maiores que a chapa), ordenadas pela maior área. Custo
+medido: 0,13 s e ~1,2 MB de JSON. "Não cabem" continua limitado a 40 - é
+só amostra do motivo.
+
 ## 2026-10-02 — Catálogo do Agrosys completo no cadastro (5140 peças)
 
 Queixa: "não consigo subir todas as peças" - a lista mostrava 87 e depois
