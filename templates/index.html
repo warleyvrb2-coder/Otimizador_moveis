@@ -45,8 +45,7 @@
       <h2>{{ maq.nome }}</h2>
       <p class="ajuda">
         {% if maq.descricao %}{{ maq.descricao }} · {% endif %}
-        chapa {{ maq.chapa_larg }}×{{ maq.chapa_alt }}mm · serra {{ maq.kerf }}mm ·
-        pilha {{ maq.pilha_max }}mm
+        serra {{ maq.kerf }}mm · pilha {{ maq.pilha_max }}mm
       </p>
       <label class="solta">
         <div class="ic">📄</div>
@@ -69,8 +68,19 @@
 
     <div class="cartao">
       <h2>Opções desta rodada</h2>
-      <p class="ajuda">Valem para todas as máquinas desta rodada. Chapa, serra e
+      <p class="ajuda">Valem para todas as máquinas desta rodada. Serra e
         empilhamento são de cada <a href="/maquinas">máquina</a>.</p>
+
+      <div class="opcao">
+        <div class="txt">
+          <div class="rot">Dimensão da chapa</div>
+          <select name="dimensao_id">
+            {% for d in dimensoes %}
+            <option value="{{ d.id }}" {{ 'selected' if d.padrao }}>{{ d.larg|milhar }} × {{ d.alt|milhar }} mm{{ ' (padrão)' if d.padrao }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
 
       <div class="opcao" style="flex-direction:column; align-items:stretch; gap:6px;">
         <div class="rot">Descrição</div>
@@ -148,7 +158,7 @@
       <table class="dados">
         {% for maq in maquinas %}
         <tr><td>{{ maq.nome }}</td>
-            <td class="num">{{ maq.chapa_larg }}×{{ maq.chapa_alt }} · {{ maq.kerf }}mm</td></tr>
+            <td class="num">serra {{ maq.kerf }}mm</td></tr>
         {% endfor %}
       </table>
       <p style="margin:12px 0 0;"><a href="/maquinas">Gerenciar máquinas →</a></p>

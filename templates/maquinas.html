@@ -40,7 +40,6 @@
     </div>
     <div class="desc">{{ m.descricao or '' }}</div>
     <table>
-      <tr><td>Chapa</td><td>{{ m.chapa_larg }} × {{ m.chapa_alt }} mm</td></tr>
       <tr><td>Serra</td><td>{{ m.kerf }} mm</td></tr>
       <tr><td>Pilha máxima</td><td>{{ m.pilha_max }} mm</td></tr>
       <tr><td>Estágios</td><td>{{ '2 + aparo' if m.estagios >= 3 else '2 estritos' }}</td></tr>

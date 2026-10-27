@@ -80,6 +80,8 @@
         <span class="sub-dot"></span>Chapas</a>
       <a href="/cadastros/acabamentos" class="leaf-item {{ 'ativo' if aba == 'acabamentos' }}">
         <span class="sub-dot"></span>Acabamentos</a>
+      <a href="/cadastros/dimensoes" class="leaf-item {{ 'ativo' if aba == 'dimensoes' }}">
+        <span class="sub-dot"></span>Dimensão Chapa</a>
     </div>
 
     <a href="/aprendizado" class="mod-header {{ 'ativo' if pagina == 'aprendizado' }}">
@@ -98,7 +100,7 @@
   </div>
 
   <div class="sidebar-rodape">
-    {% if nav %}Chapa <b>{{ nav.chapa }}</b> · serra <b>{{ nav.kerf }}mm</b>{% endif %}
+    {% if nav %}Chapa padrão <b>{{ nav.chapa }}</b> · serra <b>{{ nav.kerf }}mm</b>{% endif %}
   </div>
 </nav>
 

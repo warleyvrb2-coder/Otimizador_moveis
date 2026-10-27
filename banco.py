@@ -161,6 +161,17 @@ def criar_tabelas() -> None:
                 ativa         INTEGER NOT NULL DEFAULT 1,
                 criada_em     TEXT
             );
+            -- Tamanhos de chapa disponíveis na fábrica. Só o tamanho: quem usa
+            -- escolhe em cada plano qual aplicar. `padrao` marca a que vem
+            -- selecionada (2750x1860, a das máquinas).
+            CREATE TABLE IF NOT EXISTS chapa_dim (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                larg       INTEGER NOT NULL,
+                alt        INTEGER NOT NULL,
+                padrao     INTEGER NOT NULL DEFAULT 0,
+                criada_em  TEXT,
+                UNIQUE (larg, alt)
+            );
             -- Histórico das edições manuais. É o dado que permite o sistema
             -- repetir sozinho o que o operador faz sempre — e, principalmente,
             -- descobrir ONDE o otimizador está deixando a desejar.
@@ -831,6 +842,56 @@ def excluir_acabamento(nome: str) -> bool:
     return apagou > 0
 
 
+DIMENSAO_PADRAO = (2750, 1860)
+
+
+def listar_dimensoes() -> list[sqlite3.Row]:
+    """
+    As dimensões de chapa cadastradas, padrão primeiro. Na estreia cria a
+    2750x1860 como padrão - a que as máquinas já usavam - para o seletor dos
+    planos nunca aparecer vazio.
+    """
+    criar_tabelas()
+    with conectar() as con:
+        if not con.execute('SELECT COUNT(*) n FROM chapa_dim').fetchone()['n']:
+            con.execute('INSERT INTO chapa_dim (larg, alt, padrao, criada_em) VALUES (?,?,1,?)',
+                        (*DIMENSAO_PADRAO, datetime.now(timezone.utc).isoformat(timespec='seconds')))
+        return con.execute('SELECT * FROM chapa_dim ORDER BY padrao DESC, larg DESC, alt DESC').fetchall()
+
+
+def dimensao(dimensao_id) -> sqlite3.Row | None:
+    """A dimensão escolhida, ou a padrão se o id não existir (ou vier vazio)."""
+    todas = listar_dimensoes()
+    for d in todas:
+        if str(d['id']) == str(dimensao_id):
+            return d
+    return next((d for d in todas if d['padrao']), todas[0])
+
+
+def criar_dimensao(larg, alt) -> tuple[int | None, str | None]:
+    """Cadastra um tamanho. Devolve (id, None) ou (None, mensagem de erro)."""
+    listar_dimensoes()
+    try:
+        larg, alt = int(str(larg).strip()), int(str(alt).strip())
+    except (TypeError, ValueError):
+        return None, 'Informe comprimento e largura em milímetros (só números).'
+    if not (500 <= larg <= 6000) or not (500 <= alt <= 3000):
+        return None, 'O comprimento precisa ficar entre 500 e 6.000 mm e a largura entre 500 e 3.000 mm.'
+    try:
+        with conectar() as con:
+            cur = con.execute('INSERT INTO chapa_dim (larg, alt, padrao, criada_em) VALUES (?,?,0,?)',
+                              (larg, alt, datetime.now(timezone.utc).isoformat(timespec='seconds')))
+            return cur.lastrowid, None
+    except sqlite3.IntegrityError:
+        return None, f'A dimensão {larg}×{alt} já está cadastrada.'
+
+
+def excluir_dimensao(dimensao_id) -> bool:
+    """Remove a dimensão, menos a padrão. Planos antigos guardam o próprio tamanho."""
+    with conectar() as con:
+        return con.execute('DELETE FROM chapa_dim WHERE id=? AND padrao=0', (dimensao_id,)).rowcount > 0
+
+
 CAMPOS_MAQUINA = ('chapa_larg', 'chapa_alt', 'kerf', 'pilha_max', 'estagios', 'tempo_grupo', 'pct_extra')
 
 
@@ -1095,6 +1156,42 @@ def regras_aprendidas(minimo: int = 2) -> list[dict]:
              ORDER BY vezes DESC
         """, (minimo,)).fetchall()
     return [dict(r) for r in linhas]
+
+
+# Cor com que o plano manual grava no log (ele não vem de Kambam, então não
+# tem material). Edição feita lá vale para QUALQUER cor.
+COR_PLANO_MANUAL = 'Plano manual'
+
+
+def regras_para_cor(cor: str, minimo: int = 2) -> list[dict]:
+    """
+    Regras aprendidas que valem para uma cor: as dessa cor MAIS as do plano
+    manual, somadas por peça.
+
+    Somar (e não só unir) importa: a peça chamada 1x na cor e 1x no manual já é
+    um padrão de 2, e agrupar por (cor, peça) como em regras_aprendidas() nunca
+    juntaria as duas. Tira esp do agrupamento pelo mesmo motivo: o plano manual
+    grava a espessura padrão, que não tem por que casar com a do grupo.
+    """
+    criar_tabelas()
+    with conectar() as con:
+        linhas = con.execute("""
+            SELECT peca_cod, COUNT(*) vezes, MIN(sobra_w) menor_w, MIN(sobra_h) menor_h,
+                   MAX(quando) ultima
+              FROM edicao_log
+             WHERE acao IN ('adicionar', 'incluir_melhor')
+               AND peca_cod IS NOT NULL
+               AND (UPPER(TRIM(cor)) = UPPER(TRIM(?)) OR cor = ?)
+             GROUP BY peca_cod
+            HAVING COUNT(*) >= ?
+             ORDER BY vezes DESC
+        """, (cor or '', COR_PLANO_MANUAL, minimo)).fetchall()
+    return [dict(r) for r in linhas]
+
+
+def codigos_aprendidos(minimo: int = 2) -> set[str]:
+    """Códigos de peça com regra ativa em qualquer cor - o plano manual não tem cor."""
+    return {r['peca_cod'] for r in regras_aprendidas(minimo)}
 
 
 def historico_edicoes(limite: int = 100) -> list[dict]:

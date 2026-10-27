@@ -452,7 +452,7 @@ async function listar() {
              <div class="lista">`;
     cabem.forEach((c, i) => {
       html += `<div class="item-p" data-cabe="${i}">
-        <span class="cod">${c.cod}</span><span class="ds">${c.desc}</span>
+        <span class="cod">${c.cod}</span><span class="ds">${c.desc}${c.aprendida ? ' <span title="O sistema já aprendeu esta peça">★</span>' : ''}</span>
         <span class="md">${c.comp}×${c.larg}${c.rotated ? ' ⟲' : ''}</span>
         <input type="number" min="1" step="1" value="1" class="qtd-incluir" title="Quantidade">
         <button type="button" class="btn secundario btn-incluir">Incluir →</button></div>`;

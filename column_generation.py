@@ -160,24 +160,61 @@ def _solve_master_lp(patterns: list, demand: dict, piece_keys: list):
     return x, duals
 
 
-def _solve_master_ip(patterns: list, demand: dict, piece_keys: list, time_limit_s: float = 15.0):
-    """Arredonda a solução final: quantas vezes usar cada padrão, em número INTEIRO."""
-    model = cp_model.CpModel()
-    ub = int(sum(demand.values())) + 1
-    x = [model.NewIntVar(0, ub, f'x{j}') for j in range(len(patterns))]
+def _solve_master_ip(patterns: list, demand: dict, piece_keys: list, time_limit_s: float = 15.0,
+                      pesos: dict | None = None):
+    """
+    Arredonda a solução final: quantas vezes usar cada padrão, em número INTEIRO.
 
-    for key in piece_keys:
-        terms = [x[j] * pat.counts.get(key, 0) for j, pat in enumerate(patterns) if pat.counts.get(key, 0)]
-        if terms:
-            model.Add(sum(terms) >= int(demand[key]))
+    Duas etapas, nesta ordem de prioridade:
+      1) menor número de chapas (o que sempre foi o objetivo);
+      2) com esse MESMO número de chapas, concentrar as peças maiores: cada
+         padrão usado "custa" a soma dos pesos das peças que leva, então o
+         solver prefere deixar a peça grande em poucos padrões (a demanda dela
+         inteira nas mesmas chapas, completadas com as menores) em vez de
+         espalhá-la em vários padrões com sobra diferente em cada um.
+    `pesos` é piece_key -> peso (maior = peça mais comprida); sem ele só a
+    etapa 1 roda, como antes.
+    """
+    def montar():
+        model = cp_model.CpModel()
+        ub = int(sum(demand.values())) + 1
+        x = [model.NewIntVar(0, ub, f'x{j}') for j in range(len(patterns))]
+        for key in piece_keys:
+            terms = [x[j] * pat.counts.get(key, 0) for j, pat in enumerate(patterns) if pat.counts.get(key, 0)]
+            if terms:
+                model.Add(sum(terms) >= int(demand[key]))
+        return model, x, ub
 
+    model, x, _ = montar()
     model.Minimize(sum(x))
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = time_limit_s
+    etapa1 = time_limit_s * (0.5 if pesos else 1.0)
+    solver.parameters.max_time_in_seconds = etapa1
     solver.parameters.num_search_workers = 8
     status = solver.Solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return None
+    uso = [solver.Value(v) for v in x]
+    if not pesos:
+        return uso
+
+    # etapa 2: mesmo teto de chapas, menos espalhamento das peças grandes
+    model, x, ub = montar()
+    model.Add(sum(x) <= sum(uso))
+    usado = [model.NewBoolVar(f'u{j}') for j in range(len(patterns))]
+    for j in range(len(patterns)):
+        model.Add(x[j] <= ub * usado[j])
+        model.Add(x[j] >= usado[j])
+    custo = [sum(pesos.get(k, 0) for k, q in pat.counts.items() if q) for pat in patterns]
+    model.Minimize(sum(c * u for c, u in zip(custo, usado)))
+    for xj, v in zip(x, uso):
+        model.AddHint(xj, v)
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = max(2.0, time_limit_s - etapa1)
+    solver.parameters.num_search_workers = 8
+    status = solver.Solve(model)
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        return uso          # a etapa 1 já é uma solução válida
     return [solver.Value(v) for v in x]
 
 
@@ -278,8 +315,14 @@ def optimize_group_cg(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
         patterns.append(new_pat)
 
     # 3) arredondamento final: quantas vezes usar cada padrão (inteiro)
+    # peso de cada peça = posição dela na fila "mais comprida primeiro" (a
+    # maior pesa mais): é o que faz o solver preferir não espalhar a peça grande
+    comprimento = {k: max(p.w, p.h) for k, p in piece_info.items()}
+    fila = sorted(piece_keys, key=lambda k: comprimento[k])
+    pesos = {k: (i + 1) ** 2 for i, k in enumerate(fila)}
     usage = _solve_master_ip(patterns, demand, piece_keys,
-                              time_limit_s=max(5.0, time_budget_s - (time.time() - t_start)))
+                              time_limit_s=max(5.0, time_budget_s - (time.time() - t_start)),
+                              pesos=pesos)
     if usage is None:
         return [], list(pieces)
 
@@ -308,7 +351,8 @@ def optimize_group_cg(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
         pat.used_area = sum((it.w / 1000) * (it.h / 1000) for it in pat.items)
         pat._area_chapa = sheet_area
         usados.append(pat)
-    usados.sort(key=lambda p: -p.repeticoes)
+    # Padrão 1 = o que leva a peça mais comprida; empate, o mais repetido.
+    usados.sort(key=lambda p: (-max(max(it.w, it.h) for it in p.items), -p.repeticoes))
 
     sheets = []
     idx = 1

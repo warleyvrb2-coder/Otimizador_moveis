@@ -102,6 +102,8 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024  # 30MB
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 app.jinja_env.filters['hora_br'] = _hora_br
+# 2750 -> "2.750" (milhar em pt-BR) para as dimensões de chapa
+app.jinja_env.filters['milhar'] = lambda n: f'{int(n):,}'.replace(',', '.')
 
 
 @app.before_request
@@ -137,11 +139,11 @@ def contexto_lateral():
         par = banco.obter_parametros()
         maqs = banco.listar_maquinas(so_ativas=True)
         principal = maqs[0] if maqs else None
+        padrao = banco.dimensao(None)
         return {'nav': {
             'pendencias': ((res['pecas'] - res['pecas_confirmadas'])
                             + (res['cores'] - res['cores_confirmadas'])),
-            'chapa': (f"{principal['chapa_larg']}×{principal['chapa_alt']}"
-                       if principal else f"{par['chapa_larg']}×{par['chapa_alt']}"),
+            'chapa': f"{padrao['larg']}×{padrao['alt']}",
             'kerf': str(principal['kerf'] if principal else par['kerf']).replace('.', ','),
         }}
     except Exception:                    # banco ainda não existe no primeiro acesso
@@ -172,6 +174,7 @@ def inicio():
 def index():
     return render_template('index.html', pagina='novo', res=banco.resumo(),
                             maquinas=banco.listar_maquinas(so_ativas=True),
+                            dimensoes=banco.listar_dimensoes(),
                             erro=request.args.get('erro'))
 
 
@@ -335,6 +338,10 @@ def otimizar():
         return redirect(url_for('index', erro='Descreva este lote antes de calcular - '
                                               'é o que identifica o plano depois na lista.'))
 
+    # Dimensão da chapa desta rodada (Cadastros > Dimensão da chapa); id
+    # inválido ou ausente cai na padrão em banco.dimensao().
+    dimensao_id = banco.dimensao(request.form.get('dimensao_id'))['id']
+
     criados = []
     for maq in banco.listar_maquinas(so_ativas=True):
         arquivos = [f for f in request.files.getlist(f'kambans_{maq["id"]}')
@@ -351,7 +358,7 @@ def otimizar():
         job = jobs.criar(
             pipeline.rodar, salvos, os.path.join(OUTPUT_DIR, job_id), f'/plano/{job_id}',
             respeitar_veio=respeitar_veio, max_depth=max_depth, maquina_id=maq['id'],
-            job_id=job_id,
+            dimensao_id=dimensao_id, job_id=job_id,
             ao_terminar=lambda j: (banco.salvar_plano(j.id, j.resultado, descricao=descricao)
                                     if j.resultado and not j.resultado.get('erro') else None),
         )
@@ -380,21 +387,24 @@ def manual_novo():
     se ajusta, não pedindo pra digitar de novo em cada chapa manual.
     """
     maquinas = banco.listar_maquinas(so_ativas=True)
+    dimensoes = banco.listar_dimensoes()
     if request.method == 'GET':
         return render_template('manual_novo.html', pagina='novo_manual', maquinas=maquinas,
-                                espessura_padrao=ESPESSURA_PADRAO_MM)
+                                dimensoes=dimensoes, espessura_padrao=ESPESSURA_PADRAO_MM)
 
     maq = banco.maquina(request.form.get('maquina_id', type=int))
     descricao = (request.form.get('descricao') or '').strip()[:200]
+    dim = banco.dimensao(request.form.get('dimensao_id'))
     if not maq:
         return render_template('manual_novo.html', pagina='novo_manual', maquinas=maquinas,
-                                espessura_padrao=ESPESSURA_PADRAO_MM, descricao=descricao,
-                                erro='Escolha uma máquina.')
+                                dimensoes=dimensoes, espessura_padrao=ESPESSURA_PADRAO_MM,
+                                descricao=descricao, erro='Escolha uma máquina.')
     # Obrigatória: sem Kambam nenhum, é a única forma de saber depois qual
     # plano manual é qual na lista - o `required` do HTML já barra o envio,
     # isto aqui é o reforço do lado do servidor.
     if not descricao:
         return render_template('manual_novo.html', pagina='novo_manual', maquinas=maquinas,
+                                dimensoes=dimensoes, dimensao_selecionada=dim['id'],
                                 espessura_padrao=ESPESSURA_PADRAO_MM,
                                 maquina_selecionada=maq['id'],
                                 erro='Descreva este plano antes de criar a chapa - é o que '
@@ -415,7 +425,7 @@ def manual_novo():
 
     plano_id = os.urandom(5).hex()
     grupo = {
-        'cor': 'Plano manual', 'esp': ESPESSURA_PADRAO_MM, 'tem_veio': veio,
+        'cor': banco.COR_PLANO_MANUAL, 'esp': ESPESSURA_PADRAO_MM, 'tem_veio': veio,
         'n_tipos_peca': 0, 'qtd_total_pecas': 0, 'n_chapas': 0, 'n_padroes': 1,
         'ciclos_total': 0, 'aproveitamento_medio': 0,
         'padroes': [{
@@ -426,7 +436,7 @@ def manual_novo():
     }
     resultado = {
         'erro': None, 'manual': True, 'kambans_info': [],
-        'sheet_w': maq['chapa_larg'], 'sheet_h': maq['chapa_alt'], 'kerf': maq['kerf'],
+        'sheet_w': dim['larg'], 'sheet_h': dim['alt'], 'kerf': maq['kerf'],
         'estagios': maq['estagios'], 'respeitar_veio': respeitar_veio,
         'maquina': maq['nome'], 'maquina_id': maq['id'], 'pilha_max': maq['pilha_max'],
         'total_chapas': 0, 'sugestoes': [], 'importado': {}, 'cadastro': banco.resumo(),
@@ -446,9 +456,14 @@ def manual_pecas(plano_id):
     quando solta, então esta lista não precisa saber onde a peça vai cair.
     """
     busca = request.args.get('busca', '').strip()
+    aprendidos = banco.codigos_aprendidos()
+    # Peças que o aprendizado já conhece vão no topo (sort estável mantém a
+    # ordem do cadastro dentro de cada grupo) e o teto de 200 passa a valer
+    # DEPOIS disso, senão uma peça aprendida do fim do alfabeto nunca aparecia.
+    pecas = sorted(banco.listar_pecas(busca, limite=0), key=lambda p: p['cod'] not in aprendidos)
     itens = [{'cod': p['cod'], 'desc': p['descricao'], 'comp': p['comp_mm'], 'larg': p['larg_mm'],
-              'aparente': bool(p['aparente'])}
-             for p in banco.listar_pecas(busca, limite=200)]
+              'aparente': bool(p['aparente']), 'aprendida': p['cod'] in aprendidos}
+             for p in pecas[:200]]
     return jsonify(itens)
 
 
@@ -661,7 +676,8 @@ def cadastros(aba='moveis'):
     """
     res = banco.resumo()
     contas = {'moveis': len(banco.listar_modelos()), 'pecas': res['pecas'],
-               'chapas': res['cores'], 'acabamentos': len(banco.listar_acabamentos())}
+               'chapas': res['cores'], 'acabamentos': len(banco.listar_acabamentos()),
+               'dimensoes': len(banco.listar_dimensoes())}
     comum = {'pagina': 'cadastros', 'aba': aba, 'contas': contas, 'res': res}
 
     # Sem no-store, sair da tela e voltar (trocar de aba, botao Voltar) pode
@@ -685,10 +701,19 @@ def cadastros(aba='moveis'):
         html = render_template('cad_acabamentos.html',
                                 acabamentos=banco.listar_acabamentos(),
                                 cores=[c['nome'] for c in banco.listar_cores()], **comum)
+    elif aba == 'dimensoes':
+        html = render_template('cad_dimensoes.html', itens=banco.listar_dimensoes(),
+                                erro=request.args.get('erro'), **comum)
     else:
         abort(404)
     return _sem_cache(make_response(html))
-    abort(404)
+
+
+@app.route('/dimensoes/nova', methods=['POST'])
+def dimensao_nova():
+    """Cadastra um tamanho de chapa (só comprimento × largura)."""
+    _, erro = banco.criar_dimensao(request.form.get('larg'), request.form.get('alt'))
+    return redirect(url_for('cadastros', aba='dimensoes', erro=erro))
 
 
 def _disco_efemero() -> bool:
@@ -907,6 +932,9 @@ def _impacto_exclusao(tipo: str, ident: str):
         msg = (f'Este acabamento usa {n} cor(es) de chapa. O vínculo será removido.' if n
                else 'Este acabamento não tem cor vinculada.')
         return imp, msg
+    if tipo == 'dimensao':
+        return {}, ('Os planos já gerados com esta dimensão não mudam - cada um guarda o '
+                    'próprio tamanho de chapa.')
     return None, None
 
 
@@ -938,6 +966,8 @@ def cadastro_excluir():
         apagou = banco.excluir_modelo(ident)
     elif tipo == 'acabamento':
         apagou = banco.excluir_acabamento(ident)
+    elif tipo == 'dimensao':
+        apagou = banco.excluir_dimensao(ident)
     else:
         return jsonify({'ok': False}), 400
     # apagou=False significa que o id não existia mais - quem chamou (o
@@ -1488,6 +1518,7 @@ def candidatas_sobra(plano_id, gi, pi):
 
     ret = livres[i_ret]
     cabem, nao = [], []
+    aprendidos = banco.codigos_aprendidos()
     # Avalia o cadastro INTEIRO: com limite fixo só as primeiras peças em ordem
     # alfabética eram testadas e o resto nunca aparecia, mesmo cabendo (5140
     # peças avaliadas levam ~0,1 s).
@@ -1497,14 +1528,15 @@ def candidatas_sobra(plano_id, gi, pi):
                                  r['sheet_w'], r['sheet_h'], r['estagios'])
         linha = {'cod': p['cod'], 'desc': p['descricao'],
                   'comp': p['comp_mm'], 'larg': p['larg_mm'],
-                  'curto': d['curto'], 'motivo': d['motivo']}
+                  'curto': d['curto'], 'motivo': d['motivo'],
+                  'aprendida': p['cod'] in aprendidos}
         if d['ok']:
             linha.update({'x': d['x'], 'y': d['y'], 'w': d['w'], 'h': d['h'],
                            'rotated': d['rotated']})
             cabem.append(linha)
         elif d['curto'] != 'nao cabe' or len(nao) < 40:
             nao.append(linha)
-    cabem.sort(key=lambda c: -(c['w'] * c['h']))
+    cabem.sort(key=lambda c: (not c['aprendida'], -(c['w'] * c['h'])))
     return jsonify({'cabem': cabem, 'nao_cabem': nao[:40]})
 
 

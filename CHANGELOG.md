@@ -4,6 +4,84 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-10-27 (3) — Peças que sumiam do Kambam, filtro travando e maiores primeiro entre os padrões
+
+**1) 8900 e 8903 (e mais uma) fora do plano do lote 1456.** O relatório deixa
+só 3pt entre o fim da descrição e o comprimento; o pdfplumber (`x_tolerance`
+padrão 3) juntava "N°10" + "1481,00" numa palavra só ("N°101481,00"), a linha
+ficava sem medidas válidas e a peça era descartada em silêncio. `parser.py`
+agora lê com `x_tolerance=2`: o lote 1456 passou de 15 para 18 linhas
+(4.285 → 5.135 peças) e o 1458 de 12 para 14 (4.000 → 4.280). Conferi os 22
+PDFs de amostra: nenhum outro mudou.
+
+**2) Cor "CINAMO FF 1 (AMARELO)".** As linhas "COR PEÇA:" e "LOTE: ... (AMARELO)"
+que abrem o bloco seguinte eram coladas como continuação da última peça do
+bloco, e o "(AMARELO)" entrava na cor dela - virava outro material, fora da
+chapa das irmãs. Agora essas linhas encerram a peça. O lote 1456 fecha em
+dois grupos (CINAMO FF 1 e 2), como deve ser.
+
+**3) Linha de peça que não pôde ser lida agora avisa.** `parse_kambam(...,
+ignoradas=[])` devolve o texto das linhas que abrem com "código-" e foram
+descartadas; o plano mostra "N linha(s) não foram lidas e não estão neste
+plano". Caso real: 10509 (rodapé do Moscou) vem sem espessura no Kambam.
+
+**4) Filtro das tabelas de cadastro travava com 5 mil peças.** `tabela.js`
+lia `innerText` linha a linha (cada leitura força o navegador a recalcular a
+tela) e reordenava com `appendChild` um a um. Passou a ler `textContent`,
+escrever só o que muda, esperar 200ms depois da digitação e ordenar com
+chaves pré-calculadas. De quebra, o filtro "No corte" (à vista / escondida)
+agora olha só o botão marcado - antes qualquer texto casava com todas.
+
+**5) Maiores primeiro entre os padrões.** O fechamento inteiro do mestre
+(`_solve_master_ip`) ganhou uma 2ª etapa: com o MESMO número mínimo de chapas,
+escolhe os padrões que espalham menos as peças compridas (cada padrão usado
+custa a soma dos pesos das peças que leva, maior peça = maior peso). E o
+Padrão 1 passa a ser o da peça mais comprida. No lote 1456: 24 → 17 padrões,
+397 → 396 chapas, e a 9202 (816×443) ficou toda num padrão só.
+
+## 2026-10-27 (2) — Cadastro "Dimensão Chapa": o tamanho da chapa agora é escolhido em cada plano
+
+A empresa passou a trabalhar com três tamanhos (2750×1860 - padrão das
+máquinas -, 4400×1860 e 4000×1860), mas o tamanho morava dentro do cadastro
+da máquina: um só, fixo. Agora:
+
+- Nova tabela `chapa_dim` (criada no `criar_tabelas`, sem migration avulsa) e
+  nova aba **Cadastros > Dimensão Chapa** (`cad_dimensoes.html`): só
+  comprimento × largura. A 2750×1860 nasce sozinha como padrão e não pode ser
+  excluída; dimensão repetida e valores fora de 500–6000 × 500–3000 mm são
+  recusados. Excluir uma dimensão não mexe nos planos já gerados (cada plano
+  guarda o próprio `sheet_w/sheet_h`).
+- **Novo plano** e **Plano manual** ganharam o seletor "Dimensão da chapa"
+  (vem com a padrão marcada). No automático vale para todas as máquinas da
+  rodada; `pipeline.parametros(maquina_id, dimensao_id)` troca só o tamanho da
+  chapa, o resto (serra, empilhamento, tempo) continua da máquina. Id
+  desconhecido cai na padrão, também no servidor.
+- Os campos de chapa saíram do formulário e das listagens da máquina (não
+  valiam mais para nada); o rodapé do menu mostra "Chapa padrão".
+
+## 2026-10-27 — Peças maiores primeiro no padrão + aprendizado do plano manual vale para tudo
+
+**1) Maiores primeiro.** Num padrão em colunas, a coluna das peças pequenas
+(548mm) saía antes da das portas (2033mm): `_pack_columns` reaproveita
+`_pack_shelves` com os eixos trocados, e a ordenação por `w` virava a
+dimensão errada. `optimizer.py` ganhou `_maior_primeiro(w, h, cod)` (maior
+lado, depois maior área, depois código) - simétrica em w/h, então vale igual
+em faixas e colunas - e todos os pontos de ordenação (heurístico e CP-SAT)
+passaram a usá-la. Só muda a POSIÇÃO: no mesmo Kamban a contagem de chapas
+foi igual (177) e os 13 padrões continuam válidos na guilhotina.
+
+**2) Aprendizado do plano manual.** O manual grava o log com a cor "Plano
+manual" e o automático só aplicava regra da cor do grupo, então 242 ações
+manuais nunca serviam a ninguém.
+- `banco.regras_para_cor(cor)`: regras da cor + as do plano manual,
+  somadas por peça (1x na cor + 1x no manual já é padrão de 2).
+  `pipeline.aplicar_aprendizado` passou a usá-la.
+- `banco.codigos_aprendidos()`: no plano manual (lista de peças e "Cabem
+  aqui") e no editor de padrão, peça aprendida vai no topo com ★.
+  `/manual/<id>/pecas` agora ordena ANTES de cortar nos 200.
+- `/aprendizado` rotula as regras do manual como "vale para todas as cores".
+- `pipeline.py` ainda carregava o catálogo com `limite=5000`; passou a 0.
+
 ## 2026-10-02 (2) — "Cabem aqui" do plano manual mostra todas que cabem
 
 Queixa: numa chapa 2750x1860 vazia, "Cabem aqui" listava só 60 peças -

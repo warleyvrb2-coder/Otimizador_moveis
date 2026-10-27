@@ -16,19 +16,25 @@ from optimizer import PieceType
 from column_generation import optimize_group_cg
 from visualize import render_sheet
 
-def parametros(maquina_id=None) -> dict:
+def parametros(maquina_id=None, dimensao_id=None) -> dict:
     """
     Os parâmetros da máquina que vai cortar.
 
     Lidos a cada rodada, não na importação: mudar na tela vale já na próxima
     otimização, sem reiniciar o servidor. Sem máquina informada, cai nos
     parâmetros globais — que é o caso de quem ainda não cadastrou nenhuma.
+
+    O tamanho da chapa vem da dimensão escolhida no plano (Cadastros >
+    Dimensão da chapa; sem escolha, a padrão), não mais da máquina.
     """
+    par = banco.obter_parametros()
     if maquina_id is not None:
         m = banco.maquina(maquina_id)
         if m:
-            return {c: m[c] for c in banco.CAMPOS_MAQUINA} | {'maquina_nome': m['nome']}
-    return banco.obter_parametros()
+            par = {c: m[c] for c in banco.CAMPOS_MAQUINA} | {'maquina_nome': m['nome']}
+    dim = banco.dimensao(dimensao_id)
+    par['chapa_larg'], par['chapa_alt'] = dim['larg'], dim['alt']
+    return par
 
 
 def tem_veio(cor: str, respeitar: bool = True, cores: dict | None = None) -> bool:
@@ -99,7 +105,8 @@ def ler_kambans(arquivos: list[tuple[str, str]]) -> tuple[list, list]:
                          'duplicado_de': vistos[h]})
             continue
         vistos[h] = nome
-        pecas = parse_kambam(caminho, source_name=nome)
+        ignoradas: list = []
+        pecas = parse_kambam(caminho, source_name=nome, ignoradas=ignoradas)
         todas_pecas.extend(pecas)
         # a outra metade do relatório: os MÓVEIS que este lote monta. Com ela
         # dá pra derivar quantas peças de cada tipo cada móvel leva.
@@ -107,7 +114,9 @@ def ler_kambans(arquivos: list[tuple[str, str]]) -> tuple[list, list]:
         info.append({'arquivo': nome, 'n_linhas': len(pecas),
                      'qtd_total': sum(p['qtd'] for p in pecas),
                      'lote': pecas[0]['lote'] if pecas else None,
-                     'material': pecas[0].get('material') if pecas else None})
+                     'material': pecas[0].get('material') if pecas else None,
+                     # linhas de peça que o leitor não conseguiu interpretar
+                     'ignoradas': ignoradas})
     return todas_pecas, info
 
 
@@ -170,15 +179,12 @@ def aplicar_aprendizado(grupos_resultado: list, par: dict) -> list[dict]:
     quiser mesmo aquelas pecas. Esconder isso seria vender ganho que nao existe.
     """
     import edicao
-    regras = banco.regras_aprendidas(minimo=2)
-    if not regras:
-        return []
-
-    pecas_cad = {p['cod']: p for p in banco.listar_pecas(limite=5000)}
+    # catálogo inteiro: com teto fixo, peça além dele nunca seria sugerida
+    pecas_cad = {p['cod']: p for p in banco.listar_pecas(limite=0)}
     aplicadas = []
     for g in grupos_resultado:
-        do_grupo = [r for r in regras
-                    if (r['cor'] or '').strip().upper() == g['cor'].strip().upper()]
+        # regras da cor + as aprendidas no plano manual (valem para toda cor)
+        do_grupo = banco.regras_para_cor(g['cor'], minimo=2)
         if not do_grupo:
             continue
         # Mesma regra de consistência do otimizador principal (ver
@@ -220,7 +226,7 @@ def aplicar_aprendizado(grupos_resultado: list, par: dict) -> list[dict]:
 
 def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
           respeitar_veio: bool = True, max_depth: int | None = None,
-          maquina_id=None, progresso=None) -> dict:
+          maquina_id=None, progresso=None, dimensao_id=None) -> dict:
     """
     Calcula o plano de corte completo.
 
@@ -231,7 +237,7 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         if progresso:
             progresso(feito, total, texto)
 
-    par = parametros(maquina_id)
+    par = parametros(maquina_id, dimensao_id)
     largura, altura = par['chapa_larg'], par['chapa_alt']
 
     aviso(0, 1, 'Lendo os PDFs...')

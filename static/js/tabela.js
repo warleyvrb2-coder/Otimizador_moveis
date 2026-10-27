@@ -1,21 +1,31 @@
 /* Filtro por coluna e ordenação para as tabelas de cadastro.
    Genérico: qualquer table.cg-data-table ganha o comportamento sem JS próprio. */
 (function () {
+  /* Texto da célula, em minúsculas. textContent e não innerText: innerText
+     obriga o navegador a recalcular o layout a CADA leitura, e como o filtro
+     lê e esconde linha por linha, com 5 mil peças a tela travava. Na coluna
+     de botões (À vista / Escondida) vale só o botão marcado, senão filtrar
+     por "escondida" trazia todas as linhas. */
   function texto(linha, col) {
     const c = linha.children[col];
-    return (c ? c.innerText : '').trim().toLowerCase();
+    if (!c) return '';
+    const marcado = c.querySelector('.cg-escolha button.on');
+    return (marcado || c).textContent.replace(/\s+/g, ' ').trim().toLowerCase();
   }
 
+  /* Duas passadas (ler tudo, depois escrever tudo) e escrita só onde o estado
+     muda, para o navegador fazer um único layout no fim. */
   function filtrar(tabela) {
     const filtros = [...tabela.querySelectorAll('.cg-table-search')]
       .map(i => ({ col: +i.dataset.col, v: i.value.trim().toLowerCase() }))
       .filter(f => f.v);
+    const linhas = [...tabela.tBodies[0].querySelectorAll('tr:not(.cg-vazio)')];
+    const mostrar = linhas.map(tr => filtros.every(f => texto(tr, f.col).includes(f.v)));
     let visiveis = 0;
-    tabela.tBodies[0].querySelectorAll('tr').forEach(tr => {
-      if (tr.classList.contains('cg-vazio')) return;
-      const ok = filtros.every(f => texto(tr, f.col).includes(f.v));
-      tr.style.display = ok ? '' : 'none';
-      if (ok) visiveis++;
+    linhas.forEach((tr, i) => {
+      if (mostrar[i]) visiveis++;
+      const escondida = tr.style.display === 'none';
+      if (mostrar[i] === escondida) tr.style.display = mostrar[i] ? '' : 'none';
     });
     const cont = document.querySelector('[data-contador="' + tabela.id + '"]');
     if (cont) cont.textContent = visiveis + (visiveis === 1 ? ' registro' : ' registros');
@@ -29,19 +39,25 @@
     tabela.querySelectorAll('.cg-sort-btn').forEach(b => b.classList.remove('on', 'asc'));
     botao.classList.add('on');
     if (!desc) botao.classList.add('asc');
+    // texto de cada linha lido uma vez só, não a cada comparação do sort
+    const chaves = new Map(linhas.map(l => [l, texto(l, col)]));
     linhas.sort((a, b) => {
-      const x = texto(a, col), y = texto(b, col);
+      const x = chaves.get(a), y = chaves.get(b);
       const nx = parseFloat(x.replace(/[^\d.,-]/g, '').replace(',', '.'));
       const ny = parseFloat(y.replace(/[^\d.,-]/g, '').replace(',', '.'));
       const r = (!isNaN(nx) && !isNaN(ny) && x && y) ? nx - ny : x.localeCompare(y, 'pt-BR');
       return desc ? -r : r;
     });
-    linhas.forEach(l => corpo.appendChild(l));
+    const frag = document.createDocumentFragment();
+    linhas.forEach(l => frag.appendChild(l));
+    corpo.appendChild(frag);
   }
 
   document.querySelectorAll('table.cg-data-table').forEach(tabela => {
     tabela.querySelectorAll('.cg-table-search').forEach(inp => {
-      inp.addEventListener('input', () => filtrar(tabela));
+      // espera a pessoa parar de digitar: refiltrar a cada letra é trabalho jogado fora
+      let espera;
+      inp.addEventListener('input', () => { clearTimeout(espera); espera = setTimeout(() => filtrar(tabela), 200); });
       inp.addEventListener('click', e => e.stopPropagation());
     });
     tabela.querySelectorAll('.cg-sort-btn').forEach(b => {

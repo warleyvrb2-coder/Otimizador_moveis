@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block titulo %}Dimensão Chapa · Cadastros{% endblock %}
+{% block trilha %}Cadastros{% endblock %}
+{% block cabecalho %}Dimensão Chapa{% endblock %}
+{% block subcabecalho %}Tamanhos de chapa que podem ser escolhidos em cada plano{% endblock %}
+
+{% block conteudo %}
+{% include "_abas.html" %}
+
+{% if erro %}<div class="recado perigo"><span class="ic">✕</span><div>{{ erro }}</div></div>{% endif %}
+
+<div class="cartao" style="max-width:560px;">
+  <h2>Nova dimensão</h2>
+  <form method="post" action="/dimensoes/nova"
+        style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+    <label style="display:flex; flex-direction:column; gap:4px; font-size:12.5px;">
+      Comprimento (mm)
+      <input type="number" name="larg" min="500" max="6000" step="1" required placeholder="4400"
+             style="padding:9px 12px; border:1px solid var(--linha); border-radius:8px; width:150px;">
+    </label>
+    <label style="display:flex; flex-direction:column; gap:4px; font-size:12.5px;">
+      Largura (mm)
+      <input type="number" name="alt" min="500" max="3000" step="1" required placeholder="1860"
+             style="padding:9px 12px; border:1px solid var(--linha); border-radius:8px; width:150px;">
+    </label>
+    <button type="submit" class="btn">Cadastrar</button>
+  </form>
+</div>
+
+<div class="cg-page-card">
+  <div class="cg-page-header">
+    <h1 class="cg-title">Dimensões de chapa</h1>
+    <span class="cg-counter" data-contador="tab-dim">{{ itens|length }} registros</span>
+  </div>
+
+  <div class="cg-table-wrap">
+    <table id="tab-dim" class="cg-table cg-data-table">
+      <thead>
+        <tr>
+          <th><div class="cg-col-header">Dimensão (mm)</div></th>
+          <th class="cg-acoes-col"><div class="cg-col-header">Situação</div></th>
+          <th class="cg-acoes-col"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in itens %}
+        <tr>
+          <td class="cg-cod">{{ d.larg|milhar }} × {{ d.alt|milhar }}</td>
+          <td class="cg-acoes-col">{% if d.padrao %}<span class="cg-estado ok">padrão</span>{% endif %}</td>
+          <td class="cg-acoes-col">
+            {% if not d.padrao %}
+            <button class="btn perigo btn-sm"
+                    onclick='excluirRegistro("dimensao",{{ d.id|tojson }},"{{ d.larg }}×{{ d.alt }}", this.closest("tr"))'>excluir</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script src="/static/js/tabela.js"></script>
+{% endblock %}

@@ -52,7 +52,7 @@
   <div class="regra {{ '' if r.vezes >= 2 else 'fraca' }}">
     <span class="cod">{{ r.peca_cod }}</span>
     <span class="ds">
-      {{ r.cor }} · {{ '%.0f'|format(r.esp or 0) }}mm
+      {% if r.cor == 'Plano manual' %}Plano manual · vale para todas as cores{% else %}{{ r.cor }} · {{ '%.0f'|format(r.esp or 0) }}mm{% endif %}
       <small>menor sobra em que coube: {{ r.menor_w or '—' }} × {{ r.menor_h or '—' }} mm</small>
     </span>
     <span class="vezes">

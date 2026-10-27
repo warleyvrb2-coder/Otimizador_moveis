@@ -195,6 +195,13 @@
     {% endfor %}
     </tbody>
   </table>
+  {% for k in kambans_info if k.ignoradas %}
+  <div class="recado atencao" style="margin:14px 0 0;"><span class="ic">⚠️</span>
+    <div><strong>{{ k.ignoradas|length }} linha(s) de {{ k.arquivo }} não foram lidas e
+      <u>não estão neste plano</u>:</strong>
+      {% for l in k.ignoradas %}<div style="font-size:12.5px;">{{ l }}</div>{% endfor %}
+      Confira no Kambam (geralmente falta a espessura) e inclua à mão.</div></div>
+  {% endfor %}
 </div>
 {% endif %}
 

@@ -55,8 +55,15 @@ def file_hash(path: str) -> str:
 
 
 def _linhas_da_pagina(page) -> list[list[dict]]:
-    """Agrupa as palavras da página em linhas por posição vertical."""
-    palavras = page.extract_words()
+    """
+    Agrupa as palavras da página em linhas por posição vertical.
+
+    x_tolerance=2 (o padrão do pdfplumber é 3): o relatório deixa só 3pt entre
+    o fim da descrição e o começo do comprimento, então com 3 o "N°10" e o
+    "1481,00" viravam UMA palavra ("N°101481,00"), a linha deixava de ter
+    medidas válidas e a peça (8900, 8903...) sumia do plano sem aviso.
+    """
+    palavras = page.extract_words(x_tolerance=2)
     linhas = defaultdict(list)
     for w in palavras:
         chave = round(w['top'] / Y_TOL)
@@ -189,10 +196,16 @@ def parse_itens(pdf_path: str) -> list[dict]:
     return [i for i in itens if i['qtd'] > 0]
 
 
-def parse_kambam(pdf_path: str, source_name: str | None = None) -> list[dict]:
+def parse_kambam(pdf_path: str, source_name: str | None = None,
+                 ignoradas: list | None = None) -> list[dict]:
     """
     Retorna uma lista de peças:
     {cod, desc, comp_mm, larg_mm, esp_mm, cor, qtd, material, origem, lote}
+
+    ignoradas: se informada, recebe o texto de cada linha que abre com
+    "código-" mas não pôde ser lida como peça (ex.: sem espessura). Peça
+    descartada em silêncio some do plano sem ninguém perceber - quem chama
+    pode mostrar a lista para o operador conferir à mão.
     """
     pecas: list[dict] = []
     lote = None
@@ -218,6 +231,8 @@ def parse_kambam(pdf_path: str, source_name: str | None = None) -> list[dict]:
                     continue
 
                 nova = _parse_linha_peca(linha)
+                if nova is None and ignoradas is not None and COD_RE.match(linha[0]['text']):
+                    ignoradas.append(texto)
                 if nova is not None:
                     nova['material'] = material
                     pecas.append(nova)
@@ -228,8 +243,14 @@ def parse_kambam(pdf_path: str, source_name: str | None = None) -> list[dict]:
                     # que esteja logo abaixo dela. Cabeçalho repetido de
                     # página e rodapé de totais ficam longe e são cortados
                     # pelo GAP_MAX - o resto pega pelo texto.
+                    # "COR PEÇA:" e "LOTE:" abrem o bloco seguinte do relatório: se
+                    # fossem tratadas como continuação, o "(AMARELO)" do nome do
+                    # lote entrava na COR da última peça do bloco e ela virava
+                    # outro material ("CINAMO FF 1 (AMARELO)"), separada das
+                    # irmãs que levam a mesma chapa.
                     if topo - ultimo_top > GAP_MAX or re.search(
-                            r'Página:|PEÇAS DA PRODUÇÃO|Cod\./Desc\.|Usuário:|Volume Cúbico', texto):
+                            r'Página:|PEÇAS DA PRODUÇÃO|Cod\./Desc\.|Usuário:|Volume Cúbico|'
+                            r'^COR PEÇA:|^LOTE:', texto):
                         atual = None
                     else:
                         _aplicar_continuacao(atual, linha)

@@ -107,13 +107,12 @@
   <div>
     <div class="cartao">
       <h2>Máquinas</h2>
-      <p class="ajuda">Cada uma corta com a sua chapa e a sua serra.</p>
+      <p class="ajuda">Cada uma corta com a sua serra e o seu empilhamento.</p>
       <table class="dados">
         {% for m in maquinas %}
         <tr>
           <td><strong>{{ m.nome }}</strong></td>
-          <td class="num">{{ m.chapa_larg }}×{{ m.chapa_alt }}<br>
-            <span style="color:var(--cinza);">serra {{ m.kerf }}mm</span></td>
+          <td class="num">serra {{ m.kerf }}mm</td>
         </tr>
         {% endfor %}
       </table>

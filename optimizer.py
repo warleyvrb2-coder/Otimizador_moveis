@@ -36,6 +36,19 @@ def _cabem(espaco: float, medida: float, kerf: float) -> int:
     return int((espaco + kerf) // (medida + kerf))
 
 
+def _maior_primeiro(w: float, h: float, cod: str) -> tuple:
+    """
+    Chave de ordenação "peça maior primeiro": maior lado, depois maior área,
+    e o código como desempate estável.
+
+    Simétrica em w/h DE PROPÓSITO: o empacotamento em colunas reaproveita o de
+    faixas com os eixos trocados, e ordenar só por `w` fazia a coluna de peças
+    pequenas sair antes da coluna de peças grandes (o "comprimento" do mundo
+    trocado era a largura da peça de verdade).
+    """
+    return (-max(w, h), -(w * h), cod)
+
+
 def _ocupa(n: int, medida: float, kerf: float) -> float:
     """Espaço consumido por n peças em fila, com os cortes entre elas."""
     return n * medida + max(0, n - 1) * kerf if n > 0 else 0.0
@@ -293,7 +306,7 @@ def _pack_shelves(pool, sheet_w: int, sheet_h: int, placed: list, qty_used: dict
         # como critério de desempate (peça de mesmo comprimento, código
         # diferente) agrupa as duas cópias juntas em vez de deixar a ordem
         # de descoberta da busca gulosa intercalar os dois códigos.
-        escolhas = sorted(escolhas, key=lambda e: (-e[1], e[0].cod))
+        escolhas = sorted(escolhas, key=lambda e: _maior_primeiro(e[1], e[2], e[0].cod))
         faixas_geradas.append((h_faixa, escolhas))
         for p, iw, ih, rot, count in escolhas:
             p.qty_total -= count
@@ -319,7 +332,7 @@ def _pack_shelves(pool, sheet_w: int, sheet_h: int, placed: list, qty_used: dict
     # e, por ser sort estável, duas faixas do mesmo comprimento (código
     # diferente, mesma medida) ficam na ordem do desempate por código,
     # abaixo, em vez de na ordem em que a busca gulosa as achou.
-    faixas_geradas.sort(key=lambda f: (-f[1][0][1], f[1][0][0].cod))
+    faixas_geradas.sort(key=lambda f: _maior_primeiro(f[1][0][1], f[1][0][2], f[1][0][0].cod))
     y = 0.0
     for h_faixa, escolhas in faixas_geradas:
         x = 0.0
@@ -586,17 +599,20 @@ def _refine_last_sheet_cpsat(pool, sheet_w: int, sheet_h: int, max_shelves: int,
     # medida igual, código diferente) ficarem adjacentes em vez de na ordem
     # em que o solver as atribuiu. Não muda quantidade nem viabilidade, só
     # a ordem de empilhamento.
-    def _peca_dominante(faixa):
-        return max(faixa[1], key=lambda item: item[1])  # item = (peca, w, h, rotated, qtd)
+    def _chave_item(item):  # item = (peca, w, h, rotated, qtd)
+        return _maior_primeiro(item[1], item[2], item[0].cod)
 
-    faixas.sort(key=lambda f: (-_peca_dominante(f)[1], _peca_dominante(f)[0].cod))
+    def _peca_dominante(faixa):
+        return min(faixa[1], key=_chave_item)
+
+    faixas.sort(key=lambda f: _chave_item(_peca_dominante(f)))
 
     placed = []
     y_cursor = 0.0
     for h_s, itens_da_faixa in faixas:
         # mesma cadência de corte da versão heurística: peça mais longa
         # primeiro, código como desempate, dentro da própria faixa.
-        itens_da_faixa = sorted(itens_da_faixa, key=lambda item: (-item[1], item[0].cod))
+        itens_da_faixa = sorted(itens_da_faixa, key=_chave_item)
         x_cursor = 0.0
         for p, w, h, rotated, qty in itens_da_faixa:
             for _ in range(qty):
