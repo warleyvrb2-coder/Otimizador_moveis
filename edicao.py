@@ -16,6 +16,7 @@ Por isso toda edição passa por três verificações, nesta ordem:
 
 A terceira é a que ninguém lembra e a que estraga o lote.
 """
+from bisect import bisect_left
 from dataclasses import dataclass
 
 TOL = 0.5
@@ -181,21 +182,26 @@ def _estagios(rects, x0, y0, w, h, dir_pai, memo) -> int:
     for d in ('V', 'H'):
         i, t = (0, 2) if d == 'V' else (1, 3)
         lim0, lim1 = (x0, x0 + w) if d == 'V' else (y0, y0 + h)
-        cortes = sorted({r[i] for r in dentro} | {r[i] + r[t] for r in dentro})
+        # ordenadas pela borda de início, com o maior fim acumulado: um corte em
+        # `c` atravessa peça só se alguma que começa antes de c termina depois
+        # (consulta O(log n) em vez de varrer todas as peças a cada corte)
+        orden = sorted(dentro, key=lambda r: r[i])
+        inicios = [r[i] for r in orden]
+        fim_max, acumulado = float('-inf'), []
+        for r in orden:
+            fim_max = max(fim_max, r[i] + r[t])
+            acumulado.append(fim_max)
+        cortes = sorted(set(inicios) | {r[i] + r[t] for r in dentro})
         for c in cortes:
             if not (lim0 + TOL < c < lim1 - TOL):
                 continue
-            if any(r[i] < c - TOL and r[i] + r[t] > c + TOL for r in dentro):
+            n = bisect_left(inicios, c - TOL)       # peças que começam antes do corte
+            if n and acumulado[n - 1] > c + TOL:
                 continue                      # o corte atravessaria uma peça
-            a = [r for r in dentro if r[i] + r[t] <= c + TOL]
-            b = [r for r in dentro if r[i] >= c - TOL]
-            if len(a) + len(b) != len(dentro):
-                continue
+            a, b = orden[:n], orden[n:]
             # Um dos lados pode sair vazio: é o corte de APARO, que separa a
             # peça da sobra. Exigir peça nos dois lados recusaria o layout
             # mais banal que existe — faixas paralelas com folga na borda.
-            if not a and not b:
-                continue
             if d == 'V':
                 ca = _estagios(a, x0, y0, c - x0, h, d, memo)
                 cb = _estagios(b, c, y0, x0 + w - c, h, d, memo)
@@ -475,3 +481,41 @@ def validar_padrao(itens: list[dict], w: float, h: float, max_estagios: int) -> 
         problemas.append(f'Este layout exigiria {est} estágios de corte, e a máquina está '
                           f'configurada para {max_estagios}.')
     return problemas
+
+
+# Tira avulsa: sobra estreita e comprida da chapa que o operador corta como peça
+# sem código (ex.: 100x1860, 2750x128). Mais fina que isso não serve a ninguém;
+# mais larga que isso já daria peça de verdade, então fica como sobra honesta.
+TIRA_LADO_MIN = 80.0
+TIRA_LADO_MAX = 250.0
+TIRA_COMP_MIN = 400.0
+SUFIXO_TIRA = '_tira'
+
+
+def tiras_avulsas(itens: list[dict], w: float, h: float, kerf: float,
+                  max_estagios: int) -> list[dict]:
+    """
+    As tiras avulsas que cabem nas sobras do padrão, maiores primeiro.
+
+    Cada tira ocupa a sobra inteira (arredondada para baixo) e só fica se o
+    padrão continuar cortável em guilhotina com os estágios da máquina. A
+    sobra é recalculada a cada tira colocada, porque os retângulos livres se
+    sobrepõem entre si. O `piece_key` termina em SUFIXO_TIRA: é por ele que o
+    resto do sistema sabe que a tira é aproveitamento, não pedido.
+    """
+    novas: list[dict] = []
+    while True:
+        livres = [r for r in retalhos_livres(itens + novas, w, h, minimo=TIRA_LADO_MIN, kerf=kerf)
+                  if TIRA_LADO_MIN <= min(r.w, r.h) <= TIRA_LADO_MAX
+                  and max(r.w, r.h) >= TIRA_COMP_MIN]
+        for r in sorted(livres, key=lambda r: -r.area_m2):
+            lw, lh = int(r.w), int(r.h)
+            cod = f'{lw}x{lh}'
+            tira = {'cod': cod, 'desc': f'Peça avulsa {lw}×{lh}mm', 'piece_key': cod + SUFIXO_TIRA,
+                    'shelf': 0, 'x': round(r.x, 1), 'y': round(r.y, 1), 'w': lw, 'h': lh,
+                    'rotated': False}
+            if not validar_padrao(itens + novas + [tira], w, h, max_estagios):
+                novas.append(tira)
+                break
+        else:
+            return novas

@@ -4,6 +4,52 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-10-28 — Otimização por famílias, tiras avulsas automáticas e aprendizado de combinações
+
+Redefinição das regras de otimização (aprovadas pelo usuário; texto na seção
+"Regras de otimização" do README). Backup do estado anterior: branch
+`backup/motor-v1` e tag `motor-v1`, mais `backups/cadastro_motor-v1_*.db`.
+
+- **Famílias (`familias.py`).** Peças com quantidades proporcionais no Kambam
+  (ex.: 1.160/928/232 = 5:4:1) viram um kit; o padrão leva `kit × c` peças e
+  repete até a família acabar - as peças terminam juntas e nada passa do
+  pedido. Sem cadastro novo: a família sai do mdc das quantidades. A peça só
+  entra se a chapa cheia (JÁ com o enchimento das sobras) ficar melhor;
+  comparar a família sem o enchimento juntava peça só por somar área (família
+  de 64% onde a peça sozinha fechava 90%).
+- **`sequencial.py`** passou a montar por família (peça isolada = família de 1).
+  O enchimento das sobras respeita `pendente ÷ repetições`, então o padrão
+  nunca passa do pedido nem encolhe as repetições.
+- **Tiras avulsas automáticas (`edicao.tiras_avulsas`).** Sobras de 80 a 250 mm
+  de lado menor e 400 mm ou mais de comprimento viram peça avulsa (ex.:
+  2250×99). Entram DEPOIS do aprendizado (a sugestão tem prioridade no espaço),
+  não contam como pedido nem excedente (`piece_key` termina em `_tira`) e o
+  plano mostra dois aproveitamentos: total e "só do pedido".
+- **Aprendizado de combinações (`aprendizado.py`, tabela `combinacao`).**
+  Semente única com os 16 planos do operador (`referencia_operador/`) e soma de
+  todo plano aprovado, uma vez por plano. Peça que já andou junta entra na
+  família primeiro e com tolerância de 1 p.p. A sugestão automática de peças a
+  mais continua (decisão "A"), marcada e fora do pedido.
+- **Tela e PDF:** "Família N" em cada padrão, aproveitamentos em pt-BR
+  (filtro `pct`). O PNG agora sai depois do aprendizado e das tiras (antes a
+  tela mostrava uma chapa diferente da do PDF).
+- **`edicao._estagios` mais rápido** (varredura com `bisect` no lugar de
+  `any()` por corte): mesmo resultado em 400 layouts aleatórios (inclusive
+  não-guilhotináveis), 2,4× mais rápido em bloco denso.
+- **Bug do aprendizado:** o import de `aprendizado` colidia com a rota
+  `aprendizado()` do `app.py`; importado como `aprendizado_combinacoes`.
+
+**Aceite (`python regua_operador.py`):** 16 de 16 planos do operador com o
+mesmo nº de chapas, em 1 padrão e pedido exato; mistura de todos os planos num
+pedido só: 2.225 chapas contra 2.207 (+0,8%) em 23 padrões.
+
+**Lotes reais** (chapas: novo x motor sequencial antigo; guilhotina, faltas e
+excedentes = 0 em todos): 1456+1458 891 x 886 (33 x 34 padrões no grupo
+maior), 1436 CASTANHO 273 x 271, 1437 CINAMOMO 478 x 456. A diferença vem da
+regra "peça junta": o motor antigo dividia a mesma peça em vários padrões para
+encaixar mais peça pequena por chapa. Tempo: 9 a 68 s por Kambam.
+O aprendizado semeado muda pouco (891 → 894 chapas).
+
 ## 2026-10-27 (4) — Otimização "maiores primeiro": a peça mais comprida fecha na mesma chapa
 
 No servidor a 12046 (1290×855) saía em dois jeitos: 39 chapas com 4 peças e

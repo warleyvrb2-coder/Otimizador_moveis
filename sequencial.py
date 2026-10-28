@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-Otimização "maiores primeiro": monta o plano de cima para baixo, da peça mais
-comprida para a mais curta.
+Otimização "maiores primeiro, por família": monta o plano de cima para baixo,
+da peça mais comprida para a mais curta.
 
 Regra de negócio (pedida pela produção):
-  1) a peça de MAIOR comprimento ainda pendente define o padrão: as chapas
-     saem cheias dela, e a demanda inteira dela fica junta, em sequência;
+  1) a peça de MAIOR comprimento ainda pendente é a âncora; a família dela
+     (familias.py: peças de quantidade proporcional) define o padrão, repetido
+     até a demanda da família acabar - todas as peças dela terminam juntas;
   2) nos espaços que sobram na chapa entram as peças menores, também da mais
-     comprida para a mais curta;
-  3) esgotada a peça, passa-se para a próxima maior, e assim até o fim.
+     comprida para a mais curta, sem passar do que cada repetição comporta;
+  3) esgotada a família, passa-se para a próxima âncora, até o fim.
 
 Difere do Column Generation (column_generation.py), que olha o lote inteiro e
 só minimiza o nº de chapas: ele junta peças de tamanhos variados onde der o
@@ -18,9 +19,9 @@ chapa dentro dessa ordem.
 """
 from dataclasses import replace
 
-import edicao
-from optimizer import PieceType, PlacedItem, SheetResult, _maior_primeiro, _cabem, KERF_MM
-from column_generation import Pattern, _generate_pattern
+from optimizer import PieceType, SheetResult, _maior_primeiro, KERF_MM
+from column_generation import Pattern
+from familias import formar_familia, maior_kit_por_chapa, preencher_sobras
 
 ESTRATEGIAS = ('area', 'width', 'height')
 
@@ -34,129 +35,64 @@ def _ancora(restante: dict, piece_info: dict) -> str | None:
                                                          piece_info[k].cod))
 
 
-def _cortar_excesso(pat: Pattern, chave: str, limite: int) -> Pattern:
-    """
-    Tira do padrão as peças de `chave` acima de `limite` (as últimas da lista,
-    que o empacotador coloca por último).
-
-    O empacotador fecha faixa inteira e passa do teto pedido: com 2 peças
-    pendentes ele devolvia 4. Tirar peça nunca estraga a guilhotina, e o
-    espaço liberado volta a ser sobra para as menores.
-    """
-    excesso = pat.counts.get(chave, 0) - limite
-    if excesso <= 0:
-        return pat
-    itens = list(pat.items)
-    for pos in range(len(itens) - 1, -1, -1):
-        if excesso and itens[pos].piece_key == chave:
-            itens.pop(pos)
-            excesso -= 1
-    counts = dict(pat.counts)
-    counts[chave] = limite
-    return Pattern(counts=counts, items=itens,
-                    used_area=sum(i.w * i.h for i in itens) / 1_000_000)
-
-
-def _preencher_sobras(pat: Pattern, restante: dict, ancora: str, piece_info: dict,
-                       sheet_w: int, sheet_h: int, kerf: float, estagios: int) -> Pattern:
-    """
-    Completa as sobras da chapa da âncora com as peças menores, da mais
-    comprida para a mais curta.
-
-    Cada peça entra em BLOCO (colunas x linhas) dentro da maior sobra onde mais
-    cabem, e o bloco só fica se o padrão continuar cortável em guilhotina com o
-    nº de estágios da máquina (mesma checagem do editor manual). Sem isso a
-    sobra à direita das peças grandes ficava vazia e o aproveitamento caía.
-    """
-    itens = [{'cod': i.cod, 'desc': i.desc, 'piece_key': i.piece_key, 'shelf': 0,
-              'x': i.x, 'y': i.y, 'w': i.w, 'h': i.h, 'rotated': i.rotated} for i in pat.items]
-    counts = dict(pat.counts)
-    ordem = sorted((k for k, q in restante.items() if q > 0 and k != ancora),
-                   key=lambda k: _maior_primeiro(piece_info[k].w, piece_info[k].h, piece_info[k].cod))
-    for k in ordem:
-        peca = piece_info[k]
-        falta = restante[k]
-        while falta > 0:
-            livres = edicao.retalhos_livres(itens, sheet_w, sheet_h, minimo=30.0, kerf=kerf)
-            candidatos = []
-            for r in livres:
-                cols, linhas = _cabem(r.w, peca.w, kerf), _cabem(r.h, peca.h, kerf)
-                if cols and linhas:
-                    candidatos.append((min(cols * linhas, falta), cols, linhas, r))
-            # mais peças primeiro; empate, a menor sobra (encaixe justo)
-            candidatos.sort(key=lambda c: (-c[0], c[3].w * c[3].h))
-            colocou = False
-            for n, cols, linhas, r in candidatos:
-                bloco = []
-                for idx in range(n):
-                    bloco.append({'cod': peca.cod, 'desc': peca.desc, 'piece_key': peca.key,
-                                  'shelf': 0, 'rotated': False, 'w': peca.w, 'h': peca.h,
-                                  'x': r.x + (idx % cols) * (peca.w + kerf),
-                                  'y': r.y + (idx // cols) * (peca.h + kerf)})
-                if not edicao.validar_padrao(itens + bloco, sheet_w, sheet_h, estagios):
-                    itens += bloco
-                    counts[k] = counts.get(k, 0) + n
-                    falta -= n
-                    colocou = True
-                    break
-            if not colocou:
-                break
-
-    placed = [PlacedItem(piece_key=i['piece_key'], cod=i['cod'], desc=i['desc'], shelf=0,
-                          x=i['x'], y=i['y'], w=i['w'], h=i['h'], rotated=i['rotated'])
-              for i in itens]
-    return Pattern(counts=counts, items=placed,
-                    used_area=sum(i.w * i.h for i in placed) / 1_000_000)
-
-
 def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
-                     estrategia: str, kerf: float, estagios: int, max_padroes: int = 400):
+                     estrategia: str, kerf: float, estagios: int, max_padroes: int = 400,
+                     afinidade_fn=None):
     """
-    Uma passada completa "maiores primeiro" com uma estratégia de empacotamento.
+    Uma passada completa "maiores primeiro, por família" com uma estratégia de
+    empacotamento.
     Devolve (padroes_na_ordem_de_criacao, sem_lugar) - sem_lugar: tipos que não
     cabem nem sozinhos numa chapa.
+
+    afinidade_fn(ancora) -> {peça: peso}: o que o aprendizado diz que anda com
+    a âncora (ordem de teste na família e prioridade no enchimento).
     """
     restante = dict(demanda)
     padroes: list[Pattern] = []
     sem_lugar: dict = {}
+    n_familia = 0
 
     while len(padroes) < max_padroes:
         ancora = _ancora(restante, piece_info)
         if ancora is None:
             break
 
-        # quantas da âncora cabem numa chapa sozinha: é o que ela "pede" por chapa
-        sozinha = _generate_pattern(piece_info, {ancora: restante[ancora]}, sheet_w, sheet_h,
-                                     strategy=estrategia, kerf=kerf, estagios=estagios)
-        por_chapa = sozinha.counts.get(ancora, 0)
-        if por_chapa <= 0:
-            sem_lugar[ancora] = restante.pop(ancora)
+        aprendido = afinidade_fn(ancora) if afinidade_fn else None
+        familia = formar_familia(ancora, restante, piece_info, sheet_w, sheet_h, estrategia,
+                                  kerf, estagios, aprendido)
+        if familia is None:
+            sem_lugar[ancora] = restante[ancora]
             restante[ancora] = 0
             continue
+        chaves, kits, kit = familia
+        n_familia += 1
 
-        # chapa da âncora: ela sozinha, no teto de uma chapa cheia (ou o que
-        # restar dela), e as menores completando o que sobrar
-        if restante[ancora] < por_chapa:
-            sozinha = _cortar_excesso(
-                _generate_pattern(piece_info, {ancora: restante[ancora]}, sheet_w, sheet_h,
-                                  strategy=estrategia, kerf=kerf, estagios=estagios),
-                ancora, restante[ancora])
-        pat = _preencher_sobras(sozinha, restante, ancora, piece_info,
-                                 sheet_w, sheet_h, kerf, estagios)
-
-        # repete o MESMO padrão enquanto houver demanda para todas as peças dele
-        vezes = min(restante[k] // q for k, q in pat.counts.items() if q > 0)
-        vezes = max(1, vezes)
-        pat.repeticoes = vezes
-        for k, q in pat.counts.items():
-            restante[k] = max(0, restante[k] - q * vezes)
-        padroes.append(pat)
+        # chapas cheias da família; o que sobrar de kits vira uma última chapa
+        while kits > 0 and len(padroes) < max_padroes:
+            c, pat = maior_kit_por_chapa(piece_info, kit, kits, sheet_w, sheet_h,
+                                          estrategia, kerf, estagios)
+            if c == 0:
+                break
+            vezes = kits // c
+            pat = preencher_sobras(pat, restante, set(chaves), vezes, piece_info,
+                                     sheet_w, sheet_h, kerf, estagios, aprendido)
+            pat.repeticoes = vezes
+            pat.familia = n_familia
+            for k, q in pat.counts.items():
+                restante[k] = max(0, restante[k] - q * vezes)
+            kits -= c * vezes
+            padroes.append(pat)
+        if kits > 0:
+            # nem 1 kit coube de novo: sem isso a mesma âncora voltaria para sempre
+            sem_lugar[ancora] = restante[ancora]
+            restante[ancora] = 0
 
     return padroes, sem_lugar
 
 
 def optimize_group_sequencial(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
-                               kerf: float = KERF_MM, estagios: int = 3) -> tuple:
+                               kerf: float = KERF_MM, estagios: int = 3,
+                               combinacoes: dict | None = None) -> tuple:
     """
     Mesmo contrato de optimize_group_cg: devolve (sheets, sobras, usados),
     para plugar direto no pipeline.
@@ -164,6 +100,8 @@ def optimize_group_sequencial(pieces: list[PieceType], sheet_w_mm: int, sheet_h_
     Roda a passada "maiores primeiro" com cada estratégia de empacotamento e
     fica com a que fecha em MENOS chapas (empate: menos padrões) - a ordem é a
     mesma nas três, só muda como cada chapa é preenchida.
+
+    combinacoes: {cod: {cod_parceiro: vezes}} do aprendizado (banco.combinacoes()).
 
     Toda peça entra travada na orientação do cadastro (pode_girar=False), como
     no Column Generation: o mesmo código só pode aparecer numa posição em todo
@@ -174,10 +112,15 @@ def optimize_group_sequencial(pieces: list[PieceType], sheet_w_mm: int, sheet_h_
     demanda = {p.key: p.qty_total for p in pieces}
     sheet_area = (sheet_w_mm / 1000) * (sheet_h_mm / 1000)
 
+    def afinidade(ancora: str) -> dict:
+        """Peso de cada peça do grupo = quantas vezes o operador a juntou com a âncora."""
+        parceiros = (combinacoes or {}).get(piece_info[ancora].cod, {})
+        return {k: parceiros[p.cod] for k, p in piece_info.items() if p.cod in parceiros}
+
     melhor = None
     for estrategia in ESTRATEGIAS:
         padroes, sem_lugar = _montar_uma_vez(piece_info, demanda, sheet_w_mm, sheet_h_mm,
-                                              estrategia, kerf, estagios)
+                                              estrategia, kerf, estagios, afinidade_fn=afinidade)
         chapas = sum(p.repeticoes for p in padroes)
         chave = (chapas, len(padroes))
         if melhor is None or chave < melhor[0]:

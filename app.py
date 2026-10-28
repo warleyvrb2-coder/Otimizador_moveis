@@ -27,6 +27,7 @@ from flask import (Flask, request, render_template, redirect, url_for,
                    make_response)
 from werkzeug.utils import secure_filename
 
+import aprendizado as aprendizado_combinacoes
 import banco
 import edicao
 import jobs
@@ -104,6 +105,8 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 app.jinja_env.filters['hora_br'] = _hora_br
 # 2750 -> "2.750" (milhar em pt-BR) para as dimensões de chapa
 app.jinja_env.filters['milhar'] = lambda n: f'{int(n):,}'.replace(',', '.')
+# 88.24 -> "88,2" (uma casa, vírgula decimal) para os aproveitamentos
+app.jinja_env.filters['pct'] = lambda n: f'{float(n):.1f}'.replace('.', ',')
 
 
 @app.before_request
@@ -1054,15 +1057,23 @@ def _recalcular(resultado):
     area_chapa = (resultado['sheet_w'] / 1000) * (resultado['sheet_h'] / 1000)
     for g in resultado['grupos']:
         chapas = 0
-        area_usada = 0.0
+        area_usada = area_pedido = 0.0
         for pad in g['padroes']:
-            usada = sum((i['w'] / 1000) * (i['h'] / 1000) for i in pad.get('itens', []))
+            itens = pad.get('itens', [])
+            usada = sum((i['w'] / 1000) * (i['h'] / 1000) for i in itens)
+            # só o pedido: sem as tiras avulsas nem as peças sugeridas pelo aprendizado
+            pedido = sum((i['w'] / 1000) * (i['h'] / 1000) for i in itens
+                          if not str(i.get('piece_key', '')).endswith((edicao.SUFIXO_TIRA, '_sugerido')))
             pad['aproveitamento'] = 100 * usada / area_chapa if area_chapa else 0
+            pad['aproveitamento_pedido'] = 100 * pedido / area_chapa if area_chapa else 0
             chapas += pad['repeticoes']
             area_usada += usada * pad['repeticoes']
+            area_pedido += pedido * pad['repeticoes']
         g['n_chapas'] = chapas
         g['aproveitamento_medio'] = (100 * area_usada / (chapas * area_chapa)
                                       if chapas and area_chapa else 0)
+        g['aproveitamento_pedido'] = (100 * area_pedido / (chapas * area_chapa)
+                                       if chapas and area_chapa else 0)
         g['n_padroes'] = len(g['padroes'])
         # Pedido e produção lado a lado, sempre recalculados. Antes a etiqueta
         # mostrava só a demanda do momento do cálculo e ficava obsoleta depois
@@ -1096,6 +1107,8 @@ def _producao_do_grupo(g: dict) -> dict:
     produzido = {}
     for pad in g.get('padroes', []):
         for it in pad.get('itens', []):
+            if str(it.get('piece_key', '')).endswith(edicao.SUFIXO_TIRA):
+                continue  # tira avulsa é aproveitamento de sobra, não peça do pedido
             produzido[it['cod']] = produzido.get(it['cod'], 0) + pad['repeticoes']
     return produzido
 
@@ -1114,13 +1127,15 @@ def _pecas_do_padrao(pad: dict) -> list[dict]:
     """
     contagem: dict[str, dict] = {}
     for it in pad.get('itens', []):
-        c = contagem.setdefault(it['cod'], {'desc': it['desc'], 'w': it['w'], 'h': it['h'], 'qtd': 0})
+        c = contagem.setdefault(it['cod'], {'desc': it['desc'], 'w': it['w'], 'h': it['h'], 'qtd': 0,
+                                             'tira': str(it.get('piece_key', '')).endswith(edicao.SUFIXO_TIRA)})
         c['qtd'] += 1
     saida = []
     for cod, info in sorted(contagem.items(), key=lambda kv: -kv[1]['qtd']):
         saida.append({'cod': cod, 'desc': info['desc'],
                        'medida': f"{int(round(info['w']))}x{int(round(info['h']))}",
-                       'por_chapa': info['qtd'], 'total': info['qtd'] * pad['repeticoes']})
+                       'por_chapa': info['qtd'], 'total': info['qtd'] * pad['repeticoes'],
+                       'tira': info['tira']})
     return saida
 
 
@@ -2013,9 +2028,11 @@ def preencher_extra_tudo(plano_id):
 
 @app.route('/resultado/<job_id>/aprovar', methods=['POST'])
 def aprovar(job_id):
-    if not banco.obter_plano(job_id):
-        abort(404)
+    salvo = banco.obter_plano(job_id) or abort(404)
     desfazer = request.form.get('desfazer') == '1'
+    # cada plano ensina uma vez só, mesmo que seja aprovado, desfeito e aprovado de novo
+    if not desfazer:
+        aprendizado_combinacoes.aprender_resultado(job_id, salvo['resultado'])
     banco.aprovar_plano(job_id, por=(request.form.get('por') or APP_USUARIO).strip()[:60],
                          observacao=(request.form.get('observacao') or '').strip()[:400],
                          aprovar=not desfazer)

@@ -189,6 +189,16 @@ def criar_tabelas() -> None:
                 aprov_antes  REAL,
                 aprov_depois REAL
             );
+            -- Peças que o operador põe JUNTAS no mesmo padrão (par ordenado
+            -- cod_a < cod_b). É o que o otimizador usa para formar as famílias:
+            -- vem dos planos aprovados e dos planos de referência do operador.
+            CREATE TABLE IF NOT EXISTS combinacao (
+                cod_a   TEXT NOT NULL,
+                cod_b   TEXT NOT NULL,
+                vezes   INTEGER NOT NULL DEFAULT 0,
+                ultima  TEXT,
+                PRIMARY KEY (cod_a, cod_b)
+            );
             CREATE INDEX IF NOT EXISTS ix_edicao_cor ON edicao_log(cor, peca_cod);
             CREATE INDEX IF NOT EXISTS ix_mp_modelo ON modelo_peca(modelo_cod);
             CREATE INDEX IF NOT EXISTS ix_mp_peca   ON modelo_peca(peca_cod);
@@ -1192,6 +1202,44 @@ def regras_para_cor(cor: str, minimo: int = 2) -> list[dict]:
 def codigos_aprendidos(minimo: int = 2) -> set[str]:
     """Códigos de peça com regra ativa em qualquer cor - o plano manual não tem cor."""
     return {r['peca_cod'] for r in regras_aprendidas(minimo)}
+
+
+def registrar_combinacoes(pares: list[tuple[str, str]]) -> None:
+    """Soma 1 a cada par de peças que apareceu junto num padrão (A,B ou B,A é o mesmo par)."""
+    criar_tabelas()
+    agora = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    with conectar() as con:
+        for a, b in pares:
+            a, b = sorted((str(a), str(b)))
+            if a == b:
+                continue
+            con.execute(
+                'INSERT INTO combinacao (cod_a, cod_b, vezes, ultima) VALUES (?,?,1,?) '
+                'ON CONFLICT(cod_a, cod_b) DO UPDATE SET vezes = vezes + 1, ultima = excluded.ultima',
+                (a, b, agora))
+
+
+def combinacoes() -> dict[str, dict[str, int]]:
+    """Mapa simétrico {cod: {cod_parceiro: vezes}} com tudo que já andou junto."""
+    criar_tabelas()
+    mapa: dict[str, dict[str, int]] = {}
+    with conectar() as con:
+        for r in con.execute('SELECT cod_a, cod_b, vezes FROM combinacao'):
+            mapa.setdefault(r['cod_a'], {})[r['cod_b']] = r['vezes']
+            mapa.setdefault(r['cod_b'], {})[r['cod_a']] = r['vezes']
+    return mapa
+
+
+def marcar_uma_vez(chave: str) -> bool:
+    """
+    True na PRIMEIRA vez que `chave` é marcada, False nas seguintes. É o que
+    impede o aprendizado de contar o mesmo plano (ou a mesma semente) duas
+    vezes - por exemplo aprovar, desfazer e aprovar de novo.
+    """
+    criar_tabelas()
+    with conectar() as con:
+        return con.execute("INSERT OR IGNORE INTO parametro (chave, valor) VALUES (?, '1')",
+                            (f'aprendido:{chave}',)).rowcount > 0
 
 
 def historico_edicoes(limite: int = 100) -> list[dict]:

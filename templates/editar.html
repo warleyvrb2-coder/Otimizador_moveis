@@ -3,7 +3,7 @@
 {% block cabecalho %}Padrão {{ padrao.n }} · {{ grupo.cor }}{% endblock %}
 {% block subcabecalho %}
   <span id="cab-info">{{ padrao.repeticoes }} chapas ·
-  {{ '%.1f'|format(padrao.aproveitamento) }}% de aproveitamento ·
+  {{ padrao.aproveitamento|pct }}% de aproveitamento ·
   {{ estagios_atuais if estagios_atuais < 99 else '—' }} estágios</span>
 {% endblock %}
 {% block acoes %}<a href="/resultado/{{ plano.id }}" class="btn secundario">← Voltar ao plano</a>{% endblock %}
@@ -205,7 +205,7 @@ async function carregar() {
   dados = await (await fetch(BASE + '/dados')).json();
   desenhar();
   document.getElementById('cab-info').textContent =
-    `${dados.repeticoes} chapas · ${dados.aproveitamento.toFixed(1)}% de aproveitamento · ` +
+    `${dados.repeticoes} chapas · ${dados.aproveitamento.toFixed(1).replace('.', ',')}% de aproveitamento · ` +
     `${dados.estagios_atuais < 99 ? dados.estagios_atuais : '—'} estágios`;
 }
 

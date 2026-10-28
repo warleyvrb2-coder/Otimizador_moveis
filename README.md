@@ -133,19 +133,28 @@ clique em "Otimizar corte".
   - `_refine_last_sheet_cpsat` — solver CP-SAT de 1 chapa (modelo de
     faixas), usado tanto pro refino exato quanto como "pricing" do
     column generation.
-- `column_generation.py` — **motor principal**, resolve o lote inteiro
-  via Column Generation (o método clássico de cutting stock):
-  1. Gera um conjunto inicial de padrões testando faixas, colunas e a
-     divisão em 2 colunas pra cada um, ficando com o de maior
-     aproveitamento (pra já começar com uma solução viável e prática).
-  2. Resolve o LP relaxado (GLOP) — minimiza nº de chapas.
-  3. Usa os preços-sombra (dual) do LP pra gerar, via **CP-SAT**, o
-     próximo padrão que mais vale a pena adicionar (pricing exato).
-  4. Repete até não achar mais padrão que melhore.
-  5. Arredonda pra número inteiro de chapas por padrão (CP-SAT).
-
-  Tempo de cálculo por grupo configurável por máquina (padrão 45s - mais
-  tempo chega mais perto do ótimo, com retorno decrescente).
+- `sequencial.py` + `familias.py` — **motor principal** ("maiores primeiro, por
+  família"; regras na seção abaixo):
+  1. a peça pendente mais comprida é a **âncora**;
+  2. `familias.formar_familia` junta a ela as peças de quantidade
+     proporcional (mdc das quantidades → "kit"; ex.: 1.160/928/232 = 5:4:1),
+     uma de cada vez, só se isso aumentar o aproveitamento das chapas da
+     família (proporção máxima de 12 peças por kit);
+  3. o padrão da família leva `kit × c` peças, com `c` o maior nº de kits que
+     cabe numa chapa, e repete até a família acabar (última chapa com o resto);
+  4. as sobras recebem as peças menores, da mais comprida para a mais curta,
+     no máximo `pendente ÷ repetições` de cada, para nunca passar do pedido;
+  5. roda com as 3 estratégias de empacotamento e fica com a de menos chapas.
+- `column_generation.py` — Column Generation (o método clássico de cutting
+  stock). Não é mais o motor do cálculo: sobrou no reequilíbrio do plano
+  editado. Gera padrões iniciais por faixas/colunas, resolve o LP (GLOP),
+  usa os preços-sombra para gerar padrões novos via CP-SAT (pricing exato) e
+  arredonda para inteiros.
+- `aprendizado.py` — combinações que o operador põe juntas (tabela
+  `combinacao`): lê os planos de `referencia_operador/` uma vez e soma todo
+  plano aprovado (uma vez por plano). Só muda a ordem e a tolerância da
+  formação de famílias.
+- `regua_operador.py` — o teste de aceite: `python regua_operador.py`.
 - `edicao.py` — edição manual de um padrão: onde uma peça cabe numa
   sobra, se o layout resultante ainda é guilhotinável, sequência de
   cortes pro operador digitar na máquina.
@@ -153,45 +162,46 @@ clique em "Otimizar corte".
   monta o PDF do plano, uma página por padrão.
 - `app.py` — Flask: upload, orquestração, cadastros, edição, aprovação.
 
-## Regras de otimização (em redefinição — Fase 1, aguardando aprovação)
+## Regras de otimização (aprovadas em 28/10/2026)
 
 Nascem dos 20 planos que o operador montou à mão e validou
 (`referencia_operador/`). Nesses planos: 1 padrão por plano, 1 a 3 tipos de
 peça de catálogo, total = por chapa × nº de chapas (sem peça a mais), e
-tiras avulsas nas sobras. Em 16 deles os dois motores atuais já dão o mesmo
-nº de chapas do operador (`python regua_operador.py`): o que falta não é
-geometria, é **separar o pedido em famílias antes de otimizar**.
+tiras avulsas nas sobras. O que importa não é a geometria, é **separar o
+pedido em famílias antes de otimizar**.
 
 1. **Pedido.** O Kambam, por cor e espessura. O motor produz exatamente o
    pedido: nada a mais por causa do empacotamento (a última chapa de uma peça
    sai parcial, completada com menores).
 2. **Família.** Peças que andam juntas: quantidades proporcionais (ex.: 1.160,
-   928 e 232 = 5 : 4 : 1), vindas do mesmo móvel. Formadas **automaticamente**,
-   sem cadastro novo, pela proporção das quantidades do Kambam e pelo que o
-   sistema aprendeu; o vínculo móvel × peça só ajuda quando existir. Uma
-   família vira um padrão repetido N chapas (por chapa = proporção × m).
+   928 e 232 = 5 : 4 : 1). Formadas **automaticamente**, sem cadastro novo,
+   pela proporção das quantidades do Kambam e pelo que o sistema aprendeu.
+   Uma família vira um padrão repetido N chapas (por chapa = proporção × m).
 3. **Ordem.** Famílias da peça mais comprida para a mais curta; dentro do
    padrão, maiores primeiro e as menores completam as sobras.
 4. **Peça junta.** Um código fica no mesmo padrão. Só divide quando a
    quantidade não fecha chapa cheia.
-5. **Sobra do pedido.** O que não casa com nenhuma família vai para um plano
-   residual (motor sequencial atual).
+5. **Peça isolada.** O que não casa com nenhuma família vira família de uma
+   peça só (o mesmo que o motor "maiores primeiro" de antes).
 6. **Corte.** Guilhotina com os estágios da máquina, veio respeitado, serra
    descontada, orientação fixa do cadastro, dimensão de chapa escolhida no
    plano.
-7. **Tiras avulsas.** O sistema coloca sozinho nas sobras estreitas (como
-   100×1860, 2750×128). O plano mostra **dois** aproveitamentos: total e só
-   das peças do pedido.
+7. **Tiras avulsas.** O sistema coloca sozinho nas sobras estreitas (lado
+   menor de 80 a 250 mm, lado maior a partir de 400 mm — `TIRA_*` em
+   `edicao.py`), como 100×1860 ou 2750×128. Elas não contam como pedido (nem
+   como excedente). O plano mostra **dois** aproveitamentos: total (com as
+   tiras) e "só do pedido".
 8. **Peças sem código** (ex.: 522×1775): continuam digitadas à mão como
    avulsas no plano manual; não entram na leitura automática.
-9. **Aprendizado.** Decisão de 28/10: manter a sugestão automática. *A
-   confirmar:* ela acrescenta peças que não estavam no pedido; propõe-se
-   marcá-las sempre como "extra" e mantê-las fora da conta do pedido, para a
-   regra 1 continuar valendo. Alternativa: aprender só combinações e usar
-   apenas peça pendente do pedido (sem extra).
-10. **Aceite (Fase 6).** `regua_operador.py`: nº de chapas ≤ o do operador nos
-    16 planos comparáveis; nenhum plano com falta contra o pedido; todo padrão
-    cortável em guilhotina; lotes 1456 e 1458 sem peça dividida à toa.
+9. **Aprendizado (decisão A, 28/10).** Duas camadas: (a) combinações — peças
+   que o operador já juntou entram na família com prioridade e com tolerância
+   de 1 p.p.; (b) a sugestão automática de peças a mais continua, sempre
+   marcada como "sugestão automática", fora da conta do pedido e do
+   "só do pedido".
+10. **Aceite.** `python regua_operador.py`: nº de chapas ≤ o do operador nos
+    16 planos comparáveis; pedido fechado exato (sem falta nem excesso); mais
+    o teste de mistura (todos os planos num pedido só, até 2% de chapas a
+    mais); todo padrão cortável em guilhotina.
 
 ## Ajustar
 

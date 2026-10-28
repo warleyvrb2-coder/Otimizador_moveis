@@ -90,7 +90,7 @@ def _capa(pdf, r: dict, plano: dict) -> None:
         _texto(fig, 0.52, y, str(g['n_chapas']), 9.5, TINTA, 'bold')
         _texto(fig, 0.64, y, str(g['n_padroes']), 9.5)
         _texto(fig, 0.75, y, str(g['ciclos_total']), 9.5)
-        _texto(fig, 0.86, y, f"{g['aproveitamento_medio']:.1f}%", 9.5)
+        _texto(fig, 0.86, y, f"{_pct(g['aproveitamento_medio'])}%", 9.5)
         y -= 0.021
         if y < 0.2:
             break
@@ -115,11 +115,25 @@ def _capa(pdf, r: dict, plano: dict) -> None:
     plt.close(fig)
 
 
+def _pct(valor: float) -> str:
+    """88.24 -> "88,2": uma casa e vírgula decimal, como na tela."""
+    return f"{valor:.1f}".replace('.', ',')
+
+
+def _so_pedido(p: dict) -> str:
+    """" (X% só do pedido)" quando as tiras avulsas ou sugestões mudam o número; senão vazio."""
+    pedido = p.get('aproveitamento_pedido')
+    if pedido is None or p['aproveitamento'] - pedido < 0.05:
+        return ''
+    return f" ({_pct(pedido)}% só do pedido)"
+
+
 def _pagina_padrao(pdf, r: dict, g: dict, p: dict, imagem_dir: str) -> None:
     fig = plt.figure(figsize=A4)
 
     _texto(fig, MARGEM, 0.965, f"{g['cor']} · {g['esp']:.0f}mm", 11, CINZA, 'bold')
-    _texto(fig, MARGEM, 0.945, f"PADRÃO {p['n']}", 19, TINTA, 'bold')
+    familia = f"  ·  FAMÍLIA {p['familia']}" if p.get('familia') else ''
+    _texto(fig, MARGEM, 0.945, f"PADRÃO {p['n']}{familia}", 19, TINTA, 'bold')
     _texto(fig, 1 - MARGEM, 0.945, f"CORTAR {p['repeticoes']} CHAPA"
                                     f"{'S' if p['repeticoes'] > 1 else ''}",
            17, VERDE, 'bold', ha='right')
@@ -130,7 +144,8 @@ def _pagina_padrao(pdf, r: dict, g: dict, p: dict, imagem_dir: str) -> None:
         texto_ciclos = (f"{cheios} ciclo{'s' if cheios > 1 else ''} de {p['pilha']} + 1 de {resto}"
                          f"  ({p['pilha']}×{cheios}+{resto}={p['repeticoes']})")
     _texto(fig, 1 - MARGEM, 0.917,
-           f"{texto_ciclos}  ·  {p['aproveitamento']:.1f}% de aproveitamento", 8.5, CINZA, ha='right')
+           f"{texto_ciclos}  ·  {_pct(p['aproveitamento'])}% de aproveitamento{_so_pedido(p)}",
+           8.5, CINZA, ha='right')
 
     marcas = []
     if p.get('editado'):
@@ -159,7 +174,8 @@ def _pagina_padrao(pdf, r: dict, g: dict, p: dict, imagem_dir: str) -> None:
             _texto(fig, MARGEM, y, '... continua', 8.5, CINZA)
             break
         _texto(fig, MARGEM, y, str(pc['cod']), 9.5, TINTA, 'bold')
-        _texto(fig, MARGEM + 0.058, y, pc['desc'][:20], 7.5, CINZA)
+        if not pc.get('tira'):  # o código da tira já é a medida: a descrição só atropelaria
+            _texto(fig, MARGEM + 0.058, y, pc['desc'][:20], 7.5, CINZA)
         _texto(fig, 0.30, y, pc['medida'], 8.5)
         _texto(fig, 0.44, y, str(pc['por_chapa']), 9.5, TINTA, 'bold')
         _texto(fig, 0.50, y, str(pc['total']), 9)

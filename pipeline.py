@@ -10,7 +10,9 @@ sem subir servidor.
 import os
 from collections import defaultdict
 
+import aprendizado
 import banco
+import edicao
 from parser import parse_kambam, parse_itens, file_hash
 from optimizer import PieceType
 from sequencial import optimize_group_sequencial
@@ -224,6 +226,60 @@ def aplicar_aprendizado(grupos_resultado: list, par: dict) -> list[dict]:
     return aplicadas
 
 
+def colocar_tiras(grupos_resultado: list, par: dict) -> None:
+    """
+    Põe as tiras avulsas nas sobras estreitas de cada padrão e refaz os
+    aproveitamentos.
+
+    Roda DEPOIS do aprendizado de propósito: a peça sugerida tem prioridade
+    sobre a tira no mesmo espaço. O aproveitamento do plano passa a ter dois
+    números: `aproveitamento` (chapa inteira, tiras incluídas - o que o
+    operador costuma citar) e `aproveitamento_pedido` (só as peças do pedido).
+    """
+    area_chapa = (par['chapa_larg'] / 1000) * (par['chapa_alt'] / 1000)
+    for g in grupos_resultado:
+        usada_total = usada_pedido = 0.0
+        for pad in g['padroes']:
+            novas = edicao.tiras_avulsas(pad['itens'], par['chapa_larg'], par['chapa_alt'],
+                                          par['kerf'], par['estagios'])
+            pad['itens'] += novas
+            por_medida: dict = {}
+            for t in novas:
+                por_medida[t['cod']] = por_medida.get(t['cod'], 0) + 1
+            for cod, qtd in por_medida.items():
+                pad['pecas'].append({'cod': cod, 'desc': 'Peça avulsa (tira)', 'medida': cod,
+                                      'por_chapa': qtd, 'total': qtd * pad['repeticoes'],
+                                      'lotes': {}, 'tira': True})
+            usada = sum(i['w'] * i['h'] for i in pad['itens']) / 1_000_000
+            pedido = sum(i['w'] * i['h'] for i in pad['itens']
+                          if not i['piece_key'].endswith(('_tira', '_sugerido'))) / 1_000_000
+            pad['aproveitamento'] = 100 * usada / area_chapa
+            pad['aproveitamento_pedido'] = 100 * pedido / area_chapa
+            usada_total += usada * pad['repeticoes']
+            usada_pedido += pedido * pad['repeticoes']
+        chapas = g['n_chapas']
+        g['aproveitamento_medio'] = 100 * usada_total / (chapas * area_chapa) if chapas else 0
+        g['aproveitamento_pedido'] = 100 * usada_pedido / (chapas * area_chapa) if chapas else 0
+
+
+def desenhar_padroes(grupos_resultado: list, par: dict, run_dir: str) -> None:
+    """
+    Gera o PNG de cada padrão a partir da geometria FINAL (com sugestões e
+    tiras). Antes o desenho saía antes do aprendizado e a tela mostrava uma
+    chapa diferente da que ia no PDF.
+    """
+    from types import SimpleNamespace
+    for g in grupos_resultado:
+        for pad in g['padroes']:
+            chapa = SimpleNamespace(items=[SimpleNamespace(**i) for i in pad['itens']],
+                                     repeticoes=pad['repeticoes'],
+                                     aproveitamento=pad['aproveitamento'])
+            render_sheet(chapa, par['chapa_larg'], par['chapa_alt'],
+                         os.path.join(run_dir, pad['arquivo'].rsplit('/', 1)[-1]),
+                         titulo=f"{g['cor']} · {g['esp']:.0f}mm · Padrão {pad['n']}",
+                         veio=g['tem_veio'])
+
+
 def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
           respeitar_veio: bool = True, max_depth: int | None = None,
           maquina_id=None, progresso=None, dimensao_id=None) -> dict:
@@ -251,6 +307,8 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
     # automático, peça já conferida por você não é mexida.
     banco.criar_tabelas()
     importado = banco.importar(todas_pecas)
+    aprendizado.semear_do_operador()
+    combinacoes = banco.combinacoes()
 
     grupos = agrupar(todas_pecas, respeitar_veio)
     ordem_lotes = [k['arquivo'] for k in kambans_info if not k.get('duplicado_de')]
@@ -266,6 +324,7 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         sheets, sobras, padroes = optimize_group_sequencial(
             [PieceType(**{**t.__dict__}) for t in tipos],
             largura, altura, kerf=par['kerf'], estagios=par['estagios'],
+            combinacoes=combinacoes,
         )
 
         rateio = ratear_por_lote(padroes, tipos_dict, ordem_lotes)
@@ -274,11 +333,9 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         blocos = []
         for i, pat in enumerate(padroes, start=1):
             img_name = f'{cor}_{int(esp)}mm_padrao{i}.png'.replace(' ', '_').replace('/', '-')
-            render_sheet(pat, largura, altura, os.path.join(run_dir, img_name),
-                         titulo=f'{cor} · {esp:.0f}mm · Padrão {i}',
-                         veio=tem_veio(cor, respeitar_veio))
             blocos.append({
                 'n': i,
+                'familia': getattr(pat, 'familia', None),
                 # A geometria vai junto: sem as coordenadas o plano salvo não
                 # tem o que editar depois, e o desenho seria a única fonte —
                 # imagem não dá pra validar nem recalcular.
@@ -289,6 +346,7 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
                 'arquivo': f'{url_prefixo}/{img_name}',
                 'repeticoes': pat.repeticoes,
                 'aproveitamento': pat.aproveitamento,
+                'aproveitamento_pedido': pat.aproveitamento,
                 'ciclos': -(-pat.repeticoes // por_chapa),  # arredonda pra cima
                 'pilha': por_chapa,
                 'pecas': [
@@ -313,6 +371,8 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
             'ciclos_total': sum(b['ciclos'] for b in blocos),
             'aproveitamento_medio': (100 * sum(s.used_area for s in sheets)
                                       / (n_chapas * area_chapa) if n_chapas else 0),
+            'aproveitamento_pedido': (100 * sum(s.used_area for s in sheets)
+                                       / (n_chapas * area_chapa) if n_chapas else 0),
             'padroes': blocos,
             'sobras': [{'cod': s.cod, 'desc': s.desc, 'medida': f'{s.w}x{s.h}',
                         'qtd': s.qty_total} for s in sobras],
@@ -320,6 +380,10 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
 
     aviso(total, total, 'Aplicando o que o sistema aprendeu...')
     sugestoes = aplicar_aprendizado(grupos_resultado, par)
+
+    aviso(total, total, 'Aproveitando as tiras das sobras...')
+    colocar_tiras(grupos_resultado, par)
+    desenhar_padroes(grupos_resultado, par, run_dir)
 
     aviso(total, total, 'Montando o plano...')
     grupos_resultado.sort(key=lambda g: -g['qtd_total_pecas'])

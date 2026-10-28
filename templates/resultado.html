@@ -233,7 +233,11 @@
     <h2>{{ g.cor }} · {{ '%.0f'|format(g.esp) }}mm</h2>
     <span class="etiqueta ok">{{ g.n_chapas }} chapas</span>
     <span class="etiqueta {{ 'perigo' if g.aproveitamento_medio < 75 }}">
-      {{ '%.1f'|format(g.aproveitamento_medio) }}% aproveitamento</span>
+      {{ g.aproveitamento_medio|pct }}% aproveitamento</span>
+    {% if g.aproveitamento_pedido is defined and g.aproveitamento_medio - g.aproveitamento_pedido >= 0.05 %}
+    <span class="etiqueta" title="Só as peças do pedido: sem as tiras avulsas nem as sugestões automáticas">
+      {{ g.aproveitamento_pedido|pct }}% só do pedido</span>
+    {% endif %}
     <span class="etiqueta">{{ g.n_padroes }} padrões</span>
     <span class="etiqueta">{{ g.ciclos_total }} ciclos</span>
     <span class="etiqueta" title="O que os Kambans pediram neste material">
@@ -351,6 +355,7 @@
   <div class="padrao">
     <div class="padrao-topo">
       <span class="n">Padrão {{ p.n }}</span>
+      {% if p.familia %}<span class="etiqueta">Família {{ p.familia }}</span>{% endif %}
       <span class="repetir">cortar {{ p.repeticoes }} chapa{{ 's' if p.repeticoes > 1 }}</span>
       {% set cheios = p.repeticoes // p.pilha %}
       {% set resto = p.repeticoes % p.pilha %}
@@ -361,7 +366,10 @@
           {{ cheios }} ciclo{{ 's' if cheios > 1 }} de {{ p.pilha }} + 1 de {{ resto }}
           ({{ p.pilha }}×{{ cheios }}+{{ resto }}={{ p.repeticoes }})
         {% endif %}
-        · {{ '%.1f'|format(p.aproveitamento) }}% de aproveitamento
+        · {{ p.aproveitamento|pct }}% de aproveitamento
+        {% if p.aproveitamento_pedido is defined and p.aproveitamento - p.aproveitamento_pedido >= 0.05 %}
+        ({{ p.aproveitamento_pedido|pct }}% só do pedido)
+        {% endif %}
       </span>
       {% if p.editado %}<span class="etiqueta atencao">editado à mão</span>{% endif %}
       {% if p.sugerido %}<span class="etiqueta atencao">🧠 sugestão automática</span>{% endif %}
