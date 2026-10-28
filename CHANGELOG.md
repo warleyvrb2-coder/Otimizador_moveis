@@ -4,6 +4,34 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-10-27 (4) — Otimização "maiores primeiro": a peça mais comprida fecha na mesma chapa
+
+No servidor a 12046 (1290×855) saía em dois jeitos: 39 chapas com 4 peças e
+73 chapas com 2 peças misturadas com 8903, 12054 e 12056. O Column Generation
+só minimiza o total de chapas e espalha o mesmo código por vários padrões.
+Novo módulo `sequencial.py` (usado por `pipeline.rodar` no lugar do CG):
+
+1. a peça pendente de MAIOR comprimento (desempate: área, código) define o
+   padrão - a chapa sai cheia dela e a demanda inteira fica em sequência;
+2. as sobras da chapa recebem as peças menores, da mais comprida para a mais
+   curta, em blocos (colunas × linhas) que só ficam se o padrão continuar
+   cortável em guilhotina com os estágios da máquina (`edicao.validar_padrao`);
+3. o mesmo padrão repete enquanto houver demanda para tudo que ele leva; a
+   peça seguinte só começa quando a anterior acaba - o resto da última chapa
+   da peça (ex.: 2 de 330) já vem completado com as menores;
+4. roda com as 3 estratégias de empacotamento e fica com a de menos chapas.
+
+O empacotador fechava faixa inteira e passava do teto pedido (2 pendentes
+viravam 4); `_cortar_excesso` tira o excesso e o espaço volta como sobra.
+
+Lote 1456 sem aprendizado: 12046 sai em 82 chapas de 4 + 1 chapa de 2
+completada. Comparado ao CG (20s por grupo): 1456 408 x 397 chapas, 1458 536 x
+538, ATLANTA 1.378 x 1.430, SIENA 1.610 x 1.587; aproveitamento 86,4% x 89,3%
+no 1456. Todos os padrões válidos na guilhotina e nenhuma falta contra o
+pedido. "Tempo de cálculo por grupo" da máquina deixou de ter efeito: o
+método sequencial calcula em segundos. O CG continua no código (o
+reequilíbrio do plano usa o fechamento inteiro dele).
+
 ## 2026-10-27 (3) — Peças que sumiam do Kambam, filtro travando e maiores primeiro entre os padrões
 
 **1) 8900 e 8903 (e mais uma) fora do plano do lote 1456.** O relatório deixa

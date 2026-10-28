@@ -13,7 +13,7 @@ from collections import defaultdict
 import banco
 from parser import parse_kambam, parse_itens, file_hash
 from optimizer import PieceType
-from column_generation import optimize_group_cg
+from sequencial import optimize_group_sequencial
 from visualize import render_sheet
 
 def parametros(maquina_id=None, dimensao_id=None) -> dict:
@@ -261,10 +261,11 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
     for n, ((cor, esp), tipos_dict) in enumerate(grupos.items(), start=1):
         aviso(n - 1, total, f'Otimizando {cor} {esp:.0f}mm ({n} de {total})...')
         tipos = list(tipos_dict.values())
-        sheets, sobras, padroes = optimize_group_cg(
+        # "Maiores primeiro": a peça mais comprida define o padrão, a demanda
+        # dela fica junta, e as menores completam os espaços (sequencial.py).
+        sheets, sobras, padroes = optimize_group_sequencial(
             [PieceType(**{**t.__dict__}) for t in tipos],
-            largura, altura, time_budget_s=par['tempo_grupo'], max_depth=max_depth,
-            kerf=par['kerf'], estagios=par['estagios'],
+            largura, altura, kerf=par['kerf'], estagios=par['estagios'],
         )
 
         rateio = ratear_por_lote(padroes, tipos_dict, ordem_lotes)
