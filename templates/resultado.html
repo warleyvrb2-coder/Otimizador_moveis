@@ -232,11 +232,12 @@
   <div class="cabeca-grupo">
     <h2>{{ g.cor }} · {{ '%.0f'|format(g.esp) }}mm</h2>
     <span class="etiqueta ok">{{ g.n_chapas }} chapas</span>
-    <span class="etiqueta {{ 'perigo' if g.aproveitamento_medio < 75 }}">
-      {{ g.aproveitamento_medio|pct }}% aproveitamento</span>
-    {% if g.aproveitamento_pedido is defined and g.aproveitamento_medio - g.aproveitamento_pedido >= 0.05 %}
-    <span class="etiqueta" title="Só as peças do pedido: sem as tiras avulsas nem as sugestões automáticas">
-      {{ g.aproveitamento_pedido|pct }}% só do pedido</span>
+    {% set ap_pedido = g.aproveitamento_pedido if g.aproveitamento_pedido is defined else g.aproveitamento_medio %}
+    <span class="etiqueta {{ 'perigo' if ap_pedido < 75 }}">
+      {{ ap_pedido|pct }}% aproveitamento</span>
+    {% if g.aproveitamento_medio - ap_pedido >= 0.05 %}
+    <span class="etiqueta" title="Com as tiras avulsas e as sugestões automáticas">
+      {{ g.aproveitamento_medio|pct }}% com tiras</span>
     {% endif %}
     <span class="etiqueta">{{ g.n_padroes }} padrões</span>
     <span class="etiqueta">{{ g.ciclos_total }} ciclos</span>
@@ -366,10 +367,9 @@
           {{ cheios }} ciclo{{ 's' if cheios > 1 }} de {{ p.pilha }} + 1 de {{ resto }}
           ({{ p.pilha }}×{{ cheios }}+{{ resto }}={{ p.repeticoes }})
         {% endif %}
-        · {{ p.aproveitamento|pct }}% de aproveitamento
-        {% if p.aproveitamento_pedido is defined and p.aproveitamento - p.aproveitamento_pedido >= 0.05 %}
-        ({{ p.aproveitamento_pedido|pct }}% só do pedido)
-        {% endif %}
+        {% set pp = p.aproveitamento_pedido if p.aproveitamento_pedido is defined else p.aproveitamento %}
+        · {{ pp|pct }}% de aproveitamento
+        {% if p.aproveitamento - pp >= 0.05 %}({{ p.aproveitamento|pct }}% com tiras){% endif %}
       </span>
       {% if p.editado %}<span class="etiqueta atencao">editado à mão</span>{% endif %}
       {% if p.sugerido %}<span class="etiqueta atencao">🧠 sugestão automática</span>{% endif %}

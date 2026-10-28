@@ -136,14 +136,15 @@ clique em "Otimizar corte".
 - `sequencial.py` + `familias.py` — **motor principal** ("maiores primeiro, por
   família"; regras na seção abaixo), em duas fases:
   1. **Chapas cheias.** A âncora é a peça pendente mais comprida que fecha ao
-     menos uma chapa cheia. `familias.formar_familia` junta a ela até 2 peças de
+     menos uma chapa cheia. `familias.formar_familia` junta a ela até 3 peças de
      quantidade proporcional (mdc → "kit"; ex.: 1.160/928/232 = 5:4:1), só se
      a chapa cheia ficar melhor. O padrão leva `kit × c` peças e repete até
-     acabarem as chapas cheias da família. As sobras só recebem peças PEQUENAS
-     (que nunca fechariam chapa cheia), no máximo `pendente ÷ repetições`.
+     acabarem as chapas cheias da família. As sobras recebem as peças menores, no
+     máximo `pendente ÷ repetições` de cada (`SO_PEQUENAS` restringe a peças
+     que nunca fechariam chapa cheia).
   2. **Resto.** O que sobrou de cada família e as peças pequenas são reunidos
-     no fim, no máximo 3 tipos por chapa e cada tipo INTEIRO numa chapa só.
-  Em qualquer fase: no máximo 3 tipos de peça por chapa (`MAX_TIPOS`) e
+     no fim, no máximo 4 tipos por chapa e cada tipo INTEIRO numa chapa só.
+  Em qualquer fase: no máximo 4 tipos de peça por chapa (`MAX_TIPOS`) e
   roda com as 3 estratégias de empacotamento, ficando com a de menos chapas.
 - `column_generation.py` — Column Generation (o método clássico de cutting
   stock). Não é mais o motor do cálculo: sobrou no reequilíbrio do plano
@@ -180,10 +181,9 @@ pedido em famílias antes de otimizar**.
 3. **Ordem.** Famílias da peça mais comprida para a mais curta; dentro do
    padrão, maiores primeiro e as menores completam as sobras.
 4. **Chapa cheia primeiro (28/10).** Cada tipo, ou família, enche chapas só
-   dele; o que sobra é reunido no fim. **No máximo 3 tipos de peça por chapa**
-   (como nos planos do operador) e peça que ainda fecharia chapa cheia não é
-   consumida aos pedaços como enchimento (`SO_PEQUENAS` em `sequencial.py`).
-   Prioridade é cortar fácil, não economizar chapa.
+   dele; o que sobra é reunido no fim. **No máximo 4 tipos de peça por chapa**
+   (`MAX_TIPOS` em `familias.py`; os planos do operador têm até 3). O número
+   grande de aproveitamento é o do **pedido**; "com tiras" vem ao lado.
 5. **Peça isolada.** O que não casa com nenhuma família vira família de uma
    peça só (o mesmo que o motor "maiores primeiro" de antes).
 6. **Corte.** Guilhotina com os estágios da máquina, veio respeitado, serra
@@ -192,18 +192,18 @@ pedido em famílias antes de otimizar**.
 7. **Tiras avulsas.** O sistema coloca sozinho nas sobras estreitas (lado
    menor de 80 a 250 mm, lado maior a partir de 400 mm — `TIRA_*` em
    `edicao.py`), como 100×1860 ou 2750×128. Elas não contam como pedido (nem
-   como excedente). O plano mostra **dois** aproveitamentos: total (com as
-   tiras) e "só do pedido".
+   como excedente). O plano mostra **dois** aproveitamentos: o do pedido (em
+   destaque) e o total "com tiras".
 8. **Peças sem código** (ex.: 522×1775): continuam digitadas à mão como
    avulsas no plano manual; não entram na leitura automática.
 9. **Aprendizado (decisão A, 28/10).** Duas camadas: (a) combinações — peças
    que o operador já juntou entram na família com prioridade e com tolerância
    de 1 p.p.; (b) a sugestão automática de peças a mais continua, sempre
-   marcada como "sugestão automática", fora da conta do pedido e do
-   "só do pedido".
+   marcada como "sugestão automática", fora da conta do pedido, e só em chapa
+   que já tem pelo menos 50% de pedido (`MIN_PEDIDO_SUGESTAO` em `pipeline.py`).
 10. **Aceite.** `python regua_operador.py`: nº de chapas ≤ o do operador nos
     16 planos comparáveis; pedido fechado exato (sem falta nem excesso); nenhum
-    padrão com mais de 3 tipos; mais o teste de mistura (todos os planos num
+    padrão com mais de 4 tipos; mais o teste de mistura (todos os planos num
     pedido só, até 25% de chapas a mais); todo padrão cortável em guilhotina.
 
 ## Ajustar

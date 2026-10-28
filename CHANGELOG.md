@@ -4,6 +4,24 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-10-28 (3) — Ajuste do equilíbrio: 4 tipos, enchimento livre e aproveitamento do pedido
+
+O lote 1456 sozinho saiu com 427 chapas (primeira entrega: 411). Medido regra a
+regra: chapa cheia primeiro quase não custa (413); o que pesava era "só peça
+pequena enche sobra" (a 9195/9192 não podiam ocupar a coluna livre de 674 mm da
+8896) e o teto de 3 tipos. Escolhido pelo usuário: 4 tipos + enchimento livre.
+
+- `familias.MAX_TIPOS = 4`, `sequencial.SO_PEQUENAS = False`. Lote 1456: 414
+  chapas, 4 de 18 tipos em mais de 2 padrões (3 tipos + enchimento livre: 421;
+  3 tipos + só peça pequena: 427). Mistura dos planos do operador: 2.221 contra
+  2.207 (+0,6%).
+- **Aproveitamento em destaque = só do pedido** (sem tiras avulsas nem
+  sugestões); o total aparece ao lado como "com tiras". O total de 90,7% do plano
+  que parecia melhor incluía as tiras (pedido: 83,6%). Tela e PDF.
+- **Sugestão do aprendizado só em chapa com pelo menos 50% de pedido**
+  (`pipeline.MIN_PEDIDO_SUGESTAO`): o Padrão 9 do FF 2 era uma chapa de 6 peças
+  (10% de pedido) que o aprendizado enchia com 2 peças grandes extras.
+
 ## 2026-10-28 (2) — Chapa cheia primeiro e no máximo 3 tipos por chapa (fim dos mosaicos)
 
 Os prints do lote 1456 mostraram padrões de 6 tipos misturados em blocos

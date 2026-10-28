@@ -25,9 +25,10 @@ GANHO_MIN = 0.005   # a peça só entra na família se somar pelo menos 0,5 p.p.
 # parceiro que o operador já juntou antes entra mesmo perdendo até 1 p.p.: o
 # histórico dele vale mais que a conta de uma chapa só
 TOLERANCIA_APRENDIDA = 0.01
-# tipos de peça diferentes numa mesma chapa (família + enchimento): é o máximo
-# que aparece nos planos que o operador validou; acima disso vira mosaico
-MAX_TIPOS = 3
+# tipos de peça diferentes numa mesma chapa (família + enchimento). Os planos do
+# operador têm até 3; 4 foi o equilíbrio escolhido (3 custou ~7 chapas a mais
+# no lote 1456 e 6 deixava mosaico de 6 tipos): acima disso vira mosaico
+MAX_TIPOS = 4
 
 
 def cortar_excesso(pat: Pattern, chave: str, limite: int) -> Pattern:

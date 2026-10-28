@@ -26,9 +26,9 @@ from familias import formar_familia, maior_kit_por_chapa, preencher_sobras
 ESTRATEGIAS = ('area', 'width', 'height')
 # Enchimento das chapas cheias só com peça PEQUENA (a que nunca fecharia uma
 # chapa sozinha): o tipo grande não é consumido aos pedaços e enche chapa dele.
-# Custo medido nos lotes 1456+1458: ~15% mais chapas; com False o enchimento é
-# livre (900 chapas), mas 6 de 32 tipos se espalham em mais de 2 padrões.
-SO_PEQUENAS = True
+# Medido no lote 1456: True = 427 chapas e nenhum tipo espalhado; False = 414
+# chapas (com MAX_TIPOS 4) e 4 de 18 tipos em mais de 2 padrões. Escolhido False.
+SO_PEQUENAS = False
 
 
 def _ancora(chaves, piece_info: dict) -> str | None:

@@ -167,6 +167,12 @@ def agrupar(todas_pecas: list, respeitar_veio: bool) -> dict:
     return grupos
 
 
+# Sugestão do aprendizado só entra em chapa que já tem pedido de verdade: numa
+# chapa de resto quase vazia ela virava a maior parte da chapa (peça a mais só
+# para encher sobra)
+MIN_PEDIDO_SUGESTAO = 50.0
+
+
 def aplicar_aprendizado(grupos_resultado: list, par: dict) -> list[dict]:
     """
     Repete sozinho o que o operador faz sempre.
@@ -197,6 +203,8 @@ def aplicar_aprendizado(grupos_resultado: list, par: dict) -> list[dict]:
         # sobra de cada uma tinha um formato diferente.
         orientacao_travada: dict[str, bool] = {}
         for pad in g['padroes']:
+            if pad['aproveitamento_pedido'] < MIN_PEDIDO_SUGESTAO:
+                continue
             for regra in do_grupo:
                 p = pecas_cad.get(regra['peca_cod'])
                 if not p:

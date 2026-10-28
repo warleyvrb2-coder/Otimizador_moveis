@@ -90,7 +90,7 @@ def _capa(pdf, r: dict, plano: dict) -> None:
         _texto(fig, 0.52, y, str(g['n_chapas']), 9.5, TINTA, 'bold')
         _texto(fig, 0.64, y, str(g['n_padroes']), 9.5)
         _texto(fig, 0.75, y, str(g['ciclos_total']), 9.5)
-        _texto(fig, 0.86, y, f"{_pct(g['aproveitamento_medio'])}%", 9.5)
+        _texto(fig, 0.86, y, f"{_pct(g.get('aproveitamento_pedido', g['aproveitamento_medio']))}%", 9.5)
         y -= 0.021
         if y < 0.2:
             break
@@ -120,12 +120,17 @@ def _pct(valor: float) -> str:
     return f"{valor:.1f}".replace('.', ',')
 
 
-def _so_pedido(p: dict) -> str:
-    """" (X% só do pedido)" quando as tiras avulsas ou sugestões mudam o número; senão vazio."""
+def _com_tiras(p: dict) -> str:
+    """" (X% com tiras)" quando as tiras avulsas ou sugestões mudam o número; senão vazio."""
     pedido = p.get('aproveitamento_pedido')
     if pedido is None or p['aproveitamento'] - pedido < 0.05:
         return ''
-    return f" ({_pct(pedido)}% só do pedido)"
+    return f" ({_pct(p['aproveitamento'])}% com tiras)"
+
+
+def _aprov_pedido(p: dict) -> float:
+    """Aproveitamento do pedido (sem tiras); planos antigos só têm o total."""
+    return p.get('aproveitamento_pedido', p['aproveitamento'])
 
 
 def _pagina_padrao(pdf, r: dict, g: dict, p: dict, imagem_dir: str) -> None:
@@ -144,7 +149,7 @@ def _pagina_padrao(pdf, r: dict, g: dict, p: dict, imagem_dir: str) -> None:
         texto_ciclos = (f"{cheios} ciclo{'s' if cheios > 1 else ''} de {p['pilha']} + 1 de {resto}"
                          f"  ({p['pilha']}×{cheios}+{resto}={p['repeticoes']})")
     _texto(fig, 1 - MARGEM, 0.917,
-           f"{texto_ciclos}  ·  {_pct(p['aproveitamento'])}% de aproveitamento{_so_pedido(p)}",
+           f"{texto_ciclos}  ·  {_pct(_aprov_pedido(p))}% de aproveitamento{_com_tiras(p)}",
            8.5, CINZA, ha='right')
 
     marcas = []
