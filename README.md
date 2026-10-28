@@ -153,6 +153,46 @@ clique em "Otimizar corte".
   monta o PDF do plano, uma página por padrão.
 - `app.py` — Flask: upload, orquestração, cadastros, edição, aprovação.
 
+## Regras de otimização (em redefinição — Fase 1, aguardando aprovação)
+
+Nascem dos 20 planos que o operador montou à mão e validou
+(`referencia_operador/`). Nesses planos: 1 padrão por plano, 1 a 3 tipos de
+peça de catálogo, total = por chapa × nº de chapas (sem peça a mais), e
+tiras avulsas nas sobras. Em 16 deles os dois motores atuais já dão o mesmo
+nº de chapas do operador (`python regua_operador.py`): o que falta não é
+geometria, é **separar o pedido em famílias antes de otimizar**.
+
+1. **Pedido.** O Kambam, por cor e espessura. O motor produz exatamente o
+   pedido: nada a mais por causa do empacotamento (a última chapa de uma peça
+   sai parcial, completada com menores).
+2. **Família.** Peças que andam juntas: quantidades proporcionais (ex.: 1.160,
+   928 e 232 = 5 : 4 : 1), vindas do mesmo móvel. Formadas **automaticamente**,
+   sem cadastro novo, pela proporção das quantidades do Kambam e pelo que o
+   sistema aprendeu; o vínculo móvel × peça só ajuda quando existir. Uma
+   família vira um padrão repetido N chapas (por chapa = proporção × m).
+3. **Ordem.** Famílias da peça mais comprida para a mais curta; dentro do
+   padrão, maiores primeiro e as menores completam as sobras.
+4. **Peça junta.** Um código fica no mesmo padrão. Só divide quando a
+   quantidade não fecha chapa cheia.
+5. **Sobra do pedido.** O que não casa com nenhuma família vai para um plano
+   residual (motor sequencial atual).
+6. **Corte.** Guilhotina com os estágios da máquina, veio respeitado, serra
+   descontada, orientação fixa do cadastro, dimensão de chapa escolhida no
+   plano.
+7. **Tiras avulsas.** O sistema coloca sozinho nas sobras estreitas (como
+   100×1860, 2750×128). O plano mostra **dois** aproveitamentos: total e só
+   das peças do pedido.
+8. **Peças sem código** (ex.: 522×1775): continuam digitadas à mão como
+   avulsas no plano manual; não entram na leitura automática.
+9. **Aprendizado.** Decisão de 28/10: manter a sugestão automática. *A
+   confirmar:* ela acrescenta peças que não estavam no pedido; propõe-se
+   marcá-las sempre como "extra" e mantê-las fora da conta do pedido, para a
+   regra 1 continuar valendo. Alternativa: aprender só combinações e usar
+   apenas peça pendente do pedido (sem extra).
+10. **Aceite (Fase 6).** `regua_operador.py`: nº de chapas ≤ o do operador nos
+    16 planos comparáveis; nenhum plano com falta contra o pedido; todo padrão
+    cortável em guilhotina; lotes 1456 e 1458 sem peça dividida à toa.
+
 ## Ajustar
 
 - Chapa, serra, empilhamento, estágios e tempo de cálculo: tela
