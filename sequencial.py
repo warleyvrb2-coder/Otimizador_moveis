@@ -24,23 +24,35 @@ from column_generation import Pattern
 from familias import formar_familia, maior_kit_por_chapa, preencher_sobras
 
 ESTRATEGIAS = ('area', 'width', 'height')
+# Enchimento das chapas cheias só com peça PEQUENA (a que nunca fecharia uma
+# chapa sozinha): o tipo grande não é consumido aos pedaços e enche chapa dele.
+# Custo medido nos lotes 1456+1458: ~15% mais chapas; com False o enchimento é
+# livre (900 chapas), mas 6 de 32 tipos se espalham em mais de 2 padrões.
+SO_PEQUENAS = True
 
 
-def _ancora(restante: dict, piece_info: dict) -> str | None:
-    """A peça pendente de maior comprimento (desempate: área, depois código)."""
-    pendentes = [k for k, q in restante.items() if q > 0]
-    if not pendentes:
+def _ancora(chaves, piece_info: dict) -> str | None:
+    """A peça de maior comprimento entre `chaves` (desempate: área, depois código)."""
+    chaves = list(chaves)
+    if not chaves:
         return None
-    return min(pendentes, key=lambda k: _maior_primeiro(piece_info[k].w, piece_info[k].h,
-                                                         piece_info[k].cod))
+    return min(chaves, key=lambda k: _maior_primeiro(piece_info[k].w, piece_info[k].h,
+                                                      piece_info[k].cod))
 
 
 def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
                      estrategia: str, kerf: float, estagios: int, max_padroes: int = 400,
                      afinidade_fn=None):
     """
-    Uma passada completa "maiores primeiro, por família" com uma estratégia de
-    empacotamento.
+    Uma passada completa com uma estratégia de empacotamento, em DUAS fases:
+
+    1) 'cheias': cada tipo (ou família de até MAX_TIPOS tipos) que fecha ao menos
+       uma chapa cheia faz só chapas cheias, da peça mais comprida para a mais
+       curta, com as menores completando as sobras (no máximo MAX_TIPOS tipos);
+    2) 'resto': o que sobrou (resto de cada família, peças pequenas) é reunido
+       no fim, no máximo MAX_TIPOS tipos por chapa e cada tipo INTEIRO numa
+       chapa só (não entra pedaço).
+
     Devolve (padroes_na_ordem_de_criacao, sem_lugar) - sem_lugar: tipos que não
     cabem nem sozinhos numa chapa.
 
@@ -52,40 +64,52 @@ def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
     sem_lugar: dict = {}
     n_familia = 0
 
-    while len(padroes) < max_padroes:
-        ancora = _ancora(restante, piece_info)
-        if ancora is None:
-            break
+    # quantas peças de cada tipo cabem numa chapa só dele
+    capacidade = {}
+    for k in restante:
+        capacidade[k], _ = maior_kit_por_chapa(piece_info, {k: 1}, 10 ** 6, sheet_w, sheet_h,
+                                                estrategia, kerf, estagios)
+        if capacidade[k] == 0:
+            sem_lugar[k] = restante[k]
+            restante[k] = 0
 
-        aprendido = afinidade_fn(ancora) if afinidade_fn else None
-        familia = formar_familia(ancora, restante, piece_info, sheet_w, sheet_h, estrategia,
-                                  kerf, estagios, aprendido)
-        if familia is None:
-            sem_lugar[ancora] = restante[ancora]
-            restante[ancora] = 0
-            continue
-        chaves, kits, kit = familia
-        n_familia += 1
-
-        # chapas cheias da família; o que sobrar de kits vira uma última chapa
-        while kits > 0 and len(padroes) < max_padroes:
-            c, pat = maior_kit_por_chapa(piece_info, kit, kits, sheet_w, sheet_h,
-                                          estrategia, kerf, estagios)
-            if c == 0:
+    for fase in ('cheias', 'resto'):
+        while len(padroes) < max_padroes:
+            if fase == 'cheias':
+                ancora = _ancora((k for k, q in restante.items() if q > 0 and q >= capacidade[k]),
+                                 piece_info)
+                enchimento = {'elegiveis': ({k for k, q in restante.items() if 0 < q < capacidade[k]}
+                                            if SO_PEQUENAS else None),
+                              'inteiro': False}
+            else:
+                ancora = _ancora((k for k, q in restante.items() if q > 0), piece_info)
+                enchimento = {'elegiveis': None, 'inteiro': True}
+            if ancora is None:
                 break
-            vezes = kits // c
+
+            aprendido = afinidade_fn(ancora) if afinidade_fn else None
+            familia = formar_familia(ancora, restante, piece_info, sheet_w, sheet_h, estrategia,
+                                      kerf, estagios, aprendido, enchimento)
+            c, pat = 0, None
+            if familia is not None:
+                chaves, kits, kit = familia
+                c, pat = maior_kit_por_chapa(piece_info, kit, kits, sheet_w, sheet_h,
+                                              estrategia, kerf, estagios)
+            if c == 0:
+                # sem isso a mesma âncora voltaria para sempre
+                sem_lugar[ancora] = restante[ancora]
+                restante[ancora] = 0
+                continue
+
+            n_familia += 1
+            vezes = kits // c      # na fase 'cheias' o que sobra de kits fica para o resto
             pat = preencher_sobras(pat, restante, set(chaves), vezes, piece_info,
-                                     sheet_w, sheet_h, kerf, estagios, aprendido)
+                                    sheet_w, sheet_h, kerf, estagios, aprendido, **enchimento)
             pat.repeticoes = vezes
             pat.familia = n_familia
             for k, q in pat.counts.items():
                 restante[k] = max(0, restante[k] - q * vezes)
-            kits -= c * vezes
             padroes.append(pat)
-        if kits > 0:
-            # nem 1 kit coube de novo: sem isso a mesma âncora voltaria para sempre
-            sem_lugar[ancora] = restante[ancora]
-            restante[ancora] = 0
 
     return padroes, sem_lugar
 

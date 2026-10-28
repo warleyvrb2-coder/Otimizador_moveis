@@ -15,6 +15,7 @@ import sys
 import pdfplumber
 
 from optimizer import PieceType
+from familias import MAX_TIPOS
 from sequencial import optimize_group_sequencial
 
 CHAPA_W, CHAPA_H, KERF, ESTAGIOS = 2750, 1860, 4.4, 3
@@ -37,22 +38,28 @@ def ler_plano(caminho: str) -> tuple[int, list[PieceType]]:
 
 
 def conferir(pecas: list[PieceType], padroes: list, sobras: list) -> list[str]:
-    """Problemas do plano contra o pedido: peça a mais, peça a menos, peça não produzida."""
+    """
+    Problemas do plano: contra o pedido (peça a mais, a menos, não produzida) e de
+    corte (padrão com mais de MAX_TIPOS tipos de peça, que vira mosaico).
+    """
     produzido = {}
     for pat in padroes:
         for k, q in pat.counts.items():
             produzido[k] = produzido.get(k, 0) + q * pat.repeticoes
     erros = [f'{p.cod}: pedido {p.qty_total}, produzido {produzido.get(p.key, 0)}'
              for p in pecas if produzido.get(p.key, 0) != p.qty_total]
-    return erros + [f'{s.cod}: sobrou {s.qty_total} sem lugar' for s in sobras]
+    erros += [f'{s.cod}: sobrou {s.qty_total} sem lugar' for s in sobras]
+    return erros + [f'padrão com {len(p.counts)} tipos de peça' for p in padroes
+                    if len(p.counts) > MAX_TIPOS]
 
 
 def mistura(pasta: str) -> bool:
     """
     Junta TODOS os planos do operador num pedido só e deixa o motor descobrir
-    as famílias sozinho. Passa se fecha o pedido exato e gasta no máximo 2% de
-    chapas a mais que a soma do operador (o código repetido entre planos faz o
-    motor reagrupar de outro jeito).
+    as famílias sozinho. Passa se fecha o pedido exato, nenhum padrão passa de
+    MAX_TIPOS tipos e gasta no máximo 25% de chapas a mais que a soma do operador
+    (o código repetido entre planos faz o motor reagrupar; a folga é o preço de
+    não misturar tipos nas sobras).
     """
     chapas_operador, juntas = 0, {}
     for caminho in sorted(glob.glob(os.path.join(pasta, 'plano-corte-*.pdf'))):
@@ -71,7 +78,7 @@ def mistura(pasta: str) -> bool:
     chapas_motor, sobras, padroes = optimize_group_sequencial(
         [PieceType(**p.__dict__) for p in pecas], CHAPA_W, CHAPA_H, KERF, ESTAGIOS)
     erros = conferir(pecas, padroes, sobras)
-    ok = chapas_motor and len(chapas_motor) <= chapas_operador * 1.02 and not erros
+    ok = chapas_motor and len(chapas_motor) <= chapas_operador * 1.25 and not erros
     print(f'MISTURA operador={chapas_operador} motor={len(chapas_motor)} ({len(padroes)} pad) '
           f'{"OK" if ok else "REPROVADO"} {"; ".join(erros)}')
     return bool(ok)

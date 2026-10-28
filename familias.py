@@ -25,6 +25,9 @@ GANHO_MIN = 0.005   # a peça só entra na família se somar pelo menos 0,5 p.p.
 # parceiro que o operador já juntou antes entra mesmo perdendo até 1 p.p.: o
 # histórico dele vale mais que a conta de uma chapa só
 TOLERANCIA_APRENDIDA = 0.01
+# tipos de peça diferentes numa mesma chapa (família + enchimento): é o máximo
+# que aparece nos planos que o operador validou; acima disso vira mosaico
+MAX_TIPOS = 3
 
 
 def cortar_excesso(pat: Pattern, chave: str, limite: int) -> Pattern:
@@ -94,10 +97,16 @@ def maior_kit_por_chapa(piece_info: dict, kit: dict, kits_total: int, sheet_w: i
 
 def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
                        piece_info: dict, sheet_w: int, sheet_h: int, kerf: float,
-                       estagios: int, prioridade: dict | None = None) -> Pattern:
+                       estagios: int, prioridade: dict | None = None,
+                       elegiveis: set | None = None, inteiro: bool = False) -> Pattern:
     """
     Completa as sobras da chapa da família com as peças menores, da mais
-    comprida para a mais curta.
+    comprida para a mais curta, sem passar de MAX_TIPOS tipos na chapa.
+
+    `elegiveis` limita quais peças podem entrar (None = qualquer pendente).
+    `inteiro` exige que o tipo caiba TODO (o que cabe nesta chapa por
+    repetição); se não couber inteiro ele nem entra - assim o resto de um tipo
+    não se espalha em pedaços por vários padrões.
 
     `vezes` é quantas chapas repetem este padrão: cada peça de enchimento entra
     no máximo `pendente // vezes` por chapa, para a repetição nunca passar do
@@ -112,12 +121,17 @@ def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
     itens = [{'cod': i.cod, 'desc': i.desc, 'piece_key': i.piece_key, 'shelf': 0,
               'x': i.x, 'y': i.y, 'w': i.w, 'h': i.h, 'rotated': i.rotated} for i in pat.items]
     counts = dict(pat.counts)
-    ordem = sorted((k for k, q in restante.items() if q > 0 and k not in excluir),
+    tipos_livres = MAX_TIPOS - len(counts)
+    ordem = sorted((k for k, q in restante.items() if q > 0 and k not in excluir
+                    and (elegiveis is None or k in elegiveis)),
                    key=lambda k: ((-(prioridade or {}).get(k, 0),)
                                   + _maior_primeiro(piece_info[k].w, piece_info[k].h, piece_info[k].cod)))
     for k in ordem:
+        if tipos_livres <= 0:
+            break
         peca = piece_info[k]
         falta = restante[k] // vezes
+        antes = (list(itens), dict(counts))
         while falta > 0:
             livres = edicao.retalhos_livres(itens, sheet_w, sheet_h, minimo=30.0, kerf=kerf)
             candidatos = []
@@ -143,6 +157,10 @@ def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
                     break
             if not colocou:
                 break
+        if inteiro and falta > 0:
+            itens, counts = antes     # não coube inteiro: desiste deste tipo
+        elif counts.get(k, 0) > antes[1].get(k, 0):
+            tipos_livres -= 1
 
     placed = [PlacedItem(piece_key=i['piece_key'], cod=i['cod'], desc=i['desc'], shelf=0,
                           x=i['x'], y=i['y'], w=i['w'], h=i['h'], rotated=i['rotated'])
@@ -152,7 +170,8 @@ def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
 
 
 def _avaliar(piece_info: dict, restante: dict, chaves: list, sheet_w: int, sheet_h: int,
-              estrategia: str, kerf: float, estagios: int, prioridade: dict | None = None):
+              estrategia: str, kerf: float, estagios: int, prioridade: dict | None = None,
+              enchimento: dict | None = None):
     """
     Monta o kit das `chaves` pelo mdc das quantidades pendentes e mede a chapa
     cheia dele JÁ COM o enchimento das sobras. None se a proporção é grande
@@ -170,15 +189,15 @@ def _avaliar(piece_info: dict, restante: dict, chaves: list, sheet_w: int, sheet
     if c == 0:
         return None
     cheia = preencher_sobras(pat, restante, set(chaves), kits_total // c, piece_info,
-                              sheet_w, sheet_h, kerf, estagios, prioridade)
+                              sheet_w, sheet_h, kerf, estagios, prioridade, **(enchimento or {}))
     return cheia.used_area / (sheet_w * sheet_h / 1_000_000), kits_total, kit, c, pat
 
 
 def formar_familia(ancora: str, restante: dict, piece_info: dict, sheet_w: int,
                     sheet_h: int, estrategia: str, kerf: float, estagios: int,
-                    afinidade: dict | None = None):
+                    afinidade: dict | None = None, enchimento: dict | None = None):
     """
-    Família da âncora: parte só dela e vai juntando as outras peças pendentes
+    Família da âncora (no máximo MAX_TIPOS tipos): parte só dela e vai juntando as outras peças pendentes
     (as com afinidade aprendida primeiro, depois da mais comprida para a mais
     curta) enquanto cada uma aumentar o aproveitamento das chapas da família.
 
@@ -189,7 +208,7 @@ def formar_familia(ancora: str, restante: dict, piece_info: dict, sheet_w: int,
     """
     afinidade = afinidade or {}
     atual = _avaliar(piece_info, restante, [ancora], sheet_w, sheet_h, estrategia, kerf,
-                      estagios, afinidade)
+                      estagios, afinidade, enchimento)
     if atual is None:
         return None
     chaves = [ancora]
@@ -198,8 +217,10 @@ def formar_familia(ancora: str, restante: dict, piece_info: dict, sheet_w: int,
                                        _maior_primeiro(piece_info[k].w, piece_info[k].h,
                                                         piece_info[k].cod)))
     for k in candidatas:
+        if len(chaves) >= MAX_TIPOS:
+            break
         teste = _avaliar(piece_info, restante, chaves + [k], sheet_w, sheet_h,
-                          estrategia, kerf, estagios, afinidade)
+                          estrategia, kerf, estagios, afinidade, enchimento)
         minimo = atual[0] - TOLERANCIA_APRENDIDA if afinidade.get(k, 0) > 0 else atual[0] + GANHO_MIN
         if teste is not None and teste[0] > minimo:
             chaves, atual = chaves + [k], teste

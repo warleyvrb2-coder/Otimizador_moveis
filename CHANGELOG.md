@@ -4,6 +4,32 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-10-28 (2) — Chapa cheia primeiro e no máximo 3 tipos por chapa (fim dos mosaicos)
+
+Os prints do lote 1456 mostraram padrões de 6 tipos misturados em blocos
+pequenos e a mesma peça (8896) espalhada em 5 padrões, com chapa de resto em que
+cabiam 12 e saíam 10. O validador de guilhotina aceitava tudo (eram 3 estágios,
+"2 + aparo"): ele não sabe o que é inviável de cortar. Decisão do usuário:
+prioridade é cortar fácil, sem limite de aumento de chapas.
+
+- **Duas fases em `sequencial._montar_uma_vez`.** (1) Chapas cheias: cada tipo
+  ou família faz só chapas cheias, da peça mais comprida para a mais curta. (2)
+  Resto: o que sobrou de cada família e as peças pequenas são reunidos no fim,
+  cada tipo inteiro numa chapa só.
+- **No máximo 3 tipos por chapa** (`familias.MAX_TIPOS`), como nos 20 planos do
+  operador: família de até 3 tipos e enchimento que respeita o teto.
+- **Enchimento só com peça pequena** nas chapas cheias (`SO_PEQUENAS`): peça
+  que ainda fecharia chapa cheia própria não é consumida aos pedaços.
+- **Régua:** reprova padrão com mais de 3 tipos; a mistura aceita até 25% de
+  chapas a mais (era 2%).
+
+Medido (chapas: antes x agora; 0 padrões fora da guilhotina, 0 faltas, 0
+excedentes): 1456+1458 891 x 1.030, 1436 273 x 311, 1437 478 x 495.
+Tipos em mais de 2 padrões: 1 de 32, 0 de 18, 0 de 12 (antes 6 de 32 só no
+1456+1458). Máximo de 3 tipos por padrão (antes 6). Sem a restrição de peça
+pequena o 1456+1458 fecha em 900 chapas, mas 6 tipos se espalham: é só trocar
+`SO_PEQUENAS = False` em `sequencial.py`.
+
 ## 2026-10-28 — Otimização por famílias, tiras avulsas automáticas e aprendizado de combinações
 
 Redefinição das regras de otimização (aprovadas pelo usuário; texto na seção
