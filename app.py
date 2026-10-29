@@ -1642,6 +1642,11 @@ def aplicar_edicao(plano_id, gi, pi):
         y = request.form.get('y', type=float)
         if idx is None or not (0 <= idx < len(itens)) or x is None or y is None:
             return volta(erro='Peca ou posicao invalida.')
+        # encaixa no canto da sobra mais próxima: o arraste solto deixava a peça a
+        # milímetros da vizinha e o corte deixava de atravessar a chapa
+        outros = itens[:idx] + itens[idx + 1:]
+        x, y = edicao.alinhar_ao_retalho(outros, itens[idx]['w'], itens[idx]['h'], x, y,
+                                          r['sheet_w'], r['sheet_h'], r['kerf'])
         itens[idx] = {**itens[idx], 'x': x, 'y': y}
         peca_cod_registro = itens[idx].get('cod')
     elif acao == 'girar':
@@ -1770,7 +1775,13 @@ def aplicar_edicao(plano_id, gi, pi):
 
     problemas = edicao.validar_padrao(itens, r['sheet_w'], r['sheet_h'], r['estagios'])
     if problemas:
-        return volta(erro=' '.join(problemas))
+        msg = ' '.join(problemas)
+        if acao in ('adicionar', 'incluir_melhor', 'incluir_avulsa') and 'estágios' in msg:
+            culpadas = edicao.pecas_que_impedem(itens, r['sheet_w'], r['sheet_h'], r['estagios'])
+            if culpadas:
+                msg += ' Peça(s) que impedem este corte: ' + '; '.join(
+                    f"{c['cod']} (x {c['x']}, y {c['y']})" for c in culpadas[:3]) +                     ' - alinhe ou mova e tente de novo.'
+        return volta(erro=msg)
 
     aprov_antes = padrao.get('aproveitamento')
     padrao['itens'] = itens

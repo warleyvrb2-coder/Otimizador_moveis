@@ -4,6 +4,26 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-10-29 (2) — Editor: peça arrastada encaixa alinhada e a recusa aponta a peça culpada
+
+No Padrão 3 do FF 2 (plano 33526dbf39) as primeiras 12055 colocadas à mão
+entraram e as seguintes eram recusadas com "exigiria 4 estágios". A causa: a ação
+`mover` gravava o ponto do arraste exatamente como veio, e a 12055 ficou em
+`x=2056,4`, encostada no 8903 (sem a folga da serra de 4,4 mm) em vez de
+`x=2060,8` como a pilha acima. Esse desalinhamento obrigava um 4º estágio.
+
+- `edicao.alinhar_ao_retalho`: a peça arrastada vai para o canto da sobra mais
+  próxima em que cabe (raio de 60 mm). A sobra já vem afastada um kerf das
+  vizinhas, então o canto é alinhado. Fora de qualquer sobra, a posição não muda.
+- `edicao.pecas_que_impedem`: quando a recusa é por estágios, o erro lista as
+  OUTRAS peças que, tiradas, resolveriam (ex.: "12055 (x 2056, y 709) - alinhe
+  ou mova e tente de novo").
+- `teste_editor.py`: asserts do encaixe (rodar com `python teste_editor.py`).
+
+Reproduzido no plano real (cópia do banco): o erro agora aponta a 12055
+certa; arrastar essa peça de novo a leva para (2060,8 ; 613,4), abre uma sobra de
+689x598 onde a 12055 entra e o padrão segue em 3 estágios.
+
 ## 2026-10-29 — Giro das peças escondidas, decidido para o plano inteiro (até 3 rodadas)
 
 O experimento com giro livre por padrão baixava o lote 1456 para 400 chapas,

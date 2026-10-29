@@ -519,3 +519,48 @@ def tiras_avulsas(itens: list[dict], w: float, h: float, kerf: float,
                 break
         else:
             return novas
+
+
+# Quanto além da borda da sobra um arraste ainda conta como "soltei nela".
+RAIO_ENCAIXE = 60.0
+
+
+def alinhar_ao_retalho(outros: list[dict], pw: float, ph: float, x: float, y: float,
+                       w: float, h: float, kerf: float) -> tuple[float, float]:
+    """
+    Posição final de uma peça arrastada até (x, y): o canto da sobra mais próximo.
+
+    Soltar a peça num ponto qualquer deixava ela a milímetros da vizinha (ex.:
+    encostada no 8903, sem a folga da serra), e o corte deixava de atravessar a
+    chapa. A sobra já vem afastada um kerf inteiro das peças vizinhas
+    (`retalhos_livres(kerf=)`), então o canto dela é um lugar alinhado. Só vale
+    para sobra em que a peça cabe e que o arraste toca (RAIO_ENCAIXE); fora
+    disso devolve (x, y) como veio.
+    """
+    melhor = None
+    for t in retalhos_livres(outros, w, h, kerf=kerf):
+        if pw > t.w + TOL or ph > t.h + TOL:
+            continue
+        if (x > t.x + t.w + RAIO_ENCAIXE or x + pw < t.x - RAIO_ENCAIXE
+                or y > t.y + t.h + RAIO_ENCAIXE or y + ph < t.y - RAIO_ENCAIXE):
+            continue
+        for cx, cy in ((t.x, t.y), (t.x + t.w - pw, t.y),
+                       (t.x, t.y + t.h - ph), (t.x + t.w - pw, t.y + t.h - ph)):
+            d = (cx - x) ** 2 + (cy - y) ** 2
+            if melhor is None or d < melhor[0]:
+                melhor = (d, cx, cy)
+    return (melhor[1], melhor[2]) if melhor else (x, y)
+
+
+def pecas_que_impedem(itens: list[dict], w: float, h: float, max_estagios: int) -> list[dict]:
+    """
+    Quando o último item de `itens` (a peça que se quer encaixar) deixa o padrão
+    sem corte possível, diz quais OUTRAS peças, se tiradas, resolveriam.
+
+    É a resposta para "por que não encaixa?": o layout antes da peça nova
+    cortava, e uma peça fora de lugar (ex.: a poucos mm da vizinha) impede.
+    """
+    nova, resto = itens[-1], itens[:-1]
+    return [{'cod': i['cod'], 'x': round(float(i['x'])), 'y': round(float(i['y']))}
+            for n, i in enumerate(resto)
+            if not validar_padrao(resto[:n] + resto[n + 1:] + [nova], w, h, max_estagios)]
