@@ -21,14 +21,9 @@ from dataclasses import replace
 
 from optimizer import PieceType, SheetResult, _maior_primeiro, KERF_MM
 from column_generation import Pattern
-from familias import formar_familia, maior_kit_por_chapa, preencher_sobras
+from familias import formar_familia, maior_kit_por_chapa, absorver
 
 ESTRATEGIAS = ('area', 'width', 'height')
-# Enchimento das chapas cheias só com peça PEQUENA (a que nunca fecharia uma
-# chapa sozinha): o tipo grande não é consumido aos pedaços e enche chapa dele.
-# Medido no lote 1456: True = 427 chapas e nenhum tipo espalhado; False = 414
-# chapas (com MAX_TIPOS 4) e 4 de 18 tipos em mais de 2 padrões. Escolhido False.
-SO_PEQUENAS = False
 
 
 def _ancora(chaves, piece_info: dict) -> str | None:
@@ -75,15 +70,9 @@ def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
 
     for fase in ('cheias', 'resto'):
         while len(padroes) < max_padroes:
-            if fase == 'cheias':
-                ancora = _ancora((k for k, q in restante.items() if q > 0 and q >= capacidade[k]),
-                                 piece_info)
-                enchimento = {'elegiveis': ({k for k, q in restante.items() if 0 < q < capacidade[k]}
-                                            if SO_PEQUENAS else None),
-                              'inteiro': False}
-            else:
-                ancora = _ancora((k for k, q in restante.items() if q > 0), piece_info)
-                enchimento = {'elegiveis': None, 'inteiro': True}
+            ancora = _ancora((k for k, q in restante.items() if q > 0 and
+                              (fase == 'resto' or q >= capacidade[k])), piece_info)
+            enchimento = {'inteiro': fase == 'resto'}
             if ancora is None:
                 break
 
@@ -103,13 +92,14 @@ def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
 
             n_familia += 1
             vezes = kits // c      # na fase 'cheias' o que sobra de kits fica para o resto
-            pat = preencher_sobras(pat, restante, set(chaves), vezes, piece_info,
-                                    sheet_w, sheet_h, kerf, estagios, aprendido, **enchimento)
-            pat.repeticoes = vezes
-            pat.familia = n_familia
             for k, q in pat.counts.items():
                 restante[k] = max(0, restante[k] - q * vezes)
-            padroes.append(pat)
+            # as sobras dessas chapas recebem o pendente ANTES de abrir chapa nova
+            grupos, restante = absorver(pat, vezes, restante, chaves, piece_info, sheet_w,
+                                         sheet_h, kerf, estagios, aprendido, **enchimento)
+            for g in grupos:
+                g.familia = n_familia
+                padroes.append(g)
 
     return padroes, sem_lugar
 

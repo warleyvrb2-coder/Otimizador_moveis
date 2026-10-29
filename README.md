@@ -139,11 +139,15 @@ clique em "Otimizar corte".
      menos uma chapa cheia. `familias.formar_familia` junta a ela até 3 peças de
      quantidade proporcional (mdc → "kit"; ex.: 1.160/928/232 = 5:4:1), só se
      a chapa cheia ficar melhor. O padrão leva `kit × c` peças e repete até
-     acabarem as chapas cheias da família. As sobras recebem as peças menores, no
-     máximo `pendente ÷ repetições` de cada (`SO_PEQUENAS` restringe a peças
-     que nunca fechariam chapa cheia).
-  2. **Resto.** O que sobrou de cada família e as peças pequenas são reunidos
-     no fim, no máximo 4 tipos por chapa e cada tipo INTEIRO numa chapa só.
+     acabarem as chapas cheias da família.
+  2. **Resto.** O que sobrou de cada família é reunido no fim, cada tipo
+     INTEIRO numa chapa só.
+  **Absorção (`familias.absorver`).** Logo depois de cada família, o pendente
+  de todos os outros tipos é espalhado nas SOBRAS dessas chapas antes de abrir
+  qualquer chapa nova: cada rodada enche a sobra com o que couber e repete nas
+  chapas que as peças alcançam, dividindo o padrão em grupos (mesma chapa da
+  família, enchimentos diferentes). Ex.: as 240 peças 9195/9192 do lote 1456
+  cabem nas colunas livres das 82 chapas da 8896, então não geram chapa nova.
   Em qualquer fase: no máximo 4 tipos de peça por chapa (`MAX_TIPOS`) e
   roda com as 3 estratégias de empacotamento, ficando com a de menos chapas.
 - `column_generation.py` — Column Generation (o método clássico de cutting

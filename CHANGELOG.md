@@ -4,6 +4,32 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-10-28 (4) — Absorção dos restos nas sobras das chapas já planejadas
+
+O Padrão 8 do FF 1 era uma chapa de 6 peças (30%) e o Padrão 7 tinha um buraco:
+as 240 peças da 9195/9192 caberiam nas colunas livres das 82 chapas da 8896
+(328 lugares), mas o enchimento só deixava cada chapa receber `120 ÷ 82 = 1`
+peça de cada tipo, e o resto virava chapa nova quase vazia. Ajustar constantes
+(tipos por chapa, enchimento) só trocava um defeito por outro; o enchimento fino
+foi substituído.
+
+- **`familias.absorver`**: depois de cada família, o pendente dos outros tipos é
+  espalhado nas sobras dessas chapas ANTES de abrir qualquer chapa nova. Cada
+  rodada enche a sobra com o que couber (até `MAX_TIPOS`), repete nas chapas
+  que as peças alcançam e divide o padrão em grupos (mesma chapa da família,
+  enchimentos diferentes) até acabar o pendente. `_avaliar` estima a chapa da
+  família pelo mesmo critério.
+- Removidos `SO_PEQUENAS` e o enchimento por `pendente ÷ repetições`.
+- O resto (fase 'resto') continua exigindo o tipo inteiro numa chapa só.
+
+Lote 1456 sozinho: 409 chapas (antes 414; 1ª entrega 411; motor antigo 408);
+FF 1 em 195 chapas e 6 padrões, 9195 e 9192 num padrão cada. 1456+1458: 890
+(886 antigo); 1436: 279 (271); 1437: 473 (456). Mistura dos planos do operador:
+2.192 contra 2.207. Nenhum padrão fora da guilhotina, sem falta nem excedente,
+no máximo 4 tipos por padrão. Limite conhecido: a peça âncora aparece em
+vários padrões quando absorve restos diferentes (mesma chapa, enchimentos
+diferentes), ex.: 12056 em 5 padrões de 27 por chapa.
+
 ## 2026-10-28 (3) — Ajuste do equilíbrio: 4 tipos, enchimento livre e aproveitamento do pedido
 
 O lote 1456 sozinho saiu com 427 chapas (primeira entrega: 411). Medido regra a

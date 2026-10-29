@@ -170,6 +170,48 @@ def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
                     used_area=sum(i.w * i.h for i in placed) / 1_000_000)
 
 
+def absorver(pat: Pattern, vezes: int, restante: dict, chaves: list, piece_info: dict,
+             sheet_w: int, sheet_h: int, kerf: float, estagios: int,
+             prioridade: dict | None = None, inteiro: bool = False,
+             max_rondas: int = 8) -> tuple[list, dict]:
+    """
+    Espalha o que está pendente (`restante`) nas sobras das `vezes` chapas do
+    padrão `pat`, ANTES de abrir qualquer chapa nova.
+
+    Cada rodada enche a sobra com o que couber (até MAX_TIPOS tipos no total) e
+    repete esse enchimento nas chapas que as peças pendentes alcançam; a chapa
+    do padrão se divide em grupos (mesma chapa da família, enchimentos
+    diferentes) até as peças acabarem ou não caber mais nada. As que sobram
+    ficam sem enchimento.
+
+    Devolve (padroes, pendente_depois): padrões com `repeticoes` somando
+    `vezes`, e o pendente já descontado do que foi absorvido (sem descontar a
+    própria família, que quem chama já consome).
+    """
+    pendente = dict(restante)
+    base = dict(pat.counts)
+    padroes, chapas = [], vezes
+    for _ in range(max_rondas):
+        if chapas <= 0:
+            break
+        cheia = preencher_sobras(pat, pendente, set(chaves), 1, piece_info, sheet_w, sheet_h,
+                                  kerf, estagios, prioridade, inteiro=inteiro)
+        extra = {k: q - base.get(k, 0) for k, q in cheia.counts.items() if q > base.get(k, 0)}
+        if not extra:
+            break
+        grupo = min(chapas, min(pendente[k] // n for k, n in extra.items()))
+        cheia.repeticoes = grupo
+        padroes.append(cheia)
+        for k, n in extra.items():
+            pendente[k] -= n * grupo
+        chapas -= grupo
+    if chapas > 0:
+        simples = Pattern(counts=dict(base), items=list(pat.items), used_area=pat.used_area)
+        simples.repeticoes = chapas
+        padroes.append(simples)
+    return padroes, pendente
+
+
 def _avaliar(piece_info: dict, restante: dict, chaves: list, sheet_w: int, sheet_h: int,
               estrategia: str, kerf: float, estagios: int, prioridade: dict | None = None,
               enchimento: dict | None = None):
@@ -189,9 +231,15 @@ def _avaliar(piece_info: dict, restante: dict, chaves: list, sheet_w: int, sheet
                                   estrategia, kerf, estagios)
     if c == 0:
         return None
-    cheia = preencher_sobras(pat, restante, set(chaves), kits_total // c, piece_info,
-                              sheet_w, sheet_h, kerf, estagios, prioridade, **(enchimento or {}))
-    return cheia.used_area / (sheet_w * sheet_h / 1_000_000), kits_total, kit, c, pat
+    vezes = kits_total // c
+    cheia = preencher_sobras(pat, restante, set(chaves), 1, piece_info, sheet_w, sheet_h,
+                              kerf, estagios, prioridade, **(enchimento or {}))
+    extra = {k: q - pat.counts.get(k, 0) for k, q in cheia.counts.items()
+             if q > pat.counts.get(k, 0)}
+    # fração das chapas da família que o pendente alcança com esse enchimento
+    alcance = min(1.0, min(restante[k] // n for k, n in extra.items()) / vezes) if extra else 0.0
+    area = pat.used_area + (cheia.used_area - pat.used_area) * alcance
+    return area / (sheet_w * sheet_h / 1_000_000), kits_total, kit, c, pat
 
 
 def formar_familia(ancora: str, restante: dict, piece_info: dict, sheet_w: int,
