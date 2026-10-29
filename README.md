@@ -47,6 +47,7 @@ Variáveis de ambiente:
 | `DB_PATH` | caminho do SQLite, se quiser fora do `DATA_DIR` | `DATA_DIR/cadastro.db` |
 | `FORCAR_SENHA` | trata como "em nuvem" mesmo rodando fora do Railway (testar o bloqueio de senha localmente) | vazio |
 | `FLASK_DEBUG` | liga o reloader/debugger do Flask - **nunca em produção** | vazio |
+| `PROCESSOS` | quantos processos testam o giro das peças ao mesmo tempo (1 = sem paralelismo) | nº de núcleos, no máximo 8 |
 
 Chapa, serra, altura de pilha, estágios e tempo de cálculo por grupo **não
 são mais variável de ambiente** — viraram parâmetro de cada máquina
@@ -150,6 +151,11 @@ clique em "Otimizar corte".
   cabem nas colunas livres das 82 chapas da 8896, então não geram chapa nova.
   Em qualquer fase: no máximo 4 tipos de peça por chapa (`MAX_TIPOS`) e
   roda com as 3 estratégias de empacotamento, ficando com a de menos chapas.
+  **Giro em até 3 rodadas (`RODADAS`).** A 1ª monta o plano com a orientação do
+  cadastro. A 2ª e a 3ª testam girar cada peça que o cadastro libera
+  (`pode_girar`: escondida ou cor lisa), em paralelo (`PROCESSOS`), e adotam o
+  melhor giro, ou a união dos que ajudaram. O giro de uma peça vale para o plano
+  INTEIRO (ela gira em todos os padrões ou em nenhum).
 - `column_generation.py` — Column Generation (o método clássico de cutting
   stock). Não é mais o motor do cálculo: sobrou no reequilíbrio do plano
   editado. Gera padrões iniciais por faixas/colunas, resolve o LP (GLOP),

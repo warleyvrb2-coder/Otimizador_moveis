@@ -17,6 +17,8 @@ melhor encaixe e acaba espalhando um mesmo código por vários padrões. Aqui o
 critério principal é a ORDEM; o aproveitamento vem de preencher bem cada
 chapa dentro dessa ordem.
 """
+import os
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
 
 from optimizer import PieceType, SheetResult, _maior_primeiro, KERF_MM
@@ -24,6 +26,8 @@ from column_generation import Pattern
 from familias import formar_familia, maior_kit_por_chapa, absorver
 
 ESTRATEGIAS = ('area', 'width', 'height')
+# rodadas de refinamento: a 1ª é o plano base, as seguintes testam girar peças
+RODADAS = 3
 
 
 def _ancora(chaves, piece_info: dict) -> str | None:
@@ -104,6 +108,101 @@ def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
     return padroes, sem_lugar
 
 
+def _afinidade(pieces: list, combinacoes: dict | None):
+    """
+    Função afinidade(âncora) -> {peça: peso}: quantas vezes o operador juntou cada
+    peça do grupo com a âncora (só o código importa, então vale para qualquer giro).
+    """
+    info = {p.key: p for p in pieces}
+
+    def afinidade(ancora: str) -> dict:
+        parceiros = (combinacoes or {}).get(info[ancora].cod, {})
+        return {k: parceiros[p.cod] for k, p in info.items() if p.cod in parceiros}
+    return afinidade
+
+
+def _melhor_passada(pieces: list, sheet_w: int, sheet_h: int, kerf: float, estagios: int,
+                     estrategias: tuple, combinacoes: dict | None) -> tuple:
+    """
+    Roda a passada com cada estratégia e devolve a de MENOS chapas (empate: menos
+    padrões) como ((chapas, padrões), padrões_do_plano, sem_lugar).
+    """
+    piece_info = {p.key: p for p in pieces}
+    demanda = {p.key: p.qty_total for p in pieces}
+    afinidade = _afinidade(pieces, combinacoes)
+    melhor = None
+    for estrategia in estrategias:
+        padroes, sem_lugar = _montar_uma_vez(piece_info, demanda, sheet_w, sheet_h, estrategia,
+                                              kerf, estagios, afinidade_fn=afinidade)
+        chave = (sum(p.repeticoes for p in padroes), len(padroes))
+        if melhor is None or chave < melhor[0]:
+            melhor = (chave, padroes, sem_lugar)
+    return melhor
+
+
+def _com_giro(base: list, girar) -> list:
+    """As peças do grupo com largura e altura trocadas nas que giram."""
+    return [replace(p, w=p.h, h=p.w) if p.key in girar else p for p in base]
+
+
+def _testar_giro(tarefa: tuple) -> tuple:
+    """Chave (chapas, padrões) do plano com o giro dado; função solta para rodar em outro processo."""
+    base, girar, sheet_w, sheet_h, kerf, estagios, combinacoes = tarefa
+    return _melhor_passada(_com_giro(base, girar), sheet_w, sheet_h, kerf, estagios,
+                           ('area',), combinacoes)[0]
+
+
+# Processos que testam giros ao mesmo tempo (1 = sem paralelismo). O teto de 8 é
+# porque cada teste é pesado em memória; mais que isso quase não acelera.
+PROCESSOS = int(os.environ.get('PROCESSOS', min(8, os.cpu_count() or 1)))
+_pool = None
+
+
+def _mapear(funcao, tarefas: list) -> list:
+    """
+    Aplica `funcao` a cada tarefa, em processos paralelos quando PROCESSOS > 1.
+    Se o pool falhar (ambiente sem multiprocessamento, memória), refaz em série:
+    o resultado é o mesmo, só mais lento.
+    """
+    global _pool
+    if PROCESSOS > 1 and len(tarefas) > 1:
+        try:
+            if _pool is None:
+                _pool = ProcessPoolExecutor(max_workers=PROCESSOS)
+            return list(_pool.map(funcao, tarefas))
+        except Exception:
+            _pool = None
+    return [funcao(t) for t in tarefas]
+
+
+def _buscar_giro(base: list, candidatas: list, sheet_w: int, sheet_h: int, kerf: float,
+                 estagios: int, combinacoes: dict | None) -> frozenset:
+    """
+    Rodadas 2 e 3: em cada rodada testa girar, uma a uma, cada peça candidata (em
+    paralelo) e adota o melhor giro isolado ou a união de todos os que ajudaram,
+    o que fechar em menos chapas. Para quando nenhum giro ajuda.
+    """
+    girar = frozenset()
+    atual = _testar_giro((base, girar, sheet_w, sheet_h, kerf, estagios, combinacoes))
+    for _ in range(RODADAS - 1):
+        testes = [girar ^ {k} for k in candidatas]
+        chaves = _mapear(_testar_giro, [(base, t, sheet_w, sheet_h, kerf, estagios, combinacoes)
+                                         for t in testes])
+        bons = [(c, t) for c, t in zip(chaves, testes) if c < atual]
+        if not bons:
+            break
+        melhor_c, melhor_t = min(bons, key=lambda x: x[0])
+        if len(bons) > 1:
+            uniao = girar
+            for _, t in bons:
+                uniao = uniao ^ (t ^ girar)      # aplica cada giro que ajudou
+            c_uniao = _testar_giro((base, uniao, sheet_w, sheet_h, kerf, estagios, combinacoes))
+            if c_uniao < melhor_c:
+                melhor_c, melhor_t = c_uniao, uniao
+        girar, atual = melhor_t, melhor_c
+    return girar
+
+
 def optimize_group_sequencial(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
                                kerf: float = KERF_MM, estagios: int = 3,
                                combinacoes: dict | None = None) -> tuple:
@@ -111,35 +210,30 @@ def optimize_group_sequencial(pieces: list[PieceType], sheet_w_mm: int, sheet_h_
     Mesmo contrato de optimize_group_cg: devolve (sheets, sobras, usados),
     para plugar direto no pipeline.
 
-    Roda a passada "maiores primeiro" com cada estratégia de empacotamento e
-    fica com a que fecha em MENOS chapas (empate: menos padrões) - a ordem é a
-    mesma nas três, só muda como cada chapa é preenchida.
+    Em até RODADAS rodadas: a 1ª monta o plano com todas as peças na orientação
+    do cadastro; a 2ª e a 3ª testam GIRAR, uma a uma, cada peça que o cadastro
+    libera (`pode_girar`) e ficam com o giro que reduz as chapas. O giro vale
+    para o plano INTEIRO: a peça decidida gira em todos os padrões, nunca em
+    parte deles. A busca usa só a estratégia 'area' (1/3 do custo); o plano
+    final roda as 3 estratégias e fica com a de menos chapas (empate: menos
+    padrões).
 
     combinacoes: {cod: {cod_parceiro: vezes}} do aprendizado (banco.combinacoes()).
-
-    Toda peça entra travada na orientação do cadastro (pode_girar=False), como
-    no Column Generation: o mesmo código só pode aparecer numa posição em todo
-    o plano.
     """
-    pieces = [replace(p, pode_girar=False) for p in pieces]
-    piece_info = {p.key: p for p in pieces}
-    demanda = {p.key: p.qty_total for p in pieces}
+    originais = pieces
+    base = [replace(p, pode_girar=False) for p in pieces]
     sheet_area = (sheet_w_mm / 1000) * (sheet_h_mm / 1000)
 
-    def afinidade(ancora: str) -> dict:
-        """Peso de cada peça do grupo = quantas vezes o operador a juntou com a âncora."""
-        parceiros = (combinacoes or {}).get(piece_info[ancora].cod, {})
-        return {k: parceiros[p.cod] for k, p in piece_info.items() if p.cod in parceiros}
+    candidatas = [p.key for p in originais if p.pode_girar and p.w != p.h]
+    girar = (_buscar_giro(base, candidatas, sheet_w_mm, sheet_h_mm, kerf, estagios, combinacoes)
+             if candidatas else frozenset())
 
-    melhor = None
-    for estrategia in ESTRATEGIAS:
-        padroes, sem_lugar = _montar_uma_vez(piece_info, demanda, sheet_w_mm, sheet_h_mm,
-                                              estrategia, kerf, estagios, afinidade_fn=afinidade)
-        chapas = sum(p.repeticoes for p in padroes)
-        chave = (chapas, len(padroes))
-        if melhor is None or chave < melhor[0]:
-            melhor = (chave, padroes, sem_lugar)
-    _, usados, sem_lugar = melhor
+    _, usados, sem_lugar = _melhor_passada(_com_giro(base, girar), sheet_w_mm, sheet_h_mm,
+                                           kerf, estagios, ESTRATEGIAS, combinacoes)
+    for pat in usados:
+        for it in pat.items:
+            if it.piece_key in girar:
+                it.rotated = True
 
     # trava de sanidade: peça fora da borda não existe no mundo físico
     usados = [p for p in usados
@@ -161,5 +255,5 @@ def optimize_group_sequencial(pieces: list[PieceType], sheet_w_mm: int, sheet_h_
             produzido[k] = produzido.get(k, 0) + q * pat.repeticoes
     sobras = [PieceType(key=p.key, cod=p.cod, desc=p.desc, w=p.w, h=p.h,
                          qty_total=p.qty_total - produzido.get(p.key, 0))
-              for p in pieces if p.qty_total - produzido.get(p.key, 0) > 0]
+              for p in originais if p.qty_total - produzido.get(p.key, 0) > 0]
     return sheets, sobras, usados

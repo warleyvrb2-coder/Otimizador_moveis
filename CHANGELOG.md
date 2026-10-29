@@ -4,6 +4,31 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-10-29 — Giro das peças escondidas, decidido para o plano inteiro (até 3 rodadas)
+
+O experimento com giro livre por padrão baixava o lote 1456 para 400 chapas,
+mas a mesma peça saía em duas orientações. Regra do usuário: se a peça gira, gira
+em TODOS os padrões. Com essa regra, a busca é por peça (girada ou não no plano
+inteiro), em até 3 rodadas (`sequencial.RODADAS`):
+
+1. rodada 1: plano base com a orientação do cadastro;
+2. rodadas 2 e 3: testa girar cada peça que o cadastro libera (`pode_girar`),
+   em paralelo (`PROCESSOS`, padrão = núcleos, até 8), e adota o melhor giro
+   isolado ou a união dos que ajudaram; para quando nada melhora.
+Peças com `pode_girar` falso nunca giram. A busca usa só a estratégia 'area'; o
+plano final roda as 3. Se o pool de processos falhar, refaz em série.
+
+Chapas (antes -> agora): 1437 CINAMOMO 473 -> 358 (-24%), 1456+1458 885 -> 821
+(-7%), 1436 CASTANHO 279 -> 271 (-3%), 1456 sozinho 409 -> 409 (nenhum giro ajuda).
+Nenhum padrão com a mesma peça em orientações diferentes, nenhum fora da
+guilhotina, sem falta; o único excedente é a sugestão do aprendizado (marcada).
+Tempo medido com 16 núcleos: 29 s (1456), 50 s (1437), 203 s (1456+1458),
+252 s (1436); com menos núcleos fica mais lento (`PROCESSOS=1` roda em série).
+
+Testado e NÃO adotado: reotimizar só os padrões fracos com o solver exato. No FF 1
+do lote 1456 baixa 113 para 106 chapas, mas divide a 8896 em 6 padrões (6, 8, 10,
+12, 8 e 12 por chapa), o contrário da regra "peça junta".
+
 ## 2026-10-28 (4) — Absorção dos restos nas sobras das chapas já planejadas
 
 O Padrão 8 do FF 1 era uma chapa de 6 peças (30%) e o Padrão 7 tinha um buraco:
