@@ -213,7 +213,8 @@
   <div class="recado info"><span class="ic">✓</span>
     <div>Plano reequilibrado: <strong>{{ reeq.split(':')[0] }} → {{ reeq.split(':')[1] }} chapas</strong>
       neste grupo. Os padrões continuam os mesmos; o que mudou foi quantas
-      vezes cada um é cortado.</div></div>
+      vezes cada um é cortado. Os padrões que você editou à mão não saem do plano.
+      {% if detalhe_reeq %}<br>{{ detalhe_reeq }}{% endif %}</div></div>
   {% endif %}
 {% endif %}
 

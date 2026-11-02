@@ -4,6 +4,35 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-11-03 — Reequilibrar: não apaga o que você editou, não reduz o pedido e diz para onde as peças foram
+
+Teste do usuário no lote 1456+1458: tirou 5 peças 12057 do Padrão 11 (plano
+editado à mão) e clicou em "Reequilibrar plano". O Padrão 11 sumiu, os outros
+mudaram sem aviso e ninguém sabia para onde as peças foram.
+
+Causas, reproduzidas no plano gerado do mesmo lote:
+- `_rebalancear_grupo` refazia as repetições de TODOS os padrões do zero
+  (menor número de chapas) e apagava os que ficavam com 0: no teste, 17 padrões
+  mudaram e 9 sumiram, incluindo o editado.
+- `_demanda_do_grupo` somava o pedido de dentro dos padrões (`pecas.lotes`):
+  apagar um padrão apagava o pedido dele junto (12046 passou de 330 para 6) e o
+  lote "fechava" com menos peças sem que ninguém aceitasse reduzir.
+
+Correção, só no caminho do Reequilibrar (motor e edição manual não mudaram):
+- `pedido_base`: o pedido original do grupo é congelado antes de qualquer padrão
+  sair (`_pedido_dos_padroes`); `_demanda_do_grupo` usa ele quando existe.
+- Padrões editados à mão ficam fixos, com as chapas que você deixou, e nunca saem;
+  o que eles já produzem é descontado do que falta.
+- `column_generation.ajuste_minimo_repeticoes` (CP-SAT) troca o recálculo global:
+  minimiza 2 x chapas + chapas movidas. Falta de peça vira poucas chapas a mais
+  no padrão que mais rende; sobra vira chapa a menos; nada é remanejado à toa.
+- A tela mostra o que mudou: padrões mantidos, chapas de cada padrão alterado,
+  quanto cada peça passou a produzir ("Peça 12057: produz 195 -> 210 (pedido
+  200)") e os padrões que saíram por ficar com 0.
+
+Mesmo teste depois da correção: Padrão 11 mantido; só 2 padrões mudaram (10: 13 ->
+14 chapas, 12: 66 -> 65); pedido total do grupo continua 6.310; faltas zeradas.
+
 ## 2026-11-02 (2) — Sem kits de proporção: a peça enche chapas só dela
 
 Com os kits, o 9202 (50 peças) saía a 5 por chapa em 10 chapas, misturado com

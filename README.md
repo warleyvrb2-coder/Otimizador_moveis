@@ -163,6 +163,10 @@ clique em "Otimizar corte".
   plano aprovado (uma vez por plano). Só muda a prioridade das peças no
   enchimento das sobras.
 - `regua_operador.py` — o teste de aceite: `python regua_operador.py`.
+- **Reequilibrar plano** (`app._rebalancear_grupo`): muda o mínimo possível de
+  chapas para o grupo voltar a fechar o pedido. O pedido original fica congelado
+  em `pedido_base`, os padrões editados à mão ficam fixos e nunca saem, e a tela
+  informa o que mudou e quanto cada peça passou a produzir.
 - `edicao.py` — edição manual de um padrão: onde uma peça cabe numa
   sobra, se o layout resultante ainda é guilhotinável, sequência de
   cortes pro operador digitar na máquina.

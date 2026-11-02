@@ -374,3 +374,41 @@ def optimize_group_cg(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
             sobras.append(PieceType(key=p.key, cod=p.cod, desc=p.desc, w=p.w, h=p.h, qty_total=falta))
 
     return sheets, sobras, usados
+
+
+# Peso de cada chapa no ajuste mínimo, contra 1 por chapa movida: tirar uma chapa
+# sobrando (-2 +1) compensa; mudar de lugar sem economizar chapa não.
+PESO_CHAPA_AJUSTE = 2
+
+
+def ajuste_minimo_repeticoes(contagens: list, repeticoes: list, demanda: dict,
+                             time_limit_s: float = 20.0):
+    """
+    Novas repetições de cada padrão para a produção cobrir `demanda`, mudando o
+    MENOS possível o que já está planejado.
+
+    contagens[j] = {peça: quantidade por chapa} do padrão j; repeticoes[j] = quantas
+    chapas ele tem hoje. Minimiza PESO_CHAPA_AJUSTE x chapas + chapas movidas
+    (diferença para hoje): falta de peça vira poucas chapas a mais no padrão que
+    mais rende, sobra vira chapa a menos, e nenhum padrão é remanejado à toa.
+    Devolve a lista de novas repetições, ou None se não achar solução a tempo.
+    """
+    model = cp_model.CpModel()
+    folga = int(sum(demanda.values())) + 1
+    x = [model.NewIntVar(0, r + folga, f'x{j}') for j, r in enumerate(repeticoes)]
+    mov = [model.NewIntVar(0, r + folga, f'd{j}') for j, r in enumerate(repeticoes)]
+    for j, r in enumerate(repeticoes):
+        model.Add(mov[j] >= x[j] - r)
+        model.Add(mov[j] >= r - x[j])
+    for peca, quantidade in demanda.items():
+        termos = [x[j] * cont[peca] for j, cont in enumerate(contagens) if cont.get(peca)]
+        if termos:
+            model.Add(sum(termos) >= int(quantidade))
+    model.Minimize(PESO_CHAPA_AJUSTE * sum(x) + sum(mov))
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = time_limit_s
+    solver.parameters.num_search_workers = 8
+    status = solver.Solve(model)
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        return None
+    return [int(solver.Value(v)) for v in x]

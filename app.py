@@ -1028,6 +1028,7 @@ def resultado(job_id):
             'resultado.html', plano=salvo,
             reeq=request.args.get('reeq'),
             motivo_reeq=request.args.get('motivo'),
+            detalhe_reeq=request.args.get('detalhe'),
             extra_ok=request.args.get('extra_ok', type=int),
             extra_erro=request.args.get('extra_erro'),
             erro_descricao=request.args.get('erro_descricao'),
@@ -1083,6 +1084,19 @@ def _recalcular(resultado):
     resultado['total_chapas'] = sum(g['n_chapas'] for g in resultado['grupos'])
 
 
+def _pedido_dos_padroes(g: dict) -> dict:
+    """
+    O que os Kambans pediram, somado do que os padroes carregam (`pecas.lotes`,
+    congelado no calculo). So vale enquanto TODOS os padroes estao no grupo: por
+    isso o reequilibrio grava `pedido_base` antes de tirar qualquer padrao.
+    """
+    pedido = {}
+    for pad in g.get('padroes', []):
+        for pc in pad.get('pecas', []):
+            pedido[pc['cod']] = pedido.get(pc['cod'], 0) + sum((pc.get('lotes') or {}).values())
+    return pedido
+
+
 def _demanda_do_grupo(g: dict) -> dict:
     """
     O que este grupo precisa produzir, por codigo de peca.
@@ -1093,10 +1107,7 @@ def _demanda_do_grupo(g: dict) -> dict:
     desce - em vez de o plano ficar eternamente "errado" contra um numero que
     nao vale mais.
     """
-    pedido = {}
-    for pad in g.get('padroes', []):
-        for pc in pad.get('pecas', []):
-            pedido[pc['cod']] = pedido.get(pc['cod'], 0) + sum((pc.get('lotes') or {}).values())
+    pedido = dict(g.get('pedido_base') or _pedido_dos_padroes(g))
     for cod, delta in (g.get('ajustes') or {}).items():
         pedido[cod] = max(0, pedido.get(cod, 0) + delta)
     return pedido
@@ -1208,44 +1219,96 @@ def _linhas_planejado_produzido(resultado: dict) -> list[dict]:
 
 def _rebalancear_grupo(g: dict) -> dict:
     """
-    Recalcula QUANTAS chapas de cada padrao, para bater com a demanda atual.
+    Recalcula QUANTAS chapas de cada padrao, para bater com a demanda atual,
+    mexendo o MENOS possivel no plano.
 
-    Os padroes ficam como estao - inclusive o que voce editou a mao. O que
-    muda e a repeticao de cada um. E por isso que editar passa a valer de
-    verdade: acrescentar uma peca num padrao pode deixar outro padrao rodar
-    menos vezes, e aI o lote inteiro sai com menos chapa.
+    - O pedido dos Kambans e congelado em `pedido_base` antes de tudo: antes,
+      apagar um padrao levava o pedido dele junto e o lote "fechava" com menos
+      pecas sem ninguem aceitar isso.
+    - Os padroes que voce editou a mao ficam fixos, com as chapas que voce deixou,
+      e nunca saem do plano. O que eles ja produzem e descontado do que falta.
+    - Os outros mudam o minimo (column_generation.ajuste_minimo_repeticoes): falta
+      de peca vira chapas a mais no padrao que mais rende; sobra vira chapa a menos.
+
+    Devolve tambem o que mudou: `mantidos` (n dos padroes editados), `mudancas`
+    ({n, antes, depois} dos que mudaram de chapas), `removidos` (n dos padroes que
+    ficaram com 0 chapas) e `pecas` ({antes, depois, pedido} da producao de cada
+    peca que mudou), para a tela dizer para onde as pecas foram.
     """
-    from types import SimpleNamespace
     from collections import Counter
-    from column_generation import _solve_master_ip
+    from column_generation import ajuste_minimo_repeticoes
 
     padroes = [p for p in g.get('padroes', []) if p.get('itens')]
     if not padroes:
         return {'ok': False, 'motivo': 'Este grupo nao tem geometria gravada para recalcular.'}
 
-    demanda = _demanda_do_grupo(g)
-    demanda = {c: q for c, q in demanda.items() if q > 0}
+    g.setdefault('pedido_base', _pedido_dos_padroes(g))
+    demanda = {c: q for c, q in _demanda_do_grupo(g).items() if q > 0}
     if not demanda:
         return {'ok': False, 'motivo': 'A demanda deste grupo ficou zerada.'}
 
-    modelo = [SimpleNamespace(counts=Counter(it['cod'] for it in p['itens'])) for p in padroes]
+    fixos = [p for p in padroes if p.get('editado')]
+    livres = [p for p in padroes if not p.get('editado')]
+    # o que os padroes editados ja produzem nao precisa ser produzido de novo
+    feito = Counter()
+    for p in fixos:
+        for it in p['itens']:
+            feito[it['cod']] += p['repeticoes']
+    demanda = {c: q - feito[c] for c, q in demanda.items() if q - feito[c] > 0}
+
+    contagens = [dict(Counter(it['cod'] for it in p['itens'])) for p in livres]
     # so cabe exigir peca que algum padrao saiba produzir
-    produziveis = {c for m in modelo for c in m.counts}
+    produziveis = {c for cont in contagens for c in cont}
     faltantes = [c for c in demanda if c not in produziveis]
     alvo = {c: q for c, q in demanda.items() if c in produziveis}
-    if not alvo:
+    if not alvo and not fixos:
         return {'ok': False, 'motivo': 'Nenhum padrao atual produz as pecas pedidas.'}
 
-    usos = _solve_master_ip(modelo, alvo, list(alvo), time_limit_s=20.0)
-    if usos is None:
-        return {'ok': False, 'motivo': 'Nao consegui fechar uma combinacao no tempo disponivel.'}
+    if livres:
+        usos = ajuste_minimo_repeticoes(contagens, [p['repeticoes'] for p in livres], alvo)
+        if usos is None:
+            return {'ok': False, 'motivo': 'Nao consegui fechar uma combinacao no tempo disponivel.'}
+    else:
+        usos = []
 
     antes = sum(p['repeticoes'] for p in padroes)
-    for p, n in zip(padroes, usos):
-        p['repeticoes'] = int(n)
-    g['padroes'] = [p for p in padroes if p['repeticoes'] > 0]
+    producao_antes = _producao_do_grupo(g)
+    mudancas, removidos = [], []
+    for p, n in zip(livres, usos):
+        if n != p['repeticoes']:
+            mudancas.append({'n': p['n'], 'antes': p['repeticoes'], 'depois': n})
+        if n == 0:
+            removidos.append(p['n'])
+        p['repeticoes'] = n
+    g['padroes'] = [p for p in g['padroes'] if p.get('repeticoes', 1) > 0 or not p.get('itens')]
     depois = sum(p['repeticoes'] for p in g['padroes'])
-    return {'ok': True, 'antes': antes, 'depois': depois, 'faltantes': faltantes}
+    producao_depois = _producao_do_grupo(g)
+    pedido = _demanda_do_grupo(g)
+    pecas = {c: {'antes': producao_antes.get(c, 0), 'depois': producao_depois.get(c, 0),
+                 'pedido': pedido.get(c, 0)}
+             for c in set(producao_antes) | set(producao_depois)
+             if producao_antes.get(c, 0) != producao_depois.get(c, 0)}
+    return {'ok': True, 'antes': antes, 'depois': depois, 'faltantes': faltantes,
+            'mantidos': [p['n'] for p in fixos], 'mudancas': mudancas, 'removidos': removidos,
+            'pecas': pecas}
+
+
+def _detalhe_reequilibrio(res: dict) -> str:
+    """
+    Texto curto do que o reequilibrio fez: padroes mantidos, padroes que mudaram
+    de chapas, quanto cada peca passou a produzir e padroes que sairam por ficar
+    com 0 chapas.
+    """
+    partes = []
+    if res.get('mantidos'):
+        partes.append('Mantidos como você editou: padrão ' + ', '.join(str(n) for n in res['mantidos']) + '.')
+    for m in res.get('mudancas', []):
+        partes.append(f"Padrão {m['n']}: {m['antes']} → {m['depois']} chapas.")
+    for cod, v in sorted(res.get('pecas', {}).items()):
+        partes.append(f"Peça {cod}: produz {v['antes']} → {v['depois']} (pedido {v['pedido']}).")
+    if res.get('removidos'):
+        partes.append('Saiu por ficar com 0 chapas: padrão ' + ', '.join(str(n) for n in res['removidos']) + '.')
+    return ' '.join(partes)
 
 
 def _pode_girar_aqui(peca, grupo):
@@ -1939,7 +2002,8 @@ def reequilibrar(plano_id, gi):
         banco.atualizar_resultado(plano_id, r)
     return redirect(url_for('resultado', job_id=plano_id,
                              reeq=('%d:%d' % (res['antes'], res['depois'])) if res['ok']
-                                   else 'erro', motivo=res.get('motivo')) + '#g' + str(gi))
+                                   else 'erro', motivo=res.get('motivo'),
+                             detalhe=_detalhe_reequilibrio(res) if res['ok'] else None) + '#g' + str(gi))
 
 
 @app.route('/resultado/<plano_id>/grupo/<int:gi>/preencher-extra', methods=['POST'])
