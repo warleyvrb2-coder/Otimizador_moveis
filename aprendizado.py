@@ -7,8 +7,8 @@ Duas fontes, as duas já validadas por quem corta:
      única vez - é a "semente" que faz o sistema já nascer sabendo;
   2) todo plano aprovado pelo PCP, a partir do momento da aprovação.
 
-O que sai daqui só muda a ORDEM e a tolerância com que o otimizador forma as
-famílias (familias.py); nunca coloca peça fora do pedido.
+O que sai daqui só muda a PRIORIDADE no enchimento das sobras (familias.py);
+nunca coloca peça fora do pedido.
 """
 import glob
 import os

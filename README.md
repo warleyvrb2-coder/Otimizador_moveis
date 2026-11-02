@@ -136,13 +136,13 @@ clique em "Otimizar corte".
     column generation.
 - `sequencial.py` + `familias.py` — **motor principal**, regido por duas regras
   (seção abaixo): maiores primeiro, iguais juntas até acabar.
-  1. **Âncora:** a peça pendente mais comprida. `familias.formar_familia` junta
-     a ela até 3 peças de quantidade proporcional (mdc → "kit"; ex.:
-     1.160/928/232 = 5:4:1), só se a chapa cheia ficar melhor.
-  2. **Chapas seguidas só da família:** `c` kits cabem numa chapa; a família
-     gasta S = ceil(kits / c) chapas e `familias.distribuir_chapas` reparte os
-     kits **por igual** entre elas (no máximo 2 padrões: `base+1` e `base`
-     kits), então não existe chapa de resto com 1 ou 2 peças misturadas.
+  1. **Âncora:** a peça pendente mais comprida.
+  2. **Chapas seguidas só da âncora:** cabem `c` peças numa chapa; a peça gasta
+     S = ceil(quantidade / c) chapas e `familias.distribuir_chapas` reparte a
+     quantidade **por igual** entre elas (no máximo 2 padrões: `base+1` e `base`
+     peças), então não existe chapa de resto com 1 ou 2 peças misturadas.
+     Não há kits por proporção de quantidade (foram retirados em 02/11: eles
+     misturavam a peça com outras desde a primeira chapa).
   3. **Enchimento (`familias.absorver`):** as sobras dessas chapas recebem o
      pendente dos outros tipos, mas só quem cabe **inteiro** (se um tipo
      ficasse pela metade, ele é barrado e vira âncora própria depois).
@@ -160,8 +160,8 @@ clique em "Otimizar corte".
   arredonda para inteiros.
 - `aprendizado.py` — combinações que o operador põe juntas (tabela
   `combinacao`): lê os planos de `referencia_operador/` uma vez e soma todo
-  plano aprovado (uma vez por plano). Só muda a ordem e a tolerância da
-  formação de famílias.
+  plano aprovado (uma vez por plano). Só muda a prioridade das peças no
+  enchimento das sobras.
 - `regua_operador.py` — o teste de aceite: `python regua_operador.py`.
 - `edicao.py` — edição manual de um padrão: onde uma peça cabe numa
   sobra, se o layout resultante ainda é guilhotinável, sequência de
@@ -174,16 +174,16 @@ clique em "Otimizar corte".
 
 **Regras principais**
 1. **Maiores primeiro.** A âncora é sempre a peça pendente de maior comprimento.
-2. **Iguais juntas até acabar.** Cada tipo (ou família) ocupa chapas seguidas só
+2. **Iguais juntas até acabar.** Cada tipo de peça ocupa chapas seguidas só
    dele até a quantidade terminar, repartida por igual (sem chapa final com 1 ou
    2 peças). Outro tipo só entra nas sobras se couber inteiro nelas.
 
 **Demais regras**
 3. **Pedido.** O Kambam, por cor e espessura. O motor produz exatamente o
    pedido: nada a mais por causa do empacotamento.
-4. **Família.** Peças com quantidades proporcionais (ex.: 1.160, 928 e 232 =
-   5 : 4 : 1), formadas **automaticamente** pelas quantidades e pelo que o
-   sistema aprendeu, sem cadastro novo. Até 3 peças por família.
+4. **Sem famílias por proporção.** Peças com quantidades proporcionais NÃO são
+   mais agrupadas em kit (era a causa de a mesma peça sair espalhada em chapas
+   misturadas). Cada peça enche as chapas dela.
 5. **No máximo 4 tipos de peça por chapa** (`MAX_TIPOS` em `familias.py`; os
    planos do operador têm até 3).
 6. **Corte.** Guilhotina com os estágios da máquina, veio respeitado, serra
@@ -196,7 +196,7 @@ clique em "Otimizar corte".
 8. **Peças sem código** (ex.: 522×1775): continuam digitadas à mão como
    avulsas no plano manual.
 9. **Aprendizado (decisão A, 28/10).** (a) Combinações: peças que o operador já
-   juntou entram na família com prioridade e com tolerância de 1 p.p.; (b) a
+   juntou passam na frente no enchimento das sobras; (b) a
    sugestão automática de peças a mais continua, marcada como "sugestão
    automática", fora da conta do pedido, e só em chapa com pelo menos 50% de
    pedido (`MIN_PEDIDO_SUGESTAO` em `pipeline.py`).

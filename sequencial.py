@@ -5,10 +5,10 @@ da peça mais comprida para a mais curta.
 
 Regras de negócio (pedidas pela produção):
   1) MAIORES PRIMEIRO: a peça de maior comprimento ainda pendente é a âncora;
-  2) IGUAIS JUNTAS ATÉ ACABAR: a família dela (familias.py: peças de quantidade
-     proporcional) ocupa chapas seguidas, com a quantidade repartida por igual,
-     até acabar; nos espaços que sobram entra outro tipo só se couber inteiro;
-  3) esgotada a família, passa-se para a próxima âncora, até o fim.
+  2) IGUAIS JUNTAS ATÉ ACABAR: ela ocupa chapas seguidas só dela (familias.py),
+     com a quantidade repartida por igual, até acabar; nos espaços que sobram
+     entra outro tipo só se couber inteiro;
+  3) esgotada a peça, passa-se para a próxima âncora, até o fim.
 
 Difere do Column Generation (column_generation.py), que olha o lote inteiro e
 só minimiza o nº de chapas: ele junta peças de tamanhos variados onde der o
@@ -22,7 +22,7 @@ from dataclasses import replace
 
 from optimizer import PieceType, SheetResult, _maior_primeiro, KERF_MM
 from column_generation import Pattern
-from familias import formar_familia, maior_kit_por_chapa, absorver, distribuir_chapas
+from familias import maior_quantidade_por_chapa, absorver, distribuir_chapas
 
 ESTRATEGIAS = ('area', 'width', 'height')
 # rodadas de refinamento: a 1ª é o plano base, as seguintes testam girar peças
@@ -38,11 +38,11 @@ def _ancora(chaves, piece_info: dict) -> str | None:
                                                       piece_info[k].cod))
 
 
-def _absorver_inteiros(grupos: list, restante: dict, chaves: list, piece_info: dict,
+def _absorver_inteiros(grupos: list, restante: dict, ancora: str, piece_info: dict,
                        sheet_w: int, sheet_h: int, kerf: float, estagios: int,
                        prioridade: dict | None) -> tuple[list, dict]:
     """
-    Absorve o pendente nas sobras dos `grupos` (padrão, nº de chapas) da família,
+    Absorve o pendente nas sobras dos `grupos` (padrão, nº de chapas) da âncora,
     mas só deixa entrar como enchimento o tipo que cabe INTEIRO nelas: se um tipo
     ficasse em parte aqui e em parte em outro padrão, as peças iguais estariam
     espalhadas. O tipo que ficou pela metade é barrado e a absorção refeita; ele
@@ -52,7 +52,7 @@ def _absorver_inteiros(grupos: list, restante: dict, chaves: list, piece_info: d
     while True:
         pendente, padroes = dict(restante), []
         for pat, chapas in grupos:
-            novos, pendente = absorver(pat, chapas, pendente, set(chaves) | barrados, piece_info,
+            novos, pendente = absorver(pat, chapas, pendente, {ancora} | barrados, piece_info,
                                         sheet_w, sheet_h, kerf, estagios, prioridade)
             padroes += novos
         pela_metade = {k for k, q in pendente.items() if 0 < q < restante[k]}
@@ -68,8 +68,7 @@ def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
     Uma passada completa com uma estratégia de empacotamento. Duas regras:
 
     1) MAIORES PRIMEIRO: a âncora é sempre a peça pendente de maior comprimento;
-    2) IGUAIS JUNTAS ATÉ ACABAR: a âncora (com a família de peças de quantidade
-       proporcional, até MAX_TIPOS tipos) faz chapas seguidas só dela até a
+    2) IGUAIS JUNTAS ATÉ ACABAR: a âncora faz chapas seguidas só dela até a
        quantidade terminar, repartida por igual entre as chapas (sem chapa de
        resto com 1 ou 2 peças). Outro tipo só entra nas sobras se couber inteiro.
 
@@ -77,44 +76,37 @@ def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
     cabem nem sozinhos numa chapa.
 
     afinidade_fn(ancora) -> {peça: peso}: o que o aprendizado diz que anda com
-    a âncora (ordem de teste na família e prioridade no enchimento).
+    a âncora (prioridade no enchimento).
     """
     restante = dict(demanda)
     padroes: list[Pattern] = []
     sem_lugar: dict = {}
-    n_familia = 0
+    n_grupo = 0
 
     while len(padroes) < max_padroes:
         ancora = _ancora((k for k, q in restante.items() if q > 0), piece_info)
         if ancora is None:
             break
 
-        aprendido = afinidade_fn(ancora) if afinidade_fn else None
-        familia = formar_familia(ancora, restante, piece_info, sheet_w, sheet_h, estrategia,
-                                  kerf, estagios, aprendido)
-        grupos = []
-        if familia is not None:
-            chaves, kits, kit = familia
-            c, _ = maior_kit_por_chapa(piece_info, kit, kits, sheet_w, sheet_h,
-                                        estrategia, kerf, estagios)
-            if c:
-                grupos = distribuir_chapas(piece_info, kit, kits, c, sheet_w, sheet_h,
-                                            estrategia, kerf, estagios)
+        por_chapa, _ = maior_quantidade_por_chapa(piece_info, ancora, restante[ancora], sheet_w,
+                                                   sheet_h, estrategia, kerf, estagios)
+        grupos = (distribuir_chapas(piece_info, ancora, restante[ancora], por_chapa, sheet_w,
+                                     sheet_h, estrategia, kerf, estagios) if por_chapa else [])
         if not grupos:
             # sem isso a mesma âncora voltaria para sempre
             sem_lugar[ancora] = restante[ancora]
             restante[ancora] = 0
             continue
 
-        n_familia += 1
+        n_grupo += 1
         for pat, chapas in grupos:
-            for k, q in pat.counts.items():
-                restante[k] = max(0, restante[k] - q * chapas)
+            restante[ancora] = max(0, restante[ancora] - pat.counts[ancora] * chapas)
         # as sobras dessas chapas recebem o pendente ANTES de abrir chapa nova
-        novos, restante = _absorver_inteiros(grupos, restante, chaves, piece_info, sheet_w,
+        aprendido = afinidade_fn(ancora) if afinidade_fn else None
+        novos, restante = _absorver_inteiros(grupos, restante, ancora, piece_info, sheet_w,
                                               sheet_h, kerf, estagios, aprendido)
         for g in novos:
-            g.familia = n_familia
+            g.familia = n_grupo
             padroes.append(g)
 
     return padroes, sem_lugar

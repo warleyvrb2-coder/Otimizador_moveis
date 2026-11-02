@@ -4,6 +4,32 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-11-02 (2) — Sem kits de proporção: a peça enche chapas só dela
+
+Com os kits, o 9202 (50 peças) saía a 5 por chapa em 10 chapas, misturado com
+12057 e 12096 (quantidades 1 : 4 : 1), quando cabem 10 a 12 numa chapa só dele.
+Era o motivo de a mesma peça aparecer em vários padrões ao lado de outras.
+Pesquisa de mercado (Cut Rite, Corte Certo, literatura de Haessler) não trouxe
+regra pronta de "peça igual junta"; foi mantida a regra do usuário, literal.
+
+- **Retirados os kits** (`formar_familia`, `_avaliar`, `gcd`, `RAZAO_MAX`,
+  `GANHO_MIN`, `TOLERANCIA_APRENDIDA`). `familias.py` agora só monta as chapas de
+  UMA peça (`maior_quantidade_por_chapa`, `distribuir_chapas`) e faz o
+  enchimento (`preencher_sobras`, `absorver`).
+- `sequencial._montar_uma_vez`: a âncora (peça mais comprida) enche chapas só
+  dela, repartidas por igual; as sobras recebem só tipos que cabem inteiros
+  (`_absorver_inteiros`); o que não coube inteiro vira âncora própria depois.
+- O aprendizado de combinações passa a só priorizar peças no enchimento.
+
+Lote 1456 sozinho (sem busca de giro): 9202 em 5 chapas com 10 peças dele cada,
+8903 em 40 chapas com 10 por chapa. Chapas (com a busca de giro): 1437 371,
+1456 411, 1456+1458 940, 1436 275 (na versão com kits: 363, 414, 933, 270).
+Régua do operador: 16 de 16, todos em 1 padrão, inclusive o de 3 tipos. Sem
+orientação mista, nenhum padrão fora da guilhotina, sem falta; o "excedente" é a
+sugestão do aprendizado (marcada). Limite conhecido: a quantidade de padrões
+sobe (1456: 18 para 27) porque o enchimento divide a chapa da âncora em grupos
+com enchimentos diferentes. Tempo medido: 25 a 128 s.
+
 ## 2026-11-02 — Regras principais: maiores primeiro e iguais juntas até acabar
 
 O 9202 aparecia isolado (1 peça numa chapa de resto com 12046 e 12056) porque o
