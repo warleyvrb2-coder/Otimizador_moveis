@@ -96,18 +96,40 @@ def maior_kit_por_chapa(piece_info: dict, kit: dict, kits_total: int, sheet_w: i
     return 0, None
 
 
+def distribuir_chapas(piece_info: dict, kit: dict, kits: int, c: int, sheet_w: int, sheet_h: int,
+                      estrategia: str, kerf: float, estagios: int) -> list:
+    """
+    Reparte `kits` por igual em S = ceil(kits / c) chapas: nenhuma fica com 1 ou 2
+    peças sobrando no fim (o resto de uma peça não vira chapa à parte, misturada
+    com outras). Gasta as mesmas S chapas que "c por chapa + uma chapa de resto".
+
+    Devolve [(padrão, nº de chapas)], no máximo 2 padrões (com `base + 1` kits e
+    com `base` kits). Se o empacotador não fechar exatamente algum deles, usa
+    mais chapas (S + 1, ...) até fechar.
+    """
+    chapas = -(-kits // c)
+    while chapas <= kits:
+        base, extra = divmod(kits, chapas)
+        grupos = []
+        for k, n in ((base + 1, extra), (base, chapas - extra)):
+            if n:
+                c_k, pat = maior_kit_por_chapa(piece_info, kit, k, sheet_w, sheet_h,
+                                                estrategia, kerf, estagios)
+                if c_k != k:
+                    break
+                grupos.append((pat, n))
+        else:
+            return grupos
+        chapas += 1
+    return []
+
+
 def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
                        piece_info: dict, sheet_w: int, sheet_h: int, kerf: float,
-                       estagios: int, prioridade: dict | None = None,
-                       elegiveis: set | None = None, inteiro: bool = False) -> Pattern:
+                       estagios: int, prioridade: dict | None = None) -> Pattern:
     """
     Completa as sobras da chapa da família com as peças menores, da mais
     comprida para a mais curta, sem passar de MAX_TIPOS tipos na chapa.
-
-    `elegiveis` limita quais peças podem entrar (None = qualquer pendente).
-    `inteiro` exige que o tipo caiba TODO (o que cabe nesta chapa por
-    repetição); se não couber inteiro ele nem entra - assim o resto de um tipo
-    não se espalha em pedaços por vários padrões.
 
     `vezes` é quantas chapas repetem este padrão: cada peça de enchimento entra
     no máximo `pendente // vezes` por chapa, para a repetição nunca passar do
@@ -123,8 +145,7 @@ def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
               'x': i.x, 'y': i.y, 'w': i.w, 'h': i.h, 'rotated': i.rotated} for i in pat.items]
     counts = dict(pat.counts)
     tipos_livres = MAX_TIPOS - len(counts)
-    ordem = sorted((k for k, q in restante.items() if q > 0 and k not in excluir
-                    and (elegiveis is None or k in elegiveis)),
+    ordem = sorted((k for k, q in restante.items() if q > 0 and k not in excluir),
                    key=lambda k: ((-(prioridade or {}).get(k, 0),)
                                   + _maior_primeiro(piece_info[k].w, piece_info[k].h, piece_info[k].cod)))
     for k in ordem:
@@ -132,7 +153,7 @@ def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
             break
         peca = piece_info[k]
         falta = restante[k] // vezes
-        antes = (list(itens), dict(counts))
+        antes = counts.get(k, 0)
         while falta > 0:
             livres = edicao.retalhos_livres(itens, sheet_w, sheet_h, minimo=30.0, kerf=kerf)
             candidatos = []
@@ -158,9 +179,7 @@ def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
                     break
             if not colocou:
                 break
-        if inteiro and falta > 0:
-            itens, counts = antes     # não coube inteiro: desiste deste tipo
-        elif counts.get(k, 0) > antes[1].get(k, 0):
+        if counts.get(k, 0) > antes:
             tipos_livres -= 1
 
     placed = [PlacedItem(piece_key=i['piece_key'], cod=i['cod'], desc=i['desc'], shelf=0,
@@ -170,10 +189,9 @@ def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
                     used_area=sum(i.w * i.h for i in placed) / 1_000_000)
 
 
-def absorver(pat: Pattern, vezes: int, restante: dict, chaves: list, piece_info: dict,
+def absorver(pat: Pattern, vezes: int, restante: dict, excluir: set, piece_info: dict,
              sheet_w: int, sheet_h: int, kerf: float, estagios: int,
-             prioridade: dict | None = None, inteiro: bool = False,
-             max_rondas: int = 8) -> tuple[list, dict]:
+             prioridade: dict | None = None, max_rondas: int = 8) -> tuple[list, dict]:
     """
     Espalha o que está pendente (`restante`) nas sobras das `vezes` chapas do
     padrão `pat`, ANTES de abrir qualquer chapa nova.
@@ -184,9 +202,10 @@ def absorver(pat: Pattern, vezes: int, restante: dict, chaves: list, piece_info:
     diferentes) até as peças acabarem ou não caber mais nada. As que sobram
     ficam sem enchimento.
 
-    Devolve (padroes, pendente_depois): padrões com `repeticoes` somando
-    `vezes`, e o pendente já descontado do que foi absorvido (sem descontar a
-    própria família, que quem chama já consome).
+    `excluir` são os tipos que não podem entrar (a própria família e os que
+    não couberam inteiros). Devolve (padroes, pendente_depois): padrões com
+    `repeticoes` somando `vezes`, e o pendente já descontado do que foi
+    absorvido (sem descontar a própria família, que quem chama já consome).
     """
     pendente = dict(restante)
     base = dict(pat.counts)
@@ -194,8 +213,8 @@ def absorver(pat: Pattern, vezes: int, restante: dict, chaves: list, piece_info:
     for _ in range(max_rondas):
         if chapas <= 0:
             break
-        cheia = preencher_sobras(pat, pendente, set(chaves), 1, piece_info, sheet_w, sheet_h,
-                                  kerf, estagios, prioridade, inteiro=inteiro)
+        cheia = preencher_sobras(pat, pendente, excluir, 1, piece_info, sheet_w, sheet_h,
+                                  kerf, estagios, prioridade)
         extra = {k: q - base.get(k, 0) for k, q in cheia.counts.items() if q > base.get(k, 0)}
         if not extra:
             break
@@ -213,8 +232,7 @@ def absorver(pat: Pattern, vezes: int, restante: dict, chaves: list, piece_info:
 
 
 def _avaliar(piece_info: dict, restante: dict, chaves: list, sheet_w: int, sheet_h: int,
-              estrategia: str, kerf: float, estagios: int, prioridade: dict | None = None,
-              enchimento: dict | None = None):
+              estrategia: str, kerf: float, estagios: int, prioridade: dict | None = None):
     """
     Monta o kit das `chaves` pelo mdc das quantidades pendentes e mede a chapa
     cheia dele JÁ COM o enchimento das sobras. None se a proporção é grande
@@ -231,9 +249,9 @@ def _avaliar(piece_info: dict, restante: dict, chaves: list, sheet_w: int, sheet
                                   estrategia, kerf, estagios)
     if c == 0:
         return None
-    vezes = kits_total // c
+    vezes = -(-kits_total // c)
     cheia = preencher_sobras(pat, restante, set(chaves), 1, piece_info, sheet_w, sheet_h,
-                              kerf, estagios, prioridade, **(enchimento or {}))
+                              kerf, estagios, prioridade)
     extra = {k: q - pat.counts.get(k, 0) for k, q in cheia.counts.items()
              if q > pat.counts.get(k, 0)}
     # fração das chapas da família que o pendente alcança com esse enchimento
@@ -244,7 +262,7 @@ def _avaliar(piece_info: dict, restante: dict, chaves: list, sheet_w: int, sheet
 
 def formar_familia(ancora: str, restante: dict, piece_info: dict, sheet_w: int,
                     sheet_h: int, estrategia: str, kerf: float, estagios: int,
-                    afinidade: dict | None = None, enchimento: dict | None = None):
+                    afinidade: dict | None = None):
     """
     Família da âncora (no máximo MAX_TIPOS tipos): parte só dela e vai juntando as outras peças pendentes
     (as com afinidade aprendida primeiro, depois da mais comprida para a mais
@@ -257,7 +275,7 @@ def formar_familia(ancora: str, restante: dict, piece_info: dict, sheet_w: int,
     """
     afinidade = afinidade or {}
     atual = _avaliar(piece_info, restante, [ancora], sheet_w, sheet_h, estrategia, kerf,
-                      estagios, afinidade, enchimento)
+                      estagios, afinidade)
     if atual is None:
         return None
     chaves = [ancora]
@@ -269,7 +287,7 @@ def formar_familia(ancora: str, restante: dict, piece_info: dict, sheet_w: int,
         if len(chaves) >= MAX_TIPOS:
             break
         teste = _avaliar(piece_info, restante, chaves + [k], sheet_w, sheet_h,
-                          estrategia, kerf, estagios, afinidade, enchimento)
+                          estrategia, kerf, estagios, afinidade)
         minimo = atual[0] - TOLERANCIA_APRENDIDA if afinidade.get(k, 0) > 0 else atual[0] + GANHO_MIN
         if teste is not None and teste[0] > minimo:
             chaves, atual = chaves + [k], teste

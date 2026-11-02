@@ -134,22 +134,19 @@ clique em "Otimizar corte".
   - `_refine_last_sheet_cpsat` — solver CP-SAT de 1 chapa (modelo de
     faixas), usado tanto pro refino exato quanto como "pricing" do
     column generation.
-- `sequencial.py` + `familias.py` — **motor principal** ("maiores primeiro, por
-  família"; regras na seção abaixo), em duas fases:
-  1. **Chapas cheias.** A âncora é a peça pendente mais comprida que fecha ao
-     menos uma chapa cheia. `familias.formar_familia` junta a ela até 3 peças de
-     quantidade proporcional (mdc → "kit"; ex.: 1.160/928/232 = 5:4:1), só se
-     a chapa cheia ficar melhor. O padrão leva `kit × c` peças e repete até
-     acabarem as chapas cheias da família.
-  2. **Resto.** O que sobrou de cada família é reunido no fim, cada tipo
-     INTEIRO numa chapa só.
-  **Absorção (`familias.absorver`).** Logo depois de cada família, o pendente
-  de todos os outros tipos é espalhado nas SOBRAS dessas chapas antes de abrir
-  qualquer chapa nova: cada rodada enche a sobra com o que couber e repete nas
-  chapas que as peças alcançam, dividindo o padrão em grupos (mesma chapa da
-  família, enchimentos diferentes). Ex.: as 240 peças 9195/9192 do lote 1456
-  cabem nas colunas livres das 82 chapas da 8896, então não geram chapa nova.
-  Em qualquer fase: no máximo 4 tipos de peça por chapa (`MAX_TIPOS`) e
+- `sequencial.py` + `familias.py` — **motor principal**, regido por duas regras
+  (seção abaixo): maiores primeiro, iguais juntas até acabar.
+  1. **Âncora:** a peça pendente mais comprida. `familias.formar_familia` junta
+     a ela até 3 peças de quantidade proporcional (mdc → "kit"; ex.:
+     1.160/928/232 = 5:4:1), só se a chapa cheia ficar melhor.
+  2. **Chapas seguidas só da família:** `c` kits cabem numa chapa; a família
+     gasta S = ceil(kits / c) chapas e `familias.distribuir_chapas` reparte os
+     kits **por igual** entre elas (no máximo 2 padrões: `base+1` e `base`
+     kits), então não existe chapa de resto com 1 ou 2 peças misturadas.
+  3. **Enchimento (`familias.absorver`):** as sobras dessas chapas recebem o
+     pendente dos outros tipos, mas só quem cabe **inteiro** (se um tipo
+     ficasse pela metade, ele é barrado e vira âncora própria depois).
+  Em qualquer passo: no máximo 4 tipos de peça por chapa (`MAX_TIPOS`) e
   roda com as 3 estratégias de empacotamento, ficando com a de menos chapas.
   **Giro em até 3 rodadas (`RODADAS`).** A 1ª monta o plano com a orientação do
   cadastro. A 2ª e a 3ª testam girar cada peça que o cadastro libera
@@ -173,48 +170,40 @@ clique em "Otimizar corte".
   monta o PDF do plano, uma página por padrão.
 - `app.py` — Flask: upload, orquestração, cadastros, edição, aprovação.
 
-## Regras de otimização (aprovadas em 28/10/2026)
+## Regras de otimização (aprovadas em 28/10/2026; as duas primeiras, em 02/11)
 
-Nascem dos 20 planos que o operador montou à mão e validou
-(`referencia_operador/`). Nesses planos: 1 padrão por plano, 1 a 3 tipos de
-peça de catálogo, total = por chapa × nº de chapas (sem peça a mais), e
-tiras avulsas nas sobras. O que importa não é a geometria, é **separar o
-pedido em famílias antes de otimizar**.
+**Regras principais**
+1. **Maiores primeiro.** A âncora é sempre a peça pendente de maior comprimento.
+2. **Iguais juntas até acabar.** Cada tipo (ou família) ocupa chapas seguidas só
+   dele até a quantidade terminar, repartida por igual (sem chapa final com 1 ou
+   2 peças). Outro tipo só entra nas sobras se couber inteiro nelas.
 
-1. **Pedido.** O Kambam, por cor e espessura. O motor produz exatamente o
-   pedido: nada a mais por causa do empacotamento (a última chapa de uma peça
-   sai parcial, completada com menores).
-2. **Família.** Peças que andam juntas: quantidades proporcionais (ex.: 1.160,
-   928 e 232 = 5 : 4 : 1). Formadas **automaticamente**, sem cadastro novo,
-   pela proporção das quantidades do Kambam e pelo que o sistema aprendeu.
-   Uma família vira um padrão repetido N chapas (por chapa = proporção × m).
-3. **Ordem.** Famílias da peça mais comprida para a mais curta; dentro do
-   padrão, maiores primeiro e as menores completam as sobras.
-4. **Chapa cheia primeiro (28/10).** Cada tipo, ou família, enche chapas só
-   dele; o que sobra é reunido no fim. **No máximo 4 tipos de peça por chapa**
-   (`MAX_TIPOS` em `familias.py`; os planos do operador têm até 3). O número
-   grande de aproveitamento é o do **pedido**; "com tiras" vem ao lado.
-5. **Peça isolada.** O que não casa com nenhuma família vira família de uma
-   peça só (o mesmo que o motor "maiores primeiro" de antes).
+**Demais regras**
+3. **Pedido.** O Kambam, por cor e espessura. O motor produz exatamente o
+   pedido: nada a mais por causa do empacotamento.
+4. **Família.** Peças com quantidades proporcionais (ex.: 1.160, 928 e 232 =
+   5 : 4 : 1), formadas **automaticamente** pelas quantidades e pelo que o
+   sistema aprendeu, sem cadastro novo. Até 3 peças por família.
+5. **No máximo 4 tipos de peça por chapa** (`MAX_TIPOS` em `familias.py`; os
+   planos do operador têm até 3).
 6. **Corte.** Guilhotina com os estágios da máquina, veio respeitado, serra
-   descontada, orientação fixa do cadastro, dimensão de chapa escolhida no
-   plano.
+   descontada, dimensão de chapa escolhida no plano. A peça só gira se o
+   cadastro liberar, e o giro vale para o plano inteiro.
 7. **Tiras avulsas.** O sistema coloca sozinho nas sobras estreitas (lado
    menor de 80 a 250 mm, lado maior a partir de 400 mm — `TIRA_*` em
-   `edicao.py`), como 100×1860 ou 2750×128. Elas não contam como pedido (nem
-   como excedente). O plano mostra **dois** aproveitamentos: o do pedido (em
-   destaque) e o total "com tiras".
+   `edicao.py`). Não contam como pedido nem como excedente. O aproveitamento em
+   destaque é o do pedido; o total "com tiras" vem ao lado.
 8. **Peças sem código** (ex.: 522×1775): continuam digitadas à mão como
-   avulsas no plano manual; não entram na leitura automática.
-9. **Aprendizado (decisão A, 28/10).** Duas camadas: (a) combinações — peças
-   que o operador já juntou entram na família com prioridade e com tolerância
-   de 1 p.p.; (b) a sugestão automática de peças a mais continua, sempre
-   marcada como "sugestão automática", fora da conta do pedido, e só em chapa
-   que já tem pelo menos 50% de pedido (`MIN_PEDIDO_SUGESTAO` em `pipeline.py`).
+   avulsas no plano manual.
+9. **Aprendizado (decisão A, 28/10).** (a) Combinações: peças que o operador já
+   juntou entram na família com prioridade e com tolerância de 1 p.p.; (b) a
+   sugestão automática de peças a mais continua, marcada como "sugestão
+   automática", fora da conta do pedido, e só em chapa com pelo menos 50% de
+   pedido (`MIN_PEDIDO_SUGESTAO` em `pipeline.py`).
 10. **Aceite.** `python regua_operador.py`: nº de chapas ≤ o do operador nos
-    16 planos comparáveis; pedido fechado exato (sem falta nem excesso); nenhum
-    padrão com mais de 4 tipos; mais o teste de mistura (todos os planos num
-    pedido só, até 25% de chapas a mais); todo padrão cortável em guilhotina.
+    16 planos comparáveis; pedido fechado exato; nenhum padrão com mais de 4
+    tipos; teste de mistura (todos os planos num pedido só, até 25% de chapas a
+    mais); todo padrão cortável em guilhotina.
 
 ## Ajustar
 

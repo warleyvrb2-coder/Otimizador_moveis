@@ -4,6 +4,33 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-11-02 — Regras principais: maiores primeiro e iguais juntas até acabar
+
+O 9202 aparecia isolado (1 peça numa chapa de resto com 12046 e 12056) porque o
+motor tinha uma fase "resto" que reunia sobras de vários tipos numa chapa final.
+Pedido do usuário: as duas primeiras regras são (1) maiores primeiro e (2) peças
+iguais todas juntas até acabar.
+
+- **Sem fase "resto".** `sequencial._montar_uma_vez` virou um laço só: a âncora
+  é a peça mais comprida pendente; a família dela gasta S = ceil(kits / c)
+  chapas seguidas e `familias.distribuir_chapas` reparte os kits **por igual**
+  (no máximo 2 padrões, `base+1` e `base` kits). A mesma quantidade de chapas de
+  antes, mas sem chapa final com 1 ou 2 peças misturadas (9202: 50 peças em 10
+  chapas seguidas, 5 por chapa).
+- **Enchimento só com tipo inteiro.** `_absorver_inteiros`: um tipo só entra nas
+  sobras se couber TODO nelas; o que ficaria pela metade é barrado e volta como
+  âncora própria.
+- Removidos `elegiveis`/`inteiro` de `preencher_sobras` e `absorver`; `absorver`
+  recebe `excluir`.
+
+Chapas (antes -> agora): 1437 358 -> 363 (7 padrões em vez de 13), 1436 271 ->
+270, 1456 409 -> 414, 1456+1458 821 -> 933 (+13,6%). Em todos: sem orientação
+mista, nenhum padrão fora da guilhotina, sem falta; os dois "excedentes" são a
+sugestão do aprendizado (marcada). Custo concentrado no lote 1458: tipos grandes
+(10358, 10359, 8896) não cabem inteiros nas sobras de nenhuma outra chapa e as
+suas chapas rodam com 54% a 69% de ocupação. Mistura dos planos do operador: 2.511
+contra 2.207 (limite 25%). Tempo: 21 a 208 s.
+
 ## 2026-10-29 (2) — Editor: peça arrastada encaixa alinhada e a recusa aponta a peça culpada
 
 No Padrão 3 do FF 2 (plano 33526dbf39) as primeiras 12055 colocadas à mão

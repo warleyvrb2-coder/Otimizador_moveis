@@ -3,12 +3,11 @@
 Otimização "maiores primeiro, por família": monta o plano de cima para baixo,
 da peça mais comprida para a mais curta.
 
-Regra de negócio (pedida pela produção):
-  1) a peça de MAIOR comprimento ainda pendente é a âncora; a família dela
-     (familias.py: peças de quantidade proporcional) define o padrão, repetido
-     até a demanda da família acabar - todas as peças dela terminam juntas;
-  2) nos espaços que sobram na chapa entram as peças menores, também da mais
-     comprida para a mais curta, sem passar do que cada repetição comporta;
+Regras de negócio (pedidas pela produção):
+  1) MAIORES PRIMEIRO: a peça de maior comprimento ainda pendente é a âncora;
+  2) IGUAIS JUNTAS ATÉ ACABAR: a família dela (familias.py: peças de quantidade
+     proporcional) ocupa chapas seguidas, com a quantidade repartida por igual,
+     até acabar; nos espaços que sobram entra outro tipo só se couber inteiro;
   3) esgotada a família, passa-se para a próxima âncora, até o fim.
 
 Difere do Column Generation (column_generation.py), que olha o lote inteiro e
@@ -23,7 +22,7 @@ from dataclasses import replace
 
 from optimizer import PieceType, SheetResult, _maior_primeiro, KERF_MM
 from column_generation import Pattern
-from familias import formar_familia, maior_kit_por_chapa, absorver
+from familias import formar_familia, maior_kit_por_chapa, absorver, distribuir_chapas
 
 ESTRATEGIAS = ('area', 'width', 'height')
 # rodadas de refinamento: a 1ª é o plano base, as seguintes testam girar peças
@@ -39,18 +38,40 @@ def _ancora(chaves, piece_info: dict) -> str | None:
                                                       piece_info[k].cod))
 
 
+def _absorver_inteiros(grupos: list, restante: dict, chaves: list, piece_info: dict,
+                       sheet_w: int, sheet_h: int, kerf: float, estagios: int,
+                       prioridade: dict | None) -> tuple[list, dict]:
+    """
+    Absorve o pendente nas sobras dos `grupos` (padrão, nº de chapas) da família,
+    mas só deixa entrar como enchimento o tipo que cabe INTEIRO nelas: se um tipo
+    ficasse em parte aqui e em parte em outro padrão, as peças iguais estariam
+    espalhadas. O tipo que ficou pela metade é barrado e a absorção refeita; ele
+    volta a ser tratado como âncora própria, mais adiante.
+    """
+    barrados: set = set()
+    while True:
+        pendente, padroes = dict(restante), []
+        for pat, chapas in grupos:
+            novos, pendente = absorver(pat, chapas, pendente, set(chaves) | barrados, piece_info,
+                                        sheet_w, sheet_h, kerf, estagios, prioridade)
+            padroes += novos
+        pela_metade = {k for k, q in pendente.items() if 0 < q < restante[k]}
+        if not pela_metade:
+            return padroes, pendente
+        barrados |= pela_metade
+
+
 def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
                      estrategia: str, kerf: float, estagios: int, max_padroes: int = 400,
                      afinidade_fn=None):
     """
-    Uma passada completa com uma estratégia de empacotamento, em DUAS fases:
+    Uma passada completa com uma estratégia de empacotamento. Duas regras:
 
-    1) 'cheias': cada tipo (ou família de até MAX_TIPOS tipos) que fecha ao menos
-       uma chapa cheia faz só chapas cheias, da peça mais comprida para a mais
-       curta, com as menores completando as sobras (no máximo MAX_TIPOS tipos);
-    2) 'resto': o que sobrou (resto de cada família, peças pequenas) é reunido
-       no fim, no máximo MAX_TIPOS tipos por chapa e cada tipo INTEIRO numa
-       chapa só (não entra pedaço).
+    1) MAIORES PRIMEIRO: a âncora é sempre a peça pendente de maior comprimento;
+    2) IGUAIS JUNTAS ATÉ ACABAR: a âncora (com a família de peças de quantidade
+       proporcional, até MAX_TIPOS tipos) faz chapas seguidas só dela até a
+       quantidade terminar, repartida por igual entre as chapas (sem chapa de
+       resto com 1 ou 2 peças). Outro tipo só entra nas sobras se couber inteiro.
 
     Devolve (padroes_na_ordem_de_criacao, sem_lugar) - sem_lugar: tipos que não
     cabem nem sozinhos numa chapa.
@@ -63,47 +84,38 @@ def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
     sem_lugar: dict = {}
     n_familia = 0
 
-    # quantas peças de cada tipo cabem numa chapa só dele
-    capacidade = {}
-    for k in restante:
-        capacidade[k], _ = maior_kit_por_chapa(piece_info, {k: 1}, 10 ** 6, sheet_w, sheet_h,
-                                                estrategia, kerf, estagios)
-        if capacidade[k] == 0:
-            sem_lugar[k] = restante[k]
-            restante[k] = 0
+    while len(padroes) < max_padroes:
+        ancora = _ancora((k for k, q in restante.items() if q > 0), piece_info)
+        if ancora is None:
+            break
 
-    for fase in ('cheias', 'resto'):
-        while len(padroes) < max_padroes:
-            ancora = _ancora((k for k, q in restante.items() if q > 0 and
-                              (fase == 'resto' or q >= capacidade[k])), piece_info)
-            enchimento = {'inteiro': fase == 'resto'}
-            if ancora is None:
-                break
+        aprendido = afinidade_fn(ancora) if afinidade_fn else None
+        familia = formar_familia(ancora, restante, piece_info, sheet_w, sheet_h, estrategia,
+                                  kerf, estagios, aprendido)
+        grupos = []
+        if familia is not None:
+            chaves, kits, kit = familia
+            c, _ = maior_kit_por_chapa(piece_info, kit, kits, sheet_w, sheet_h,
+                                        estrategia, kerf, estagios)
+            if c:
+                grupos = distribuir_chapas(piece_info, kit, kits, c, sheet_w, sheet_h,
+                                            estrategia, kerf, estagios)
+        if not grupos:
+            # sem isso a mesma âncora voltaria para sempre
+            sem_lugar[ancora] = restante[ancora]
+            restante[ancora] = 0
+            continue
 
-            aprendido = afinidade_fn(ancora) if afinidade_fn else None
-            familia = formar_familia(ancora, restante, piece_info, sheet_w, sheet_h, estrategia,
-                                      kerf, estagios, aprendido, enchimento)
-            c, pat = 0, None
-            if familia is not None:
-                chaves, kits, kit = familia
-                c, pat = maior_kit_por_chapa(piece_info, kit, kits, sheet_w, sheet_h,
-                                              estrategia, kerf, estagios)
-            if c == 0:
-                # sem isso a mesma âncora voltaria para sempre
-                sem_lugar[ancora] = restante[ancora]
-                restante[ancora] = 0
-                continue
-
-            n_familia += 1
-            vezes = kits // c      # na fase 'cheias' o que sobra de kits fica para o resto
+        n_familia += 1
+        for pat, chapas in grupos:
             for k, q in pat.counts.items():
-                restante[k] = max(0, restante[k] - q * vezes)
-            # as sobras dessas chapas recebem o pendente ANTES de abrir chapa nova
-            grupos, restante = absorver(pat, vezes, restante, chaves, piece_info, sheet_w,
-                                         sheet_h, kerf, estagios, aprendido, **enchimento)
-            for g in grupos:
-                g.familia = n_familia
-                padroes.append(g)
+                restante[k] = max(0, restante[k] - q * chapas)
+        # as sobras dessas chapas recebem o pendente ANTES de abrir chapa nova
+        novos, restante = _absorver_inteiros(grupos, restante, chaves, piece_info, sheet_w,
+                                              sheet_h, kerf, estagios, aprendido)
+        for g in novos:
+            g.familia = n_familia
+            padroes.append(g)
 
     return padroes, sem_lugar
 
