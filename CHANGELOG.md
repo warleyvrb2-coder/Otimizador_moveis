@@ -4,6 +4,21 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-11-04 — Aprendizado completa o espaço com a MESMA peça (não só uma)
+
+No online, a sugestão automática colocava UMA peça aprendida por padrão (uma faixa fina de
+~55x550 mm no canto da chapa) e deixava ~1.175 mm da mesma coluna vazios, onde cabiam mais
+duas iguais. `aplicar_aprendizado` tinha um `break` logo após o primeiro encaixe.
+
+- `pipeline.aplicar_aprendizado`: depois do primeiro encaixe, repete a MESMA peça enquanto
+  couber outra nas sobras (mesma orientação, guilhotina validada), com teto de
+  `MAX_SUGESTAO_POR_CHAPA` (40) por chapa. O banner passa a dizer "N por chapa, M un".
+- Efeito colateral esperado: a produção a mais (sugestão marcada) cresce, pois cada chapa
+  leva todas as iguais que cabem. Continua fora do pedido e aparece em "Peças extras".
+
+Teste com uma regra aprendida de teste (peça 442x70) no lote 1456: 6 por chapa em 112 chapas
+(antes 1), 408 chapas (igual), nenhum padrão inválido, sem falta.
+
 ## 2026-11-03 (4) — Publicação: giro em série por padrão no Railway
 
 Antes de enviar para o online: `PROCESSOS` (processos paralelos da busca de giro)

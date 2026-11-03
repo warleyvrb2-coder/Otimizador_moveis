@@ -205,7 +205,8 @@ clique em "Otimizar corte".
    avulsas no plano manual.
 9. **Aprendizado (decisão A, 28/10).** (a) Combinações: peças que o operador já
    juntou passam na frente no enchimento das sobras; (b) a
-   sugestão automática de peças a mais continua, marcada como "sugestão
+   sugestão automática de peças a mais continua, completando o espaço com a MESMA
+   peça (quantas couberem, até 40 por chapa), marcada como "sugestão
    automática", fora da conta do pedido, e só em chapa com pelo menos 50% de
    pedido (`MIN_PEDIDO_SUGESTAO` em `pipeline.py`).
 10. **Aceite.** `python regua_operador.py`: nº de chapas ≤ o do operador nos

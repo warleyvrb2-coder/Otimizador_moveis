@@ -171,6 +171,8 @@ def agrupar(todas_pecas: list, respeitar_veio: bool) -> dict:
 # chapa de resto quase vazia ela virava a maior parte da chapa (peça a mais só
 # para encher sobra)
 MIN_PEDIDO_SUGESTAO = 50.0
+# Teto de segurança de peças iguais que o aprendizado coloca numa mesma chapa
+MAX_SUGESTAO_POR_CHAPA = 40
 
 
 def aplicar_aprendizado(grupos_resultado: list, par: dict) -> list[dict]:
@@ -209,28 +211,38 @@ def aplicar_aprendizado(grupos_resultado: list, par: dict) -> list[dict]:
                 p = pecas_cad.get(regra['peca_cod'])
                 if not p:
                     continue
-                livres = edicao.retalhos_livres(pad['itens'], par['chapa_larg'], par['chapa_alt'],
-                                                 kerf=par['kerf'])
-                for ret in livres:
-                    enc = edicao.encaixar(ret, p['comp_mm'], p['larg_mm'], par['kerf'],
-                                           pode_girar=not (g['tem_veio'] and p['aparente']),
-                                           forcar_giro=orientacao_travada.get(p['cod']))
-                    if not enc:
-                        continue
-                    teste = pad['itens'] + [{'cod': p['cod'], 'desc': p['descricao'],
-                                              'piece_key': p['cod'] + '_sugerido',
-                                              'shelf': 0, **enc}]
-                    if edicao.validar_padrao(teste, par['chapa_larg'], par['chapa_alt'],
-                                              par['estagios']):
-                        continue
-                    pad['itens'] = teste
-                    pad['sugerido'] = True
-                    orientacao_travada.setdefault(p['cod'], enc['rotated'])
+                # Completa com a MESMA peça: repete enquanto couber outra igual nas
+                # sobras (antes parava na primeira e deixava o resto da coluna vazio)
+                colocadas = 0
+                while colocadas < MAX_SUGESTAO_POR_CHAPA:
+                    livres = edicao.retalhos_livres(pad['itens'], par['chapa_larg'],
+                                                     par['chapa_alt'], kerf=par['kerf'])
+                    entrou = False
+                    for ret in livres:
+                        enc = edicao.encaixar(ret, p['comp_mm'], p['larg_mm'], par['kerf'],
+                                               pode_girar=not (g['tem_veio'] and p['aparente']),
+                                               forcar_giro=orientacao_travada.get(p['cod']))
+                        if not enc:
+                            continue
+                        teste = pad['itens'] + [{'cod': p['cod'], 'desc': p['descricao'],
+                                                  'piece_key': p['cod'] + '_sugerido',
+                                                  'shelf': 0, **enc}]
+                        if edicao.validar_padrao(teste, par['chapa_larg'], par['chapa_alt'],
+                                                  par['estagios']):
+                            continue
+                        pad['itens'] = teste
+                        pad['sugerido'] = True
+                        orientacao_travada.setdefault(p['cod'], enc['rotated'])
+                        colocadas += 1
+                        entrou = True
+                        break
+                    if not entrou:
+                        break
+                if colocadas:
                     aplicadas.append({'cor': g['cor'], 'cod': p['cod'],
                                        'desc': p['descricao'], 'padrao': pad['n'],
-                                       'vezes': regra['vezes'],
-                                       'quantidade': pad['repeticoes']})
-                    break
+                                       'vezes': regra['vezes'], 'por_chapa': colocadas,
+                                       'quantidade': pad['repeticoes'] * colocadas})
     return aplicadas
 
 
