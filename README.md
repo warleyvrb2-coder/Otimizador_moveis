@@ -137,10 +137,12 @@ clique em "Otimizar corte".
 - `sequencial.py` + `familias.py` — **motor principal**, regido por duas regras
   (seção abaixo): maiores primeiro, iguais juntas até acabar.
   1. **Âncora:** a peça pendente mais comprida.
-  2. **Chapas seguidas só da âncora:** cabem `c` peças numa chapa; a peça gasta
-     S = ceil(quantidade / c) chapas e `familias.distribuir_chapas` reparte a
-     quantidade **por igual** entre elas (no máximo 2 padrões: `base+1` e `base`
-     peças), então não existe chapa de resto com 1 ou 2 peças misturadas.
+  2. **Chapas cheias só da âncora:** cabem `c` peças numa chapa; `familias.
+     distribuir_chapas` enche chapas cheias dela (`c` em cada) e deixa o resto
+     para a última chapa (ex.: 50 peças a 24 por chapa = 24 + 24 + 2). A sobra
+     grande fica na última chapa, onde o enchimento a aproveita. (Antes se
+     repartia por igual, 17 + 17 + 16, e o espaço de cada chapa era completado
+     por outra peça.)
      Não há kits por proporção de quantidade (foram retirados em 02/11: eles
      misturavam a peça com outras desde a primeira chapa).
   3. **Enchimento (`familias.absorver`):** as sobras dessas chapas recebem o
@@ -180,9 +182,8 @@ clique em "Otimizar corte".
 
 **Regras principais**
 1. **Maiores primeiro.** A âncora é sempre a peça pendente de maior comprimento.
-2. **Iguais juntas até acabar.** Cada tipo de peça ocupa chapas seguidas só
-   dele até a quantidade terminar, repartida por igual (sem chapa final com 1 ou
-   2 peças). Outro tipo entra nas sobras e pode ficar em parte uma única vez (o
+2. **Iguais juntas até acabar.** Cada tipo de peça enche chapas cheias só dele
+   até a quantidade terminar, e o resto vai na última chapa. Outro tipo entra nas sobras e pode ficar em parte uma única vez (o
    resto vira chapas dele): a mesma peça fica em no máximo 2 grupos.
 
 **Demais regras**

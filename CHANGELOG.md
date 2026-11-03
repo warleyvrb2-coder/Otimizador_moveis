@@ -4,6 +4,26 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-11-03 (3) — A peça enche chapas CHEIAS dela; o resto vai na última (fim da distribuição por igual)
+
+No Kamban 1436 CASTANHO a 8835 (2104x73, 50 peças, 24 por chapa) saía 17 + 17 + 16, com o
+mesmo espaço sobrando em cada chapa, e esse espaço era completado por OUTRA peça (a
+8821, tira parecida). O usuário queria completar com a mesma peça. A "distribuição por
+igual" tinha sido criada para não ter chapa final com 1 ou 2 peças misturadas, mas isso
+já foi resolvido ao tirar a fase "resto" (agora o resto é da própria peça).
+
+- `familias.distribuir_chapas`: enche chapas cheias da peça (`c` em cada) e deixa o
+  resto para a última chapa (50 = 24 + 24 + 2). A sobra grande fica na última chapa,
+  onde o enchimento a aproveita. A 8821 deixou de aparecer nas chapas da 8835 cheias
+  (só na última, em parte) e passou a ter chapas próprias de 25.
+
+Chapas em 22 lotes (sem busca de giro): 14.960 -> 15.012 (+0,3%; 52 chapas, maior efeito em
+Copacabana +34 e Atlanta +17). Com a busca de giro, plano completo: 1456+1458 857, 1456 408,
+1437 373, 1436 271. Régua do operador 16 de 16. Sem orientação mista, sem corte inválido,
+sem falta.
+
+Ponto de volta: tag `motor-v2-parcial` (commit 00d166a, distribuição por igual).
+
 ## 2026-11-03 (2) — Enchimento em parte (no máximo 2 grupos por peça)
 
 Varredura em 22 lotes (todos os PDFs de `Downloads/Kambam`): com a regra "só

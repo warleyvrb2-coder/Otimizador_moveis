@@ -5,9 +5,9 @@ da peça mais comprida para a mais curta.
 
 Regras de negócio (pedidas pela produção):
   1) MAIORES PRIMEIRO: a peça de maior comprimento ainda pendente é a âncora;
-  2) IGUAIS JUNTAS ATÉ ACABAR: ela ocupa chapas seguidas só dela (familias.py),
-     com a quantidade repartida por igual, até acabar; nos espaços que sobram
-     entra outro tipo, que pode ficar em parte uma única vez (no máximo 2 grupos);
+  2) IGUAIS JUNTAS ATÉ ACABAR: ela enche chapas cheias só dela (familias.py) até
+     acabar, e o resto vai na última chapa; nos espaços que sobram entra outro
+     tipo, que pode ficar em parte uma única vez (no máximo 2 grupos);
   3) esgotada a peça, passa-se para a próxima âncora, até o fim.
 
 Difere do Column Generation (column_generation.py), que olha o lote inteiro e
@@ -75,10 +75,10 @@ def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
     Uma passada completa com uma estratégia de empacotamento. Duas regras:
 
     1) MAIORES PRIMEIRO: a âncora é sempre a peça pendente de maior comprimento;
-    2) IGUAIS JUNTAS ATÉ ACABAR: a âncora faz chapas seguidas só dela até a
-       quantidade terminar, repartida por igual entre as chapas (sem chapa de
-       resto com 1 ou 2 peças). Outro tipo entra nas sobras e pode ficar em PARTE
-       uma única vez (o resto vira chapas dele): no máximo 2 grupos por peça.
+    2) IGUAIS JUNTAS ATÉ ACABAR: a âncora enche chapas CHEIAS só dela até a
+       quantidade terminar e o resto vai na última chapa. Outro tipo entra nas
+       sobras e pode ficar em PARTE uma única vez (o resto vira chapas dele): no
+       máximo 2 grupos por peça.
 
     Devolve (padroes_na_ordem_de_criacao, sem_lugar) - sem_lugar: tipos que não
     cabem nem sozinhos numa chapa.

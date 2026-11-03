@@ -5,8 +5,9 @@ Montagem das chapas de UMA peça só, mais o enchimento das sobras.
 Antes existiam kits por proporção de quantidade (ex.: 1.160/928/232 = 5:4:1).
 Foram retirados: misturavam a peça com outras desde a primeira chapa e deixavam
 a mesma peça espalhada (ex.: 5 do 9202 por chapa em 10 chapas, quando cabem 12
-numa chapa só dela). Agora a peça enche chapas só dela, repartida por igual, e
-o que sobra de espaço é completado por outros tipos que caibam INTEIROS.
+numa chapa só dela). Agora a peça enche chapas cheias só dela e o resto vai na
+última chapa; o que sobra de espaço é completado por outros tipos (em parte, uma
+única vez cada).
 """
 from column_generation import Pattern, _generate_pattern
 from optimizer import PlacedItem, _maior_primeiro, _cabem
@@ -59,30 +60,25 @@ def distribuir_chapas(piece_info: dict, chave: str, quantidade: int, por_chapa: 
                       sheet_w: int, sheet_h: int, estrategia: str, kerf: float,
                       estagios: int) -> list:
     """
-    Reparte `quantidade` por igual em S = ceil(quantidade / por_chapa) chapas:
-    nenhuma fica com 1 ou 2 peças sobrando no fim (o resto de uma peça não vira
-    chapa à parte, misturada com outras). Gasta as mesmas S chapas que "por_chapa
-    em cada uma + uma chapa de resto".
+    Enche chapas CHEIAS da peça (`por_chapa` em cada uma) e deixa o resto para a
+    última chapa. Ex.: 50 peças que cabem 24 por chapa = 24 + 24 + 2. Repartir por
+    igual (17 + 17 + 16) deixava o mesmo espaço sobrando em todas as chapas, e ele
+    acabava completado por OUTRA peça; assim a sobra grande fica na última chapa,
+    onde o enchimento a aproveita.
 
-    Devolve [(padrão, nº de chapas)], no máximo 2 padrões (com `base + 1` peças e
-    com `base`). Se o empacotador não fechar exatamente algum deles, usa mais
-    chapas (S + 1, ...) até fechar.
+    Devolve [(padrão, nº de chapas)]: o das chapas cheias e, se sobrar peça, o da
+    chapa do resto. Lista vazia se o empacotador não fechar o resto exatamente.
     """
-    chapas = -(-quantidade // por_chapa)
-    while chapas <= quantidade:
-        base, extra = divmod(quantidade, chapas)
-        grupos = []
-        for k, n in ((base + 1, extra), (base, chapas - extra)):
-            if n:
-                n_k, pat = maior_quantidade_por_chapa(piece_info, chave, k, sheet_w, sheet_h,
-                                                       estrategia, kerf, estagios)
-                if n_k != k:
-                    break
-                grupos.append((pat, n))
-        else:
-            return grupos
-        chapas += 1
-    return []
+    cheias, resto = divmod(quantidade, por_chapa)
+    grupos = []
+    for k, n in ((por_chapa, cheias), (resto, 1 if resto else 0)):
+        if n:
+            n_k, pat = maior_quantidade_por_chapa(piece_info, chave, k, sheet_w, sheet_h,
+                                                   estrategia, kerf, estagios)
+            if n_k != k:
+                return []
+            grupos.append((pat, n))
+    return grupos
 
 
 def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
