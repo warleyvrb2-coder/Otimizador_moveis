@@ -144,8 +144,10 @@ clique em "Otimizar corte".
      Não há kits por proporção de quantidade (foram retirados em 02/11: eles
      misturavam a peça com outras desde a primeira chapa).
   3. **Enchimento (`familias.absorver`):** as sobras dessas chapas recebem o
-     pendente dos outros tipos, mas só quem cabe **inteiro** (se um tipo
-     ficasse pela metade, ele é barrado e vira âncora própria depois).
+     pendente dos outros tipos. Um tipo pode ser absorvido em **parte uma única
+     vez**: o resto dele vira chapas dele mais adiante, então a mesma peça fica
+     em no máximo 2 grupos. Quem já foi absorvido em parte antes só entra de novo
+     se couber tudo o que falta (senão seria um 3º grupo).
   Em qualquer passo: no máximo 4 tipos de peça por chapa (`MAX_TIPOS`) e
   roda com as 3 estratégias de empacotamento, ficando com a de menos chapas.
   **Giro em até 3 rodadas (`RODADAS`).** A 1ª monta o plano com a orientação do
@@ -180,7 +182,8 @@ clique em "Otimizar corte".
 1. **Maiores primeiro.** A âncora é sempre a peça pendente de maior comprimento.
 2. **Iguais juntas até acabar.** Cada tipo de peça ocupa chapas seguidas só
    dele até a quantidade terminar, repartida por igual (sem chapa final com 1 ou
-   2 peças). Outro tipo só entra nas sobras se couber inteiro nelas.
+   2 peças). Outro tipo entra nas sobras e pode ficar em parte uma única vez (o
+   resto vira chapas dele): a mesma peça fica em no máximo 2 grupos.
 
 **Demais regras**
 3. **Pedido.** O Kambam, por cor e espessura. O motor produz exatamente o

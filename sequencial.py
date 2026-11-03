@@ -7,7 +7,7 @@ Regras de negócio (pedidas pela produção):
   1) MAIORES PRIMEIRO: a peça de maior comprimento ainda pendente é a âncora;
   2) IGUAIS JUNTAS ATÉ ACABAR: ela ocupa chapas seguidas só dela (familias.py),
      com a quantidade repartida por igual, até acabar; nos espaços que sobram
-     entra outro tipo só se couber inteiro;
+     entra outro tipo, que pode ficar em parte uma única vez (no máximo 2 grupos);
   3) esgotada a peça, passa-se para a próxima âncora, até o fim.
 
 Difere do Column Generation (column_generation.py), que olha o lote inteiro e
@@ -40,13 +40,18 @@ def _ancora(chaves, piece_info: dict) -> str | None:
 
 def _absorver_inteiros(grupos: list, restante: dict, ancora: str, piece_info: dict,
                        sheet_w: int, sheet_h: int, kerf: float, estagios: int,
-                       prioridade: dict | None) -> tuple[list, dict]:
+                       prioridade: dict | None, ja_parcial: set) -> tuple[list, dict]:
     """
-    Absorve o pendente nas sobras dos `grupos` (padrão, nº de chapas) da âncora,
-    mas só deixa entrar como enchimento o tipo que cabe INTEIRO nelas: se um tipo
-    ficasse em parte aqui e em parte em outro padrão, as peças iguais estariam
-    espalhadas. O tipo que ficou pela metade é barrado e a absorção refeita; ele
-    volta a ser tratado como âncora própria, mais adiante.
+    Absorve o pendente nas sobras dos `grupos` (padrão, nº de chapas) da âncora.
+
+    Cada tipo pode ser absorvido em PARTE uma única vez (`ja_parcial` guarda quem
+    já foi): o resto dele vira chapas dele mais adiante, então a mesma peça fica
+    em no máximo 2 grupos. Quem já foi absorvido em parte antes só entra de novo
+    se couber TODO o que falta: senão seria um 3º grupo e as peças iguais
+    ficariam espalhadas. O tipo barrado volta a ser âncora própria.
+
+    Devolve (padrões, pendente) e atualiza `ja_parcial` com os tipos que ficaram
+    pela metade nesta absorção.
     """
     barrados: set = set()
     while True:
@@ -56,9 +61,11 @@ def _absorver_inteiros(grupos: list, restante: dict, ancora: str, piece_info: di
                                         sheet_w, sheet_h, kerf, estagios, prioridade)
             padroes += novos
         pela_metade = {k for k, q in pendente.items() if 0 < q < restante[k]}
-        if not pela_metade:
+        segundo_pedaco = pela_metade & ja_parcial
+        if not segundo_pedaco:
+            ja_parcial |= pela_metade
             return padroes, pendente
-        barrados |= pela_metade
+        barrados |= segundo_pedaco
 
 
 def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
@@ -70,7 +77,8 @@ def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
     1) MAIORES PRIMEIRO: a âncora é sempre a peça pendente de maior comprimento;
     2) IGUAIS JUNTAS ATÉ ACABAR: a âncora faz chapas seguidas só dela até a
        quantidade terminar, repartida por igual entre as chapas (sem chapa de
-       resto com 1 ou 2 peças). Outro tipo só entra nas sobras se couber inteiro.
+       resto com 1 ou 2 peças). Outro tipo entra nas sobras e pode ficar em PARTE
+       uma única vez (o resto vira chapas dele): no máximo 2 grupos por peça.
 
     Devolve (padroes_na_ordem_de_criacao, sem_lugar) - sem_lugar: tipos que não
     cabem nem sozinhos numa chapa.
@@ -82,6 +90,7 @@ def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
     padroes: list[Pattern] = []
     sem_lugar: dict = {}
     n_grupo = 0
+    ja_parcial: set = set()    # tipos já absorvidos em parte numa âncora anterior
 
     while len(padroes) < max_padroes:
         ancora = _ancora((k for k, q in restante.items() if q > 0), piece_info)
@@ -104,7 +113,7 @@ def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
         # as sobras dessas chapas recebem o pendente ANTES de abrir chapa nova
         aprendido = afinidade_fn(ancora) if afinidade_fn else None
         novos, restante = _absorver_inteiros(grupos, restante, ancora, piece_info, sheet_w,
-                                              sheet_h, kerf, estagios, aprendido)
+                                              sheet_h, kerf, estagios, aprendido, ja_parcial)
         for g in novos:
             g.familia = n_grupo
             padroes.append(g)

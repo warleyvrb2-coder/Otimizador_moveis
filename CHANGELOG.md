@@ -4,6 +4,35 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-11-03 (2) — Enchimento em parte (no máximo 2 grupos por peça)
+
+Varredura em 22 lotes (todos os PDFs de `Downloads/Kambam`): com a regra "só
+entra como enchimento o tipo que cabe INTEIRO", chapas de uma peça só (ex.: 8835
+2104x73, 24 por chapa, 3 chapas a 50%) ficavam com a sobra vazia porque nenhum
+outro tipo cabia inteiro em tão poucas chapas. Parte do problema é geometria (o
+Column Generation dá o mesmo em Atenas, 367, e Master OFF, 40); parte era a
+regra: Monaco CINAMOMO 1.328 contra 1.168 na versão anterior, Roma CASTANHO 242
+contra 215 no Column Generation.
+
+- `_absorver_inteiros` (`sequencial.py`): cada tipo pode ser absorvido em PARTE uma
+  única vez (`ja_parcial`); o resto vira chapas dele mais adiante, então a peça fica
+  em no máximo 2 grupos. Quem já foi absorvido em parte só volta a entrar se couber
+  tudo o que falta; senão é barrado e vira âncora própria.
+
+Chapas em 22 lotes (sem busca de giro, só diagnóstico): 15.413 -> 14.960 (-2,9%),
+nenhum lote pior. Maiores ganhos: Monaco CINAMOMO -9,9%, Roma CASTANHO -7,9%, 1458
+-7,7%, Dallas -5,5%. Mistura dos planos do operador: 2.511 -> 2.271 (régua 16 de 16).
+Lotes que não mudaram (Atenas, Master OFF, Moscou OFF) estão no limite da geometria
+(o Column Generation dá o mesmo). Gap que sobrou contra o Column Generation (10 s
+por grupo): Roma CINAMOMO 1.518 contra 1.451 (+4,6%), Copacabana 1.529 contra 1.494
+(+2,3%), Siena 1.622 contra 1.606 (+1,0%).
+
+Com a busca de giro, pelo pipeline completo: 1456+1458 940 -> 858, 1456 410, 1437 371,
+1436 274. Sem orientação mista, sem corte inválido, sem falta.
+
+Backup antes desta mudança: branch `backup/motor-v2-sem-kits` e tag `motor-v2`
+(commit 115f9c0), mais `backups/cadastro_motor-v2_2026-11-03.db` (fora do git).
+
 ## 2026-11-03 — Reequilibrar: não apaga o que você editou, não reduz o pedido e diz para onde as peças foram
 
 Teste do usuário no lote 1456+1458: tirou 5 peças 12057 do Padrão 11 (plano
