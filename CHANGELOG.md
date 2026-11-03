@@ -4,6 +4,15 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-11-03 (4) — Publicação: giro em série por padrão no Railway
+
+Antes de enviar para o online: `PROCESSOS` (processos paralelos da busca de giro)
+usava `os.cpu_count()`, que no Railway enxerga os núcleos da máquina inteira, e cada
+processo de OR-Tools pesa em memória. Agora o padrão em nuvem é 1 (série), o pool usa
+sempre `spawn` (fork a partir do gunicorn com threads pode travar), e quem quiser
+paralelismo online define `PROCESSOS` no painel. Localmente nada muda. O cálculo online
+fica mais lento nos lotes grandes (a busca de giro roda em série), sem mudar o resultado.
+
 ## 2026-11-03 (3) — A peça enche chapas CHEIAS dela; o resto vai na última (fim da distribuição por igual)
 
 No Kamban 1436 CASTANHO a 8835 (2104x73, 50 peças, 24 por chapa) saía 17 + 17 + 16, com o

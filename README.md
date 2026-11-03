@@ -47,7 +47,7 @@ Variáveis de ambiente:
 | `DB_PATH` | caminho do SQLite, se quiser fora do `DATA_DIR` | `DATA_DIR/cadastro.db` |
 | `FORCAR_SENHA` | trata como "em nuvem" mesmo rodando fora do Railway (testar o bloqueio de senha localmente) | vazio |
 | `FLASK_DEBUG` | liga o reloader/debugger do Flask - **nunca em produção** | vazio |
-| `PROCESSOS` | quantos processos testam o giro das peças ao mesmo tempo (1 = sem paralelismo) | nº de núcleos, no máximo 8 |
+| `PROCESSOS` | quantos processos testam o giro das peças ao mesmo tempo (1 = sem paralelismo) | nº de núcleos, no máximo 8; **1 no Railway** (mais processos estouram a memória do serviço) |
 
 Chapa, serra, altura de pilha, estágios e tempo de cálculo por grupo **não
 são mais variável de ambiente** — viraram parâmetro de cada máquina

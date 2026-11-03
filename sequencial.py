@@ -16,6 +16,7 @@ melhor encaixe e acaba espalhando um mesmo código por vários padrões. Aqui o
 critério principal é a ORDEM; o aproveitamento vem de preencher bem cada
 chapa dentro dessa ordem.
 """
+import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
@@ -166,8 +167,12 @@ def _testar_giro(tarefa: tuple) -> tuple:
 
 
 # Processos que testam giros ao mesmo tempo (1 = sem paralelismo). O teto de 8 é
-# porque cada teste é pesado em memória; mais que isso quase não acelera.
-PROCESSOS = int(os.environ.get('PROCESSOS', min(8, os.cpu_count() or 1)))
+# porque cada teste é pesado em memória; mais que isso quase não acelera. Em nuvem
+# (Railway) o padrão é 1: os.cpu_count() enxerga os núcleos da máquina inteira, não
+# os do plano, e vários processos de OR-Tools estouram a memória do serviço. Quem
+# quiser paralelismo online define PROCESSOS no painel, depois de medir.
+_EM_NUVEM = bool(os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_SERVICE_ID'))
+PROCESSOS = int(os.environ.get('PROCESSOS', 1 if _EM_NUVEM else min(8, os.cpu_count() or 1)))
 _pool = None
 
 
@@ -181,7 +186,9 @@ def _mapear(funcao, tarefas: list) -> list:
     if PROCESSOS > 1 and len(tarefas) > 1:
         try:
             if _pool is None:
-                _pool = ProcessPoolExecutor(max_workers=PROCESSOS)
+                # 'spawn' em qualquer sistema: fork a partir do gunicorn (com threads) trava
+                _pool = ProcessPoolExecutor(max_workers=PROCESSOS,
+                                            mp_context=multiprocessing.get_context('spawn'))
             return list(_pool.map(funcao, tarefas))
         except Exception:
             _pool = None
