@@ -6,6 +6,7 @@
   {{ '2 estágios + aparo' if estagios and estagios >= 3 else '2 estágios' }} ·
   {{ 'veio respeitado' if respeitar_veio else 'veio ignorado' }}
   {% if usar_aprendizado is defined %}· {{ 'aprendizado ligado' if usar_aprendizado else 'aprendizado desligado' }}{% endif %}
+  {% if max_tipos is defined %}· até {{ max_tipos }} tipo{{ 's' if max_tipos > 1 }} por chapa{{ ' · modo máximo' if modo_maximo }}{% endif %}
 {% endblock %}
 {% block acoes %}
   {% if plano and plano.aprovado %}

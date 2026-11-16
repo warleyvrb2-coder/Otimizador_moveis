@@ -167,6 +167,9 @@ clique em "Otimizar corte".
   plano aprovado (uma vez por plano). Só muda a prioridade das peças no
   enchimento das sobras.
 - `regua_operador.py` — o teste de aceite: `python regua_operador.py`.
+- `comparar_solver.py` — termômetro, fora da produção: compara o Motor com o solver
+  matemático (Column Generation) em Kambans de verdade e mostra quanto cada um mistura:
+  `python comparar_solver.py 120 "Kambam ( LOTE 1447 ).pdf"` (120 s de solver por cor).
 - **Reequilibrar plano** (`app._rebalancear_grupo`): muda o mínimo possível de
   chapas para o grupo voltar a fechar o pedido. O pedido original fica congelado
   em `pedido_base`, os padrões editados à mão ficam fixos e nunca saem, e a tela
@@ -192,8 +195,13 @@ clique em "Otimizar corte".
 4. **Sem famílias por proporção.** Peças com quantidades proporcionais NÃO são
    mais agrupadas em kit (era a causa de a mesma peça sair espalhada em chapas
    misturadas). Cada peça enche as chapas dela.
-5. **No máximo 4 tipos de peça por chapa** (`MAX_TIPOS` em `familias.py`; os
-   planos do operador têm até 3).
+5. **Mistura de peças na chapa, escolhida no upload** (`max_tipos`): *Nenhuma* (1 tipo,
+   espaço livre para manipular), *Até 2 tipos* (padrão, recomendado) ou *Até 4 tipos*
+   (máxima economia). `MAX_TIPOS = 4` em `familias.py` é só o teto do Motor.
+5b. **Modo máximo (opcional, desligado por padrão).** Roda o Motor inteiro uma vez para
+   cada limite de tipos de 4 até 2 (nunca acima do escolhido), com busca de giro própria, e
+   fica com a versão de menos chapas por cor e espessura. Cerca de 2 vezes mais lento e
+   rendeu pouco nos lotes medidos (ver CHANGELOG).
 6. **Corte.** Guilhotina com os estágios da máquina, veio respeitado, serra
    descontada, dimensão de chapa escolhida no plano. A peça só gira se o
    cadastro liberar, e o giro vale para o plano inteiro.
@@ -204,7 +212,7 @@ clique em "Otimizar corte".
 8. **Peças sem código** (ex.: 522×1775): continuam digitadas à mão como
    avulsas no plano manual.
 9. **Aprendizado, com interruptor (16/11).** Na tela de upload há a opção "Usar o
-   aprendizado", **desligada por padrão**: desligada, o plano usa só as peças do
+   aprendizado", **ligada por padrão** (o operador pode desmarcar): desligada, o plano usa só as peças do
    Kambam (nenhuma sugestão, nenhuma prioridade por combinação); ligada, vale o que
    segue. O cabeçalho do plano diz "aprendizado ligado" ou "desligado". Antes era
    sempre ligado, e uma peça fora do Kambam (ex.: 12135, 373x201) entrava sozinha.

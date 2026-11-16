@@ -106,8 +106,33 @@
       </div>
 
       <div class="opcao">
+        <div class="txt">
+          <div class="rot">Mistura de peças na chapa</div>
+          <div class="aj">Quantos tipos de peça diferentes podem dividir a mesma chapa.
+            Menos mistura deixa espaço livre para manipular à mão.</div>
+          <select name="mistura">
+            <option value="1">Nenhuma — só uma peça por chapa (usa mais chapas)</option>
+            <option value="2" selected>Até 2 tipos por chapa — recomendado</option>
+            <option value="4">Até 4 tipos por chapa — máxima economia</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="opcao">
         <label class="chave">
-          <input type="checkbox" name="usar_aprendizado"><span></span>
+          <input type="checkbox" name="modo_maximo"><span></span>
+        </label>
+        <div class="txt">
+          <div class="rot">Modo máximo</div>
+          <div class="aj">Testa várias versões do cálculo em cada cor e fica com a que usa
+            menos chapas, sem passar do limite de mistura escolhido. Demora mais (cerca de
+            3 vezes), nunca fica pior.</div>
+        </div>
+      </div>
+
+      <div class="opcao">
+        <label class="chave">
+          <input type="checkbox" name="usar_aprendizado" checked><span></span>
         </label>
         <div class="txt">
           <div class="rot">Usar o aprendizado</div>

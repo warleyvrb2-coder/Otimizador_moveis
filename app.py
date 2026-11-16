@@ -327,6 +327,9 @@ def otimizar():
     respeitar_veio = request.form.get('respeitar_veio') is not None
     # Aprendizado só entra se a pessoa marcar: sem a marca, o plano tem apenas as peças do Kambam.
     usar_aprendizado = request.form.get('usar_aprendizado') is not None
+    # Mistura de peças: 1 = nenhuma, 2 = recomendado, 4 = máxima economia (valor inválido cai em 2)
+    max_tipos = int(request.form.get('mistura', 2)) if request.form.get('mistura') in ('1', '2', '4') else 2
+    modo_maximo = request.form.get('modo_maximo') is not None
     # Uma descrição só pra toda a rodada: cada máquina com Kambam vira um
     # plano separado (comentário abaixo), mas na prática a pessoa está
     # identificando o LOTE que está subindo ("Pedido Fulano - outubro"), não
@@ -363,7 +366,8 @@ def otimizar():
         job = jobs.criar(
             pipeline.rodar, salvos, os.path.join(OUTPUT_DIR, job_id), f'/plano/{job_id}',
             respeitar_veio=respeitar_veio, max_depth=max_depth, maquina_id=maq['id'],
-            dimensao_id=dimensao_id, usar_aprendizado=usar_aprendizado, job_id=job_id,
+            dimensao_id=dimensao_id, usar_aprendizado=usar_aprendizado,
+            max_tipos=max_tipos, modo_maximo=modo_maximo, job_id=job_id,
             ao_terminar=lambda j: (banco.salvar_plano(j.id, j.resultado, descricao=descricao)
                                     if j.resultado and not j.resultado.get('erro') else None),
         )

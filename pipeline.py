@@ -303,12 +303,17 @@ def desenhar_padroes(grupos_resultado: list, par: dict, run_dir: str) -> None:
 def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
           respeitar_veio: bool = True, max_depth: int | None = None,
           maquina_id=None, progresso=None, dimensao_id=None,
-          usar_aprendizado: bool = False) -> dict:
+          usar_aprendizado: bool = False, max_tipos: int = 2,
+          modo_maximo: bool = False) -> dict:
     """
     Calcula o plano de corte completo.
 
     usar_aprendizado: False (padrão) = só as peças do Kambam; True = prioriza as
     combinações aprendidas no enchimento e acrescenta as peças sugeridas (extras).
+
+    max_tipos: no máximo quantos tipos de peça dividem uma chapa (1 = nenhuma mistura,
+    2 = recomendado, 4 = máxima economia). modo_maximo: testa várias versões do Motor
+    por grupo e fica com a melhor (mais lento).
 
     progresso: callable(feito, total, texto) chamado a cada grupo concluído,
     pra alimentar a tela de acompanhamento enquanto o cálculo roda.
@@ -350,7 +355,7 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         sheets, sobras, padroes = optimize_group_sequencial(
             [PieceType(**{**t.__dict__}) for t in tipos],
             largura, altura, kerf=par['kerf'], estagios=par['estagios'],
-            combinacoes=combinacoes,
+            combinacoes=combinacoes, max_tipos=max_tipos, modo_maximo=modo_maximo,
         )
 
         rateio = ratear_por_lote(padroes, tipos_dict, ordem_lotes)
@@ -425,6 +430,8 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         'estagios': par['estagios'],
         'respeitar_veio': respeitar_veio,
         'usar_aprendizado': usar_aprendizado,
+        'max_tipos': max_tipos,
+        'modo_maximo': modo_maximo,
         'maquina': par.get('maquina_nome'),
         'maquina_id': maquina_id,
         'pilha_max': par['pilha_max'],

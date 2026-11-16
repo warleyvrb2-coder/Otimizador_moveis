@@ -34,7 +34,17 @@ def teste_ajuste_minimo_sobra() -> None:
     assert novo == [3], novo
 
 
+def teste_variantes_do_modo_maximo() -> None:
+    """O modo máximo testa do limite até 2 e nunca passa do limite escolhido."""
+    from sequencial import _variantes
+    assert _variantes(4, True) == [4, 3, 2]
+    assert _variantes(2, True) == [2]
+    assert _variantes(1, True) == [1]
+    assert _variantes(4, False) == [4]
+
+
 if __name__ == '__main__':
+    teste_variantes_do_modo_maximo()
     teste_arraste_encaixa_alinhado()
     teste_arraste_longe_fica_onde_caiu()
     teste_ajuste_minimo_falta()

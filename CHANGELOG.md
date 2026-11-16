@@ -4,6 +4,38 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-11-17 — Seletor de mistura, modo máximo e solver como termômetro
+
+**Padrão do aprendizado:** a opção "Usar o aprendizado" agora vem MARCADA no formulário
+(a pedido do usuário); desmarcar continua gerando o plano só com as peças do Kambam. Quem chama
+`pipeline.rodar` direto (scripts, testes) continua com `usar_aprendizado=False`.
+
+Decisão após comparar o Motor com o Column Generation (120 a 180 s por grupo): em 9
+grupos o Motor fez 2.490 chapas contra 2.528 do solver, que ainda mistura muito mais (no
+lote 1447, 704 de 1.019 chapas com 3 ou mais tipos). Fica o Motor em produção.
+
+- `max_tipos` virou PARÂMETRO (antes era a constante `MAX_TIPOS`): passa do formulário por
+  `pipeline.rodar`, `optimize_group_sequencial`, `_absorver_inteiros`, `absorver` e
+  `preencher_sobras`, inclusive para os processos do giro (que não enxergam variável global).
+- Upload: "Mistura de peças na chapa" (Nenhuma / Até 2 tipos, padrão / Até 4 tipos) e
+  "Modo máximo" (desmarcado). Valor inválido cai em 2. O cabeçalho do plano mostra
+  "até N tipos por chapa" e "modo máximo".
+- Modo máximo (`_variantes`): testa os limites 4, 3 e 2 (nunca acima do escolhido), cada um
+  com sua busca de giro, e fica com o de menos chapas (empate: menos padrões, depois menos
+  mistura). Cada padrão guarda `max_tipos` da versão vencedora.
+- `comparar_solver.py`: compara Motor e solver por grupo (chapas, padrões, mistura, tempo).
+
+Medido pelo caminho completo em 5 lotes (1447, 1456, 1456+1458, 1437 CINAMOMO, 1436 CAST),
+sem peça faltando em nenhum caso:
+| configuração | chapas | padrões | chapas com 3+ tipos | tempo |
+| até 2 tipos | 3.327 | 129 | 0 | 320 s |
+| até 4 tipos | 3.265 | 137 | 1.037 | 380 s |
+| até 4 + modo máximo | 3.262 | 131 | 674 | 779 s |
+O modo máximo economizou só 3 chapas (0,1%) por 2 vezes o tempo: a estimativa anterior de
+0,4% vinha da varredura sem giro e não se confirmou. Até 2 tipos custou 1,9% nesses lotes
+(0% a 0,3% no 1447, 1456 e 1437; 5,5% no 1456+1458 e no 1436); na varredura de 23 PDFs sem
+giro tinha custado 0,5%.
+
 ## 2026-11-16 — Interruptor "Usar o aprendizado" (desligado por padrão)
 
 Relato do operador no lote 1447 (digitado como 1467): o plano automático misturou peças

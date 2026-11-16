@@ -83,10 +83,11 @@ def distribuir_chapas(piece_info: dict, chave: str, quantidade: int, por_chapa: 
 
 def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
                        piece_info: dict, sheet_w: int, sheet_h: int, kerf: float,
-                       estagios: int, prioridade: dict | None = None) -> Pattern:
+                       estagios: int, prioridade: dict | None = None,
+                       max_tipos: int = MAX_TIPOS) -> Pattern:
     """
     Completa as sobras da chapa com as peças menores, da mais
-    comprida para a mais curta, sem passar de MAX_TIPOS tipos na chapa.
+    comprida para a mais curta, sem passar de `max_tipos` tipos na chapa.
 
     `vezes` é quantas chapas repetem este padrão: cada peça de enchimento entra
     no máximo `pendente // vezes` por chapa, para a repetição nunca passar do
@@ -101,7 +102,7 @@ def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
     itens = [{'cod': i.cod, 'desc': i.desc, 'piece_key': i.piece_key, 'shelf': 0,
               'x': i.x, 'y': i.y, 'w': i.w, 'h': i.h, 'rotated': i.rotated} for i in pat.items]
     counts = dict(pat.counts)
-    tipos_livres = MAX_TIPOS - len(counts)
+    tipos_livres = max_tipos - len(counts)
     ordem = sorted((k for k, q in restante.items() if q > 0 and k not in excluir),
                    key=lambda k: ((-(prioridade or {}).get(k, 0),)
                                   + _maior_primeiro(piece_info[k].w, piece_info[k].h, piece_info[k].cod)))
@@ -148,12 +149,13 @@ def preencher_sobras(pat: Pattern, restante: dict, excluir: set, vezes: int,
 
 def absorver(pat: Pattern, vezes: int, restante: dict, excluir: set, piece_info: dict,
              sheet_w: int, sheet_h: int, kerf: float, estagios: int,
-             prioridade: dict | None = None, max_rondas: int = 8) -> tuple[list, dict]:
+             prioridade: dict | None = None, max_rondas: int = 8,
+             max_tipos: int = MAX_TIPOS) -> tuple[list, dict]:
     """
     Espalha o que está pendente (`restante`) nas sobras das `vezes` chapas do
     padrão `pat`, ANTES de abrir qualquer chapa nova.
 
-    Cada rodada enche a sobra com o que couber (até MAX_TIPOS tipos no total) e
+    Cada rodada enche a sobra com o que couber (até `max_tipos` tipos no total) e
     repete esse enchimento nas chapas que as peças pendentes alcançam; a chapa
     do padrão se divide em grupos (mesma chapa da peça, enchimentos
     diferentes) até as peças acabarem ou não caber mais nada. As que sobram
@@ -171,7 +173,7 @@ def absorver(pat: Pattern, vezes: int, restante: dict, excluir: set, piece_info:
         if chapas <= 0:
             break
         cheia = preencher_sobras(pat, pendente, excluir, 1, piece_info, sheet_w, sheet_h,
-                                  kerf, estagios, prioridade)
+                                  kerf, estagios, prioridade, max_tipos)
         extra = {k: q - base.get(k, 0) for k, q in cheia.counts.items() if q > base.get(k, 0)}
         if not extra:
             break

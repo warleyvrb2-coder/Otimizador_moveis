@@ -23,7 +23,7 @@ from dataclasses import replace
 
 from optimizer import PieceType, SheetResult, _maior_primeiro, KERF_MM
 from column_generation import Pattern
-from familias import maior_quantidade_por_chapa, absorver, distribuir_chapas
+from familias import maior_quantidade_por_chapa, absorver, distribuir_chapas, MAX_TIPOS
 
 ESTRATEGIAS = ('area', 'width', 'height')
 # rodadas de refinamento: a 1ª é o plano base, as seguintes testam girar peças
@@ -41,7 +41,8 @@ def _ancora(chaves, piece_info: dict) -> str | None:
 
 def _absorver_inteiros(grupos: list, restante: dict, ancora: str, piece_info: dict,
                        sheet_w: int, sheet_h: int, kerf: float, estagios: int,
-                       prioridade: dict | None, ja_parcial: set) -> tuple[list, dict]:
+                       prioridade: dict | None, ja_parcial: set,
+                       max_tipos: int = MAX_TIPOS) -> tuple[list, dict]:
     """
     Absorve o pendente nas sobras dos `grupos` (padrão, nº de chapas) da âncora.
 
@@ -59,7 +60,8 @@ def _absorver_inteiros(grupos: list, restante: dict, ancora: str, piece_info: di
         pendente, padroes = dict(restante), []
         for pat, chapas in grupos:
             novos, pendente = absorver(pat, chapas, pendente, {ancora} | barrados, piece_info,
-                                        sheet_w, sheet_h, kerf, estagios, prioridade)
+                                        sheet_w, sheet_h, kerf, estagios, prioridade,
+                                        max_tipos=max_tipos)
             padroes += novos
         pela_metade = {k for k, q in pendente.items() if 0 < q < restante[k]}
         segundo_pedaco = pela_metade & ja_parcial
@@ -71,7 +73,7 @@ def _absorver_inteiros(grupos: list, restante: dict, ancora: str, piece_info: di
 
 def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
                      estrategia: str, kerf: float, estagios: int, max_padroes: int = 400,
-                     afinidade_fn=None):
+                     afinidade_fn=None, max_tipos: int = MAX_TIPOS):
     """
     Uma passada completa com uma estratégia de empacotamento. Duas regras:
 
@@ -114,7 +116,8 @@ def _montar_uma_vez(piece_info: dict, demanda: dict, sheet_w: int, sheet_h: int,
         # as sobras dessas chapas recebem o pendente ANTES de abrir chapa nova
         aprendido = afinidade_fn(ancora) if afinidade_fn else None
         novos, restante = _absorver_inteiros(grupos, restante, ancora, piece_info, sheet_w,
-                                              sheet_h, kerf, estagios, aprendido, ja_parcial)
+                                              sheet_h, kerf, estagios, aprendido, ja_parcial,
+                                              max_tipos)
         for g in novos:
             g.familia = n_grupo
             padroes.append(g)
@@ -136,7 +139,8 @@ def _afinidade(pieces: list, combinacoes: dict | None):
 
 
 def _melhor_passada(pieces: list, sheet_w: int, sheet_h: int, kerf: float, estagios: int,
-                     estrategias: tuple, combinacoes: dict | None) -> tuple:
+                     estrategias: tuple, combinacoes: dict | None,
+                     max_tipos: int = MAX_TIPOS) -> tuple:
     """
     Roda a passada com cada estratégia e devolve a de MENOS chapas (empate: menos
     padrões) como ((chapas, padrões), padrões_do_plano, sem_lugar).
@@ -147,7 +151,8 @@ def _melhor_passada(pieces: list, sheet_w: int, sheet_h: int, kerf: float, estag
     melhor = None
     for estrategia in estrategias:
         padroes, sem_lugar = _montar_uma_vez(piece_info, demanda, sheet_w, sheet_h, estrategia,
-                                              kerf, estagios, afinidade_fn=afinidade)
+                                              kerf, estagios, afinidade_fn=afinidade,
+                                              max_tipos=max_tipos)
         chave = (sum(p.repeticoes for p in padroes), len(padroes))
         if melhor is None or chave < melhor[0]:
             melhor = (chave, padroes, sem_lugar)
@@ -161,9 +166,9 @@ def _com_giro(base: list, girar) -> list:
 
 def _testar_giro(tarefa: tuple) -> tuple:
     """Chave (chapas, padrões) do plano com o giro dado; função solta para rodar em outro processo."""
-    base, girar, sheet_w, sheet_h, kerf, estagios, combinacoes = tarefa
+    base, girar, sheet_w, sheet_h, kerf, estagios, combinacoes, max_tipos = tarefa
     return _melhor_passada(_com_giro(base, girar), sheet_w, sheet_h, kerf, estagios,
-                           ('area',), combinacoes)[0]
+                           ('area',), combinacoes, max_tipos)[0]
 
 
 # Processos que testam giros ao mesmo tempo (1 = sem paralelismo). O teto de 8 é
@@ -196,18 +201,19 @@ def _mapear(funcao, tarefas: list) -> list:
 
 
 def _buscar_giro(base: list, candidatas: list, sheet_w: int, sheet_h: int, kerf: float,
-                 estagios: int, combinacoes: dict | None) -> frozenset:
+                 estagios: int, combinacoes: dict | None,
+                 max_tipos: int = MAX_TIPOS) -> frozenset:
     """
     Rodadas 2 e 3: em cada rodada testa girar, uma a uma, cada peça candidata (em
     paralelo) e adota o melhor giro isolado ou a união de todos os que ajudaram,
     o que fechar em menos chapas. Para quando nenhum giro ajuda.
     """
     girar = frozenset()
-    atual = _testar_giro((base, girar, sheet_w, sheet_h, kerf, estagios, combinacoes))
+    atual = _testar_giro((base, girar, sheet_w, sheet_h, kerf, estagios, combinacoes, max_tipos))
     for _ in range(RODADAS - 1):
         testes = [girar ^ {k} for k in candidatas]
-        chaves = _mapear(_testar_giro, [(base, t, sheet_w, sheet_h, kerf, estagios, combinacoes)
-                                         for t in testes])
+        chaves = _mapear(_testar_giro, [(base, t, sheet_w, sheet_h, kerf, estagios, combinacoes,
+                                          max_tipos) for t in testes])
         bons = [(c, t) for c, t in zip(chaves, testes) if c < atual]
         if not bons:
             break
@@ -216,16 +222,29 @@ def _buscar_giro(base: list, candidatas: list, sheet_w: int, sheet_h: int, kerf:
             uniao = girar
             for _, t in bons:
                 uniao = uniao ^ (t ^ girar)      # aplica cada giro que ajudou
-            c_uniao = _testar_giro((base, uniao, sheet_w, sheet_h, kerf, estagios, combinacoes))
+            c_uniao = _testar_giro((base, uniao, sheet_w, sheet_h, kerf, estagios, combinacoes,
+                                    max_tipos))
             if c_uniao < melhor_c:
                 melhor_c, melhor_t = c_uniao, uniao
         girar, atual = melhor_t, melhor_c
     return girar
 
 
+def _variantes(limite: int, modo_maximo: bool) -> list[int]:
+    """
+    Limites de tipos por chapa que o Motor testa. Sem o modo máximo, só o limite
+    escolhido. Com ele, do limite até 2, nunca acima: o limite é uma promessa de
+    quanto se mistura, e 1 (sem mistura) nunca rende menos chapas que 2.
+    """
+    if not modo_maximo:
+        return [limite]
+    return [m for m in (4, 3, 2) if m <= limite] or [limite]
+
+
 def optimize_group_sequencial(pieces: list[PieceType], sheet_w_mm: int, sheet_h_mm: int,
                                kerf: float = KERF_MM, estagios: int = 3,
-                               combinacoes: dict | None = None) -> tuple:
+                               combinacoes: dict | None = None,
+                               max_tipos: int = MAX_TIPOS, modo_maximo: bool = False) -> tuple:
     """
     Mesmo contrato de optimize_group_cg: devolve (sheets, sobras, usados),
     para plugar direto no pipeline.
@@ -239,18 +258,30 @@ def optimize_group_sequencial(pieces: list[PieceType], sheet_w_mm: int, sheet_h_
     padrões).
 
     combinacoes: {cod: {cod_parceiro: vezes}} do aprendizado (banco.combinacoes()).
+
+    max_tipos: no máximo quantos tipos de peça dividem uma chapa (1 = nenhuma mistura).
+    modo_maximo: roda o Motor inteiro (busca de giro e 3 estratégias) uma vez para cada
+    limite de `_variantes` e fica com o que fecha em menos chapas (empate: menos
+    padrões, depois menos mistura). Mais lento, nunca pior que o limite escolhido.
+    Cada padrão devolvido leva `max_tipos` = a versão que ganhou.
     """
     originais = pieces
     base = [replace(p, pode_girar=False) for p in pieces]
     sheet_area = (sheet_w_mm / 1000) * (sheet_h_mm / 1000)
 
     candidatas = [p.key for p in originais if p.pode_girar and p.w != p.h]
-    girar = (_buscar_giro(base, candidatas, sheet_w_mm, sheet_h_mm, kerf, estagios, combinacoes)
-             if candidatas else frozenset())
-
-    _, usados, sem_lugar = _melhor_passada(_com_giro(base, girar), sheet_w_mm, sheet_h_mm,
-                                           kerf, estagios, ESTRATEGIAS, combinacoes)
+    melhor = None
+    for versao in _variantes(max_tipos, modo_maximo):
+        girar_v = (_buscar_giro(base, candidatas, sheet_w_mm, sheet_h_mm, kerf, estagios,
+                                combinacoes, versao) if candidatas else frozenset())
+        chave, usados_v, sem_lugar_v = _melhor_passada(_com_giro(base, girar_v), sheet_w_mm,
+                                                        sheet_h_mm, kerf, estagios, ESTRATEGIAS,
+                                                        combinacoes, versao)
+        if melhor is None or (chave, versao) < (melhor[0], melhor[4]):
+            melhor = (chave, usados_v, sem_lugar_v, girar_v, versao)
+    _, usados, sem_lugar, girar, versao = melhor
     for pat in usados:
+        pat.max_tipos = versao
         for it in pat.items:
             if it.piece_key in girar:
                 it.rotated = True
