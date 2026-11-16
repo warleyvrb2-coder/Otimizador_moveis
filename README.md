@@ -203,7 +203,12 @@ clique em "Otimizar corte".
    destaque é o do pedido; o total "com tiras" vem ao lado.
 8. **Peças sem código** (ex.: 522×1775): continuam digitadas à mão como
    avulsas no plano manual.
-9. **Aprendizado (decisão A, 28/10).** (a) Combinações: peças que o operador já
+9. **Aprendizado, com interruptor (16/11).** Na tela de upload há a opção "Usar o
+   aprendizado", **desligada por padrão**: desligada, o plano usa só as peças do
+   Kambam (nenhuma sugestão, nenhuma prioridade por combinação); ligada, vale o que
+   segue. O cabeçalho do plano diz "aprendizado ligado" ou "desligado". Antes era
+   sempre ligado, e uma peça fora do Kambam (ex.: 12135, 373x201) entrava sozinha.
+   Decisão A de 28/10: (a) Combinações: peças que o operador já
    juntou passam na frente no enchimento das sobras; (b) a
    sugestão automática de peças a mais continua, completando o espaço com a MESMA
    peça (quantas couberem, até 40 por chapa), marcada como "sugestão

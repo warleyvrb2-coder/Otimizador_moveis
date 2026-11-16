@@ -4,6 +4,25 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-11-16 — Interruptor "Usar o aprendizado" (desligado por padrão)
+
+Relato do operador no lote 1447 (digitado como 1467): o plano automático misturou peças
+demais, entrou com uma peça que não faz parte do lote (373x201 = peça 12135 do catálogo)
+e faltaram as peças 9080/9081. Verificado no Kambam: o PDF do lote 1447 não contém
+9080, 9081 nem 12135 em lugar nenhum do texto, e o leitor fecha com o volume impresso no
+rodapé (80,66 contra 80,68 m3), então nada foi perdido na leitura. Em 23 PDFs o motor
+produziu exatamente o pedido (faltam 0, excedem 0). A peça de fora só pode ter vindo do
+aprendizado (sugestão automática) ou de edição manual.
+
+- `pipeline.rodar(usar_aprendizado=False)`: desligado, não semeia nem lê as combinações
+  aprendidas e não acrescenta sugestões; ligado, vale o comportamento anterior.
+- Tela de upload: opção "Usar o aprendizado", desmarcada por padrão; `/otimizar` repassa
+  o valor; o resultado grava `usar_aprendizado` e o cabeçalho mostra "aprendizado ligado/
+  desligado". Registrar o que o operador faz (aprovação, edições) continua sempre.
+
+Testado pela rota real `/otimizar` (com e sem a marca): cabeçalho e `usar_aprendizado`
+corretos nos dois casos, mesmos 373 chapas no lote 1437 CINAMOMO.
+
 ## 2026-11-04 — Aprendizado completa o espaço com a MESMA peça (não só uma)
 
 No online, a sugestão automática colocava UMA peça aprendida por padrão (uma faixa fina de

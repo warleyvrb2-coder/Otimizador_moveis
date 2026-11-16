@@ -302,9 +302,13 @@ def desenhar_padroes(grupos_resultado: list, par: dict, run_dir: str) -> None:
 
 def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
           respeitar_veio: bool = True, max_depth: int | None = None,
-          maquina_id=None, progresso=None, dimensao_id=None) -> dict:
+          maquina_id=None, progresso=None, dimensao_id=None,
+          usar_aprendizado: bool = False) -> dict:
     """
     Calcula o plano de corte completo.
+
+    usar_aprendizado: False (padrão) = só as peças do Kambam; True = prioriza as
+    combinações aprendidas no enchimento e acrescenta as peças sugeridas (extras).
 
     progresso: callable(feito, total, texto) chamado a cada grupo concluído,
     pra alimentar a tela de acompanhamento enquanto o cálculo roda.
@@ -327,8 +331,10 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
     # automático, peça já conferida por você não é mexida.
     banco.criar_tabelas()
     importado = banco.importar(todas_pecas)
-    aprendizado.semear_do_operador()
-    combinacoes = banco.combinacoes()
+    combinacoes = None
+    if usar_aprendizado:
+        aprendizado.semear_do_operador()
+        combinacoes = banco.combinacoes()
 
     grupos = agrupar(todas_pecas, respeitar_veio)
     ordem_lotes = [k['arquivo'] for k in kambans_info if not k.get('duplicado_de')]
@@ -398,8 +404,10 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
                         'qtd': s.qty_total} for s in sobras],
         })
 
-    aviso(total, total, 'Aplicando o que o sistema aprendeu...')
-    sugestoes = aplicar_aprendizado(grupos_resultado, par)
+    sugestoes = []
+    if usar_aprendizado:
+        aviso(total, total, 'Aplicando o que o sistema aprendeu...')
+        sugestoes = aplicar_aprendizado(grupos_resultado, par)
 
     aviso(total, total, 'Aproveitando as tiras das sobras...')
     colocar_tiras(grupos_resultado, par)
@@ -416,6 +424,7 @@ def rodar(arquivos: list[tuple[str, str]], run_dir: str, url_prefixo: str,
         'kerf': par['kerf'],
         'estagios': par['estagios'],
         'respeitar_veio': respeitar_veio,
+        'usar_aprendizado': usar_aprendizado,
         'maquina': par.get('maquina_nome'),
         'maquina_id': maquina_id,
         'pilha_max': par['pilha_max'],

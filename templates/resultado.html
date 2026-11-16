@@ -5,6 +5,7 @@
   chapa {{ sheet_w }}×{{ sheet_h }}mm · serra {{ kerf }}mm ·
   {{ '2 estágios + aparo' if estagios and estagios >= 3 else '2 estágios' }} ·
   {{ 'veio respeitado' if respeitar_veio else 'veio ignorado' }}
+  {% if usar_aprendizado is defined %}· {{ 'aprendizado ligado' if usar_aprendizado else 'aprendizado desligado' }}{% endif %}
 {% endblock %}
 {% block acoes %}
   {% if plano and plano.aprovado %}
