@@ -198,7 +198,7 @@ clique em "Otimizar corte".
 5. **Mistura de peças na chapa, escolhida no upload** (`max_tipos`): *Nenhuma* (1 tipo,
    espaço livre para manipular), *Até 2 tipos* (padrão, recomendado) ou *Até 4 tipos*
    (máxima economia). `MAX_TIPOS = 4` em `familias.py` é só o teto do Motor.
-5b. **Modo máximo (opcional, desligado por padrão).** Roda o Motor inteiro uma vez para
+5b. **Modo máximo (vem ligado no formulário; dá para desmarcar).** Roda o Motor inteiro uma vez para
    cada limite de tipos de 4 até 2 (nunca acima do escolhido), com busca de giro própria, e
    fica com a versão de menos chapas por cor e espessura. Cerca de 2 vezes mais lento e
    rendeu pouco nos lotes medidos (ver CHANGELOG).

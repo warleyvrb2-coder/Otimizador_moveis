@@ -4,6 +4,13 @@ Histórico do que foi ajustado no projeto, sessão por sessão. Cada entrada
 explica o problema real por trás da mudança — não só o "o quê", mas o
 "porquê" — porque isso é o que evita reabrir o mesmo bug dois meses depois.
 
+## 2026-11-18 — Modo máximo vem ligado no formulário
+
+A pedido do usuário o "Modo máximo" agora vem MARCADO (dá para desmarcar). O texto da opção diz
+"cerca de 2 vezes" mais lento (medido: 779 s contra 380 s; antes dizia 3 vezes). Quem chama
+`pipeline.rodar` direto continua com `modo_maximo=False`. Online o giro roda em série
+(`PROCESSOS=1`), então lotes grandes podem levar vários minutos a mais.
+
 ## 2026-11-17 — Seletor de mistura, modo máximo e solver como termômetro
 
 **Padrão do aprendizado:** a opção "Usar o aprendizado" agora vem MARCADA no formulário
